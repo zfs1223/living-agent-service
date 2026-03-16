@@ -1,0 +1,30 @@
+[package]
+name = "audioadapter-buffers"
+version = "2.0.0"
+edition = "2021"
+rust-version = "1.74"
+authors = ["HEnquist <henrik.enquist@gmail.com>"]
+description = "A selection of wrappers and buffers for audio data"
+license = "MIT"
+repository = "https://github.com/HEnquist/audioadapter-buffers-rs"
+keywords = ["audio", "buffer", "dsp", "sample", "pcm"]
+categories = ["multimedia::audio"]
+readme = "README.md"
+
+[features]
+default = ["std"]
+std = ["audioadapter-sample/std"]
+
+[dependencies]
+num-traits = "0.2.15"
+audioadapter = { version = "2.0.0", path = "../audioadapter" }
+audioadapter-sample = { version = "2.0.0", path = "../audioadapter-sample", default-features = false, features = ["audio"] }
+
+
+[dev-dependencies]
+criterion = "0.6"
+audioadapter = { version = "2.0.0", path = "../audioadapter", features = ["test-utils"]}
+
+[[bench]]
+name = "iteration"
+harness = false

@@ -1,0 +1,145 @@
+{
+  "version": "1.8.0",
+  "updated": "2026-03-13",
+  "statistics": {
+    "total_skills": 71,
+    "core_skills": 10,
+    "by_brain": {
+      "TechBrain": 25,
+      "AdminBrain": 15,
+      "SalesBrain": 4,
+      "HrBrain": 3,
+      "FinanceBrain": 4,
+      "CsBrain": 3,
+      "LegalBrain": 3,
+      "OpsBrain": 9
+    }
+  },
+  "core_skills": {
+    "description": "核心技能 - 每个神经元都必须具备的基础能力",
+    "skills": [
+      {"name": "tavily-search", "path": "core/tavily-search/SKILL.md", "description": "AI搜索引擎，实时获取网络信息", "triggers": ["搜索", "search", "查询", "查"], "required": true},
+      {"name": "find-skills", "path": "core/find-skills/SKILL.md", "description": "技能发现与安装，自我扩展能力", "triggers": ["技能", "skill", "安装", "发现"], "required": true},
+      {"name": "proactive-agent", "path": "core/proactive-agent/SKILL.md", "description": "主动代理，定时/条件触发任务执行", "triggers": ["定时", "主动", "任务", "监控"], "required": true},
+      {"name": "weather", "path": "core/weather/SKILL.md", "description": "天气查询，获取实时天气和预报", "triggers": ["天气", "weather", "气温", "预报"], "required": true},
+      {"name": "mcp-client", "path": "core/mcp-client/SKILL.md", "description": "MCP客户端，连接MCP服务器使用工具和资源", "triggers": ["mcp", "协议", "客户端"], "required": false},
+      {"name": "event-driven-notifier", "path": "core/event-driven-notifier/SKILL.md", "description": "事件驱动通知器，多渠道消息推送", "triggers": ["通知", "推送", "告警", "notify"], "required": true, "status": "🔜 待开发"},
+      {"name": "risk-predictor", "path": "core/risk-predictor/SKILL.md", "description": "风险预警预判器，项目/预算/人员风险预测", "triggers": ["风险", "预警", "预测", "risk"], "required": true, "status": "🔜 待开发"},
+      {"name": "pattern-predictor", "path": "core/pattern-predictor/SKILL.md", "description": "用户行为模式预测器，习惯识别与需求预测", "triggers": ["习惯", "模式", "预测", "pattern"], "required": false, "status": "🔜 待开发"},
+      {"name": "knowledge-graph", "path": "core/knowledge-graph/SKILL.md", "description": "知识图谱，结构化记忆和实体关系管理", "triggers": ["知识图谱", "实体", "关系", "ontology"], "required": true, "source": "ClawHub转换"},
+      {"name": "self-improving", "path": "core/self-improving/SKILL.md", "description": "自我改进，从错误中学习持续优化", "triggers": ["错误", "改进", "学习", "纠正"], "required": true, "source": "ClawHub转换"}
+    ]
+  },
+  "skills": {
+    "TechBrain": {
+      "description": "技术大脑 - 负责技术开发、架构设计、代码审查",
+      "skills": [
+        {"name": "skill-creator", "path": "tech/skill-creator/SKILL.md", "description": "创建和更新技能", "triggers": ["创建技能", "skill"]},
+        {"name": "coding-agent", "path": "tech/coding-agent/SKILL.md", "description": "编码任务委托", "triggers": ["写代码", "编程"]},
+        {"name": "clawhub", "path": "tech/clawhub/SKILL.md", "description": "技能仓库CLI", "triggers": ["clawhub", "安装技能"]},
+        {"name": "rag-engineer", "path": "tech/rag-engineer/SKILL.md", "description": "RAG系统架构", "triggers": ["rag", "检索", "embedding"]},
+        {"name": "langgraph", "path": "tech/langgraph/SKILL.md", "description": "LangGraph框架", "triggers": ["langgraph", "状态机"]},
+        {"name": "architecture", "path": "tech/architecture/SKILL.md", "description": "系统架构设计", "triggers": ["架构", "c4", "adr"]},
+        {"name": "tdd-workflow", "path": "tech/tdd-workflow/SKILL.md", "description": "测试驱动开发", "triggers": ["测试", "tdd"]},
+        {"name": "docker-expert", "path": "tech/docker-expert/SKILL.md", "description": "Docker容器专家", "triggers": ["docker", "容器"]},
+        {"name": "github", "path": "tech/github/SKILL.md", "description": "GitHub CLI操作", "triggers": ["github", "pr", "issue"]},
+        {"name": "canvas", "path": "tech/canvas/SKILL.md", "description": "HTML内容展示", "triggers": ["展示", "canvas"]},
+        {"name": "mcp-builder", "path": "tech/mcp-builder/SKILL.md", "description": "MCP服务器构建", "triggers": ["mcp", "协议", "服务器"]},
+        {"name": "webapp-testing", "path": "tech/webapp-testing/SKILL.md", "description": "Web应用测试", "triggers": ["测试", "web", "自动化"]},
+        {"name": "cicd-pipeline", "path": "tech/cicd-pipeline/SKILL.md", "description": "CI/CD流水线，自动化构建测试部署", "triggers": ["cicd", "流水线", "构建", "部署"], "source": "ClawHub转换"},
+        {"name": "code-review", "path": "tech/code-review/SKILL.md", "description": "代码审查，自动化质量检查和安全扫描", "triggers": ["代码审查", "code review", "pr审查"], "source": "ClawHub转换"},
+        {"name": "frontend-design", "path": "tech/frontend-design/SKILL.md", "description": "前端界面设计，创建高质量独特的界面", "triggers": ["前端", "frontend", "ui设计"], "source": "ClawHub转换"},
+        {"name": "browser-automation", "path": "tech/browser-automation/SKILL.md", "description": "浏览器自动化，网页导航点击截图", "triggers": ["浏览器", "自动化", "截图"], "source": "ClawHub转换"},
+        {"name": "hugging-face-cli", "path": "tech/hugging-face-cli/SKILL.md", "description": "HF Hub操作", "triggers": ["huggingface", "模型下载"]},
+        {"name": "hugging-face-model-trainer", "path": "tech/hugging-face-model-trainer/SKILL.md", "description": "LLM模型训练", "triggers": ["训练", "微调", "sft", "dpo"]},
+        {"name": "hugging-face-datasets", "path": "tech/hugging-face-datasets/SKILL.md", "description": "数据集管理", "triggers": ["数据集", "dataset"]},
+        {"name": "huggingface-gradio", "path": "tech/huggingface-gradio/SKILL.md", "description": "Gradio Web UI", "triggers": ["gradio", "ui", "demo"]},
+        {"name": "hugging-face-evaluation", "path": "tech/hugging-face-evaluation/SKILL.md", "description": "模型评估管理", "triggers": ["评估", "evaluation", "benchmark"]},
+        {"name": "hugging-face-jobs", "path": "tech/hugging-face-jobs/SKILL.md", "description": "HF Jobs云任务", "triggers": ["jobs", "云任务", "gpu"]},
+        {"name": "hugging-face-paper-publisher", "path": "tech/hugging-face-paper-publisher/SKILL.md", "description": "论文发布管理", "triggers": ["论文", "paper", "arxiv"]},
+        {"name": "hugging-face-tool-builder", "path": "tech/hugging-face-tool-builder/SKILL.md", "description": "HF工具构建", "triggers": ["工具构建", "tool-builder"]}
+      ]
+    },
+    "AdminBrain": {
+      "description": "行政大脑 - 负责文档处理、文案创作、行政事务",
+      "skills": [
+        {"name": "nano-pdf", "path": "admin/nano-pdf/SKILL.md", "description": "PDF编辑", "triggers": ["pdf", "编辑PDF"]},
+        {"name": "notion", "path": "admin/notion/SKILL.md", "description": "Notion笔记", "triggers": ["notion", "笔记"]},
+        {"name": "obsidian", "path": "admin/obsidian/SKILL.md", "description": "Obsidian笔记", "triggers": ["obsidian", "markdown"]},
+        {"name": "copywriting", "path": "admin/copywriting/SKILL.md", "description": "文案创作", "triggers": ["文案", "写作"]},
+        {"name": "docx-official", "path": "admin/docx-official/SKILL.md", "description": "Word文档处理", "triggers": ["word", "docx"]},
+        {"name": "xlsx-official", "path": "admin/xlsx-official/SKILL.md", "description": "Excel表格处理", "triggers": ["excel", "xlsx"]},
+        {"name": "pptx-official", "path": "admin/pptx-official/SKILL.md", "description": "PowerPoint处理", "triggers": ["ppt", "pptx"]},
+        {"name": "brand-guidelines", "path": "admin/brand-guidelines/SKILL.md", "description": "品牌规范", "triggers": ["品牌", "brand"]},
+        {"name": "internal-comms", "path": "admin/internal-comms/SKILL.md", "description": "内部沟通", "triggers": ["沟通", "公告", "通知"]},
+        {"name": "dingtalk_channel", "path": "admin/dingtalk_channel/SKILL.md", "description": "钉钉频道连接", "triggers": ["钉钉", "dingtalk"]},
+        {"name": "slack", "path": "admin/slack/SKILL.md", "description": "Slack操作", "triggers": ["slack", "消息"]},
+        {"name": "discord", "path": "admin/discord/SKILL.md", "description": "Discord操作", "triggers": ["discord", "游戏"]},
+        {"name": "summarize", "path": "admin/summarize/SKILL.md", "description": "内容摘要", "triggers": ["摘要", "总结", "summarize"]},
+        {"name": "doc-coauthoring", "path": "admin/doc-coauthoring/SKILL.md", "description": "文档协作编写，结构化文档创作流程", "triggers": ["写文档", "方案", "prd"], "source": "ClawHub转换"},
+        {"name": "google-workspace", "path": "admin/google-workspace/SKILL.md", "description": "Google Workspace集成，Gmail/日历/Drive操作", "triggers": ["google", "gmail", "日历"], "source": "ClawHub转换"}
+      ]
+    },
+    "SalesBrain": {
+      "description": "销售大脑 - 负责销售支持、市场营销",
+      "skills": [
+        {"name": "seo-audit", "path": "sales/seo-audit/SKILL.md", "description": "SEO审计", "triggers": ["seo", "优化"]},
+        {"name": "brainstorming", "path": "sales/brainstorming/SKILL.md", "description": "头脑风暴", "triggers": ["头脑风暴", "创意"]},
+        {"name": "crm-integration", "path": "sales/crm-integration/SKILL.md", "description": "CRM系统集成，连接Salesforce/HubSpot等", "triggers": ["crm", "客户管理", "salesforce", "hubspot"], "source": "ClawHub转换"},
+        {"name": "sales-automation", "path": "sales/sales-automation/SKILL.md", "description": "销售自动化，自动跟进提醒和数据同步", "triggers": ["销售自动化", "跟进提醒", "自动邮件"], "source": "ClawHub转换"}
+      ]
+    },
+    "HrBrain": {
+      "description": "HR大脑 - 负责人力资源管理",
+      "skills": [
+        {"name": "hr-pro", "path": "hr/hr-pro/SKILL.md", "description": "人力资源管理", "triggers": ["hr", "招聘", "员工"]},
+        {"name": "recruitment-automation", "path": "hr/recruitment-automation/SKILL.md", "description": "招聘自动化，简历筛选和面试安排", "triggers": ["招聘", "简历筛选", "面试安排"], "source": "ClawHub转换"},
+        {"name": "performance-management", "path": "hr/performance-management/SKILL.md", "description": "绩效管理，OKR/KPI考核和360度反馈", "triggers": ["绩效", "考核", "kpi", "okr"], "source": "ClawHub转换"}
+      ]
+    },
+    "FinanceBrain": {
+      "description": "财务大脑 - 负责财务管理",
+      "skills": [
+        {"name": "billing-automation", "path": "finance/billing-automation/SKILL.md", "description": "账单自动化", "triggers": ["账单", "billing", "发票"]},
+        {"name": "finance-api-gateway", "path": "finance/finance-api-gateway/SKILL.md", "description": "财务系统API网关，连接ERP/银行/税务", "triggers": ["财务系统", "erp", "银行接口", "发票查验"], "source": "ClawHub转换"},
+        {"name": "budget-management", "path": "finance/budget-management/SKILL.md", "description": "预算管理，月度预算和超支预警", "triggers": ["预算", "超支", "预算管理"], "source": "ClawHub转换"},
+        {"name": "invoice-processing", "path": "finance/invoice-processing/SKILL.md", "description": "发票处理，OCR识别验真报销流程", "triggers": ["发票", "报销", "发票识别"], "source": "ClawHub转换"}
+      ]
+    },
+    "CsBrain": {
+      "description": "客服大脑 - 负责客户服务",
+      "skills": [
+        {"name": "customer-support", "path": "cs/customer-support/SKILL.md", "description": "客户支持", "triggers": ["客服", "支持", "工单"]},
+        {"name": "ticket-system-integration", "path": "cs/ticket-system-integration/SKILL.md", "description": "工单系统集成，SLA监控和自动分配", "triggers": ["工单", "ticket", "sla"], "source": "ClawHub转换"},
+        {"name": "customer-portal", "path": "cs/customer-portal/SKILL.md", "description": "客户门户，知识库和FAQ管理", "triggers": ["知识库", "faq", "自助服务"], "source": "ClawHub转换"}
+      ]
+    },
+    "LegalBrain": {
+      "description": "法务大脑 - 负责法律事务",
+      "skills": [
+        {"name": "legal-advisor", "path": "legal/legal-advisor/SKILL.md", "description": "法律顾问", "triggers": ["法律", "合同", "合规"]},
+        {"name": "contract-management", "path": "legal/contract-management/SKILL.md", "description": "合同管理，生命周期和审批流程", "triggers": ["合同管理", "合同审批", "到期提醒"], "source": "ClawHub转换"},
+        {"name": "compliance-check", "path": "legal/compliance-check/SKILL.md", "description": "合规检查，法规跟踪和风险识别", "triggers": ["合规", "合规检查", "法规"], "source": "ClawHub转换"}
+      ]
+    },
+    "OpsBrain": {
+      "description": "运营大脑 - 负责运营管理、数据分析、自动化运维",
+      "skills": [
+        {"name": "inngest", "path": "ops/inngest/SKILL.md", "description": "工作流自动化", "triggers": ["工作流", "自动化", "inngest"]},
+        {"name": "cron", "path": "ops/cron/SKILL.md", "description": "定时任务管理", "triggers": ["定时", "cron", "任务"]},
+        {"name": "smart-home", "path": "ops/smart-home/SKILL.md", "description": "智能家居控制", "triggers": ["智能家居", "灯光", "空调", "homeassistant"]},
+        {"name": "weekly-report-generator", "path": "ops/weekly-report-generator/SKILL.md", "description": "周报自动生成器，主动收集数据生成周报", "triggers": ["周报", "weekly", "报告"], "status": "🔜 待开发"},
+        {"name": "project-risk-monitor", "path": "ops/project-risk-monitor/SKILL.md", "description": "项目风险监控器，延期风险预警", "triggers": ["项目风险", "延期", "进度"], "status": "🔜 待开发"},
+        {"name": "onboarding-automator", "path": "ops/onboarding-automator/SKILL.md", "description": "入职自动化器，新员工入职准备", "triggers": ["入职", "onboarding", "新员工"], "status": "🔜 待开发"},
+        {"name": "contract-monitor", "path": "ops/contract-monitor/SKILL.md", "description": "合同监控器，到期提醒与续签预警", "triggers": ["合同", "到期", "续签"], "status": "🔜 待开发"},
+        {"name": "system-health-diagnoser", "path": "ops/system-health-diagnoser/SKILL.md", "description": "系统健康诊断器，主动异常检测与诊断", "triggers": ["诊断", "健康检查", "异常"], "status": "🔜 待开发"},
+        {"name": "data-aggregator", "path": "ops/data-aggregator/SKILL.md", "description": "数据聚合器，多源数据自动汇总分析", "triggers": ["数据汇总", "聚合", "统计"], "status": "🔜 待开发"}
+      ]
+    }
+  },
+  "notes": {
+    "weather": "项目已集成天气API (和风天气/OpenWeatherMap/高德天气)，见 dialogue-service",
+    "voice": "项目已集成语音系统 (VoiceWebSocketHandler/ASR/TTS)，见 living-agent-gateway",
+    "clawhub_conversion": "v1.8.0 从ClawHub转换了20个技能覆盖所有部门"
+  }
+}

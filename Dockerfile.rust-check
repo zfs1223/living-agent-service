@@ -1,0 +1,35 @@
+FROM rust:1.85-slim
+
+WORKDIR /build
+
+# 使用国内镜像源
+RUN sed -i 's/deb.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list.d/debian.sources || true && \
+    sed -i 's/deb.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list || true
+
+# 安装编译依赖
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libopus-dev \
+    libsqlite3-dev \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# 配置 Rust 国内镜像
+RUN mkdir -p /usr/local/cargo && \
+    echo '[source.crates-io]' > /usr/local/cargo/config.toml && \
+    echo 'replace-with = "tuna"' >> /usr/local/cargo/config.toml && \
+    echo '[source.tuna]' >> /usr/local/cargo/config.toml && \
+    echo 'registry = "https://mirrors.tuna.tsinghua.edu.cn/git/crates.io-index.git"' >> /usr/local/cargo/config.toml
+
+# 复制 Cargo 配置
+COPY living-agent-native/Cargo.toml living-agent-native/Cargo.lock* ./
+
+# 创建空的 benches 目录
+RUN mkdir -p src benches && \
+    echo "fn main() {}" > benches/audio_benchmark.rs
+
+# 复制源代码
+COPY living-agent-native/src/ src/
+
+# 仅检查语法
+RUN cargo check --lib

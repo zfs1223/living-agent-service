@@ -1,0 +1,104 @@
+# Living Agent Service Dockerfile - 离线构建版本
+# 使用本地保存的依赖，无需网络连接
+#
+# 前置条件:
+#   1. 运行 python image/download_images.py 下载依赖
+#   2. 运行 powershell -File image\load_images.ps1 加载镜像
+#
+# 构建:
+#   docker build -f living-agent-app/Dockerfile.local -t living-agent-service .
+
+# ===========================================
+# Stage 1: Build stage - 使用本地依赖
+# ===========================================
+FROM maven:3.9-eclipse-temurin-21 AS builder
+
+WORKDIR /build
+
+# 解压本地 Maven 仓库 (离线依赖)
+COPY image/maven-repo.tar /tmp/
+RUN mkdir -p /root/.m2 && \
+    cd /root/.m2 && \
+    tar -xvf /tmp/maven-repo.tar && \
+    rm /tmp/maven-repo.tar
+
+# 复制 pom 文件
+COPY pom.xml ./
+COPY living-agent-app/pom.xml living-agent-app/pom.xml
+COPY living-agent-core/pom.xml living-agent-core/pom.xml
+COPY living-agent-skill/pom.xml living-agent-skill/pom.xml
+COPY living-agent-gateway/pom.xml living-agent-gateway/pom.xml
+COPY living-agent-perception/pom.xml living-agent-perception/pom.xml
+
+# 复制源代码
+COPY living-agent-app living-agent-app
+COPY living-agent-core living-agent-core
+COPY living-agent-skill living-agent-skill
+COPY living-agent-gateway living-agent-gateway
+COPY living-agent-perception living-agent-perception
+
+# 构建应用 (优先使用本地缓存，缺失时从网络下载)
+RUN mvn clean package -DskipTests -pl living-agent-app -am
+
+# ===========================================
+# Stage 2: Runtime stage - 使用本地基础镜像
+# ===========================================
+FROM living-agent-system-deps:1.0
+
+LABEL maintainer="Living Agent Team"
+LABEL description="AI Enterprise Management Agent Service - Offline Build"
+LABEL version="1.0.0"
+
+# 设置工作目录
+WORKDIR /app
+
+# 复制应用 JAR
+COPY --from=builder /build/living-agent-app/target/*.jar app.jar
+
+# 创建 lib 目录
+RUN mkdir -p /app/lib
+
+# 复制 Rust native 库 (如果存在)
+RUN --mount=type=bind,source=image,target=/tmp/image \
+    if [ -f /tmp/image/libliving_agent_native.so ]; then \
+        cp /tmp/image/libliving_agent_native.so /app/lib/; \
+    fi
+
+# 复制技能目录
+COPY living-agent-skill/src/main/resources/skills /app/skills
+
+# 解压本地 Python wheels 并安装 (优先本地，缺失时从网络下载)
+COPY image/python-wheels.tar /tmp/
+RUN mkdir -p /tmp/wheels && \
+    cd /tmp/wheels && \
+    tar -xvf /tmp/python-wheels.tar || true && \
+    pip3 install --no-cache-dir --break-system-packages --find-links=/tmp/wheels \
+        pypdf pdfplumber python-docx openpyxl python-pptx huggingface-hub requests beautifulsoup4 lxml \
+    && rm -rf /tmp/wheels /tmp/python-wheels.tar || true
+
+# 设置权限 (基础镜像已配置 livingagent 用户)
+RUN mkdir -p /app/data /app/logs /app/lib && \
+    chown -R livingagent:livingagent /app 2>/dev/null || true
+
+# 设置环境变量
+ENV LIVING_AGENT_DATA_PATH=/app/data \
+    LIVING_AGENT_SKILLS_PATH=/app/skills \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    LD_LIBRARY_PATH=/app/lib:$LD_LIBRARY_PATH
+
+# 切换到非 root 用户
+USER livingagent
+
+# 暴露端口
+EXPOSE 8380
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8380/actuator/health || exit 1
+
+# JVM 选项
+ENV JAVA_OPTS="-Xms512m -Xmx1536m -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
+
+# 启动应用
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]

@@ -1,0 +1,156 @@
+# Living Agent Skills Dependencies Configuration
+# This file defines the dependencies required for each skill
+# The installer will check and install these dependencies automatically
+
+skills:
+  # ===========================================
+  # Core Skills (Always Required)
+  # ===========================================
+  - name: weather
+    description: "Weather query via wttr.in"
+    dependencies:
+      - type: python
+        packages: [requests]
+    optional: false
+    
+  - name: tavily-search
+    description: "AI-powered search engine"
+    dependencies:
+      - type: python
+        packages: [requests]
+      - type: env
+        key: TAVILY_API_KEY
+        required: true
+    optional: true
+    
+  - name: find-skills
+    description: "Skill discovery and installation"
+    dependencies: []
+    optional: false
+    
+  - name: proactive-agent
+    description: "Proactive task scheduling"
+    dependencies: []
+    optional: false
+
+  # ===========================================
+  # Document Processing Skills
+  # ===========================================
+  - name: pdf
+    description: "PDF processing operations"
+    dependencies:
+      - type: python
+        packages: [pypdf, pdfplumber]
+    optional: true
+    
+  - name: docx
+    description: "Word document processing"
+    dependencies:
+      - type: python
+        packages: [python-docx]
+    optional: true
+    
+  - name: xlsx
+    description: "Excel spreadsheet processing"
+    dependencies:
+      - type: python
+        packages: [openpyxl]
+    optional: true
+    
+  - name: pptx
+    description: "PowerPoint processing"
+    dependencies:
+      - type: python
+        packages: [python-pptx]
+    optional: true
+
+  # ===========================================
+  # Development Skills
+  # ===========================================
+  - name: github
+    description: "GitHub CLI operations"
+    dependencies:
+      - type: cli
+        command: gh
+        install:
+          windows: "winget install GitHub.cli"
+          linux: "sudo apt-get install -y gh"
+          macos: "brew install gh"
+    optional: true
+    
+  - name: docker
+    description: "Docker container management"
+    dependencies:
+      - type: cli
+        command: docker
+        install:
+          windows: "Install Docker Desktop"
+          linux: "curl -fsSL https://get.docker.com | sh"
+          macos: "brew install docker"
+    optional: true
+    
+  - name: huggingface
+    description: "HuggingFace model management"
+    dependencies:
+      - type: python
+        packages: [huggingface-hub]
+      - type: cli
+        command: huggingface-cli
+    optional: true
+
+  # ===========================================
+  # Communication Skills
+  # ===========================================
+  - name: slack
+    description: "Slack messaging operations"
+    dependencies:
+      - type: python
+        packages: [requests]
+      - type: env
+        key: SLACK_BOT_TOKEN
+        required: true
+    optional: true
+    
+  - name: notion
+    description: "Notion workspace operations"
+    dependencies:
+      - type: python
+        packages: [requests]
+      - type: env
+        key: NOTION_API_KEY
+        required: true
+    optional: true
+
+  # ===========================================
+  # Web Skills
+  # ===========================================
+  - name: playwright_crawler
+    description: "Web crawling with Playwright"
+    dependencies:
+      - type: python
+        packages: [playwright, beautifulsoup4, lxml]
+    optional: true
+    
+  - name: rss_reader
+    description: "RSS feed reader"
+    dependencies:
+      - type: python
+        packages: [feedparser]
+    optional: true
+
+# ===========================================
+# Global Dependencies
+# ===========================================
+global_dependencies:
+  python:
+    version: ">=3.9"
+    packages:
+      - requests
+      - beautifulsoup4
+      - lxml
+      - pyyaml
+      - markdown
+      
+  system:
+    - curl
+    - git

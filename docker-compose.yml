@@ -1,0 +1,295 @@
+version: '3.8'
+
+services:
+  # ===========================================
+  # Living Agent Service - 主服务
+  # ===========================================
+  living-agent-service:
+    build:
+      context: .
+      dockerfile: living-agent-app/Dockerfile.local
+    container_name: living-agent-service
+    hostname: living-agent-service
+    ports:
+      - "8382:8382"
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
+      # 数据库连接
+      - DATABASE_URL=jdbc:postgresql://postgres:5432/livingagent
+      - DATABASE_USERNAME=livingagent
+      - DATABASE_PASSWORD=${POSTGRES_PASSWORD:-livingagent123}
+      # Redis 连接
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      # Qdrant 连接
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      # 数据路径
+      - LIVING_AGENT_DATA_PATH=/app/data
+      - LIVING_AGENT_SKILLS_PATH=/app/skills
+      # 本地AI模型路径
+      - AI_MODELS_PATH=/app/ai-models
+      - PYTHON_SCRIPTS_PATH=/opt/python_scripts
+      # 爬虫服务
+      #- LIVING_AGENT_CRAWL4AI_URL=http://crawl4ai:11235
+      # MemOS 记忆系统
+      - MEMOS_BASE_URL=http://memos:8381
+      - MEMOS_DEFAULT_CUBE_ID=living-agent
+      # 可选: 云端API (备用)
+      - TAVILY_API_KEY=${TAVILY_API_KEY:-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}
+      # - NOTION_API_KEY=${NOTION_API_KEY:ntn-dev-1234567890abcdef1234567890abcdef}
+      # - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:slack-bot-token-1234567890abcdef1234567890abcdef}
+      # 天气API (可选，有免费wttr.in兜底)
+      - WEATHER_QWEATHER_KEY=${WEATHER_QWEATHER_KEY:-a3eb51b642e44b298c694c95c4ddf2b6}
+      - WEATHER_OPENWEATHERMAP_KEY=${WEATHER_OPENWEATHERMAP_KEY:-28f6a4c55203fa1ccde2e703aaa1120c}
+    volumes:
+      # 数据持久化
+      - living-agent-data:/app/data
+      - living-agent-logs:/app/logs
+      # 本地AI模型挂载 (关键! 挂载宿主机模型目录)
+      # Windows: 设置 AI_MODELS_PATH=f:\SoarCloudAI\ai-models
+      # Linux/Mac: 设置 AI_MODELS_PATH=/path/to/SoarCloudAI/ai-models
+      - ${AI_MODELS_PATH:-../../ai-models}:/app/ai-models:ro
+      # Python脚本挂载
+      - ./scripts/python:/opt/python_scripts:ro
+      # 技能目录挂载
+      - ./living-agent-skill/src/main/resources/skills:/app/skills:ro
+      # Docker socket (容器管理)
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - living-agent-network
+    depends_on:
+      crawl4ai:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8380/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+
+  # ===========================================
+  # Crawl4AI - 网页爬取辅助服务
+  # ===========================================
+  crawl4ai:
+    image: unclecode/crawl4ai:latest
+    container_name: crawl4ai
+    hostname: crawl4ai
+    ports:
+      - "11235:11235"
+    environment:
+      # 使用本地 Ollama 模型
+      - LLM_PROVIDER=ollama/qwen2.5:latest
+      - LLM_BASE_URL=http://192.168.0.249:2025/v1
+      - LLM_TEMPERATURE=0.7
+    volumes:
+      - /dev/shm:/dev/shm
+      - crawl4ai-cache:/home/appuser/.cache
+    networks:
+      - living-agent-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11235/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 1G
+
+  # ===========================================
+  # MemOS - 记忆系统 (可选，完整模式)
+  # ===========================================
+  memos:
+    build:
+      context: ../MemOS-2.0.7
+      dockerfile: docker/Dockerfile
+    container_name: living-agent-memos
+    hostname: memos
+    ports:
+      - "8381:8000"
+    env_file:
+      - ../MemOS-2.0.7/.env
+    environment:
+      - PYTHONPATH=/app/src
+      - HF_ENDPOINT=https://hf-mirror.com
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - NEO4J_URI=bolt://memos-neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=memos123456
+      # Ollama 配置 (内网服务)
+      - OLLAMA_BASE_URL=http://192.168.0.249:2025
+      - MOS_LLM_BACKEND=ollama
+      - MOS_LLM_MODEL=qwen3.5:9b
+      - MOS_EMBEDDER_BACKEND=ollama
+      - MOS_EMBEDDER_MODEL=qwen2.5:latest
+    volumes:
+      - memos-src:/app/src
+      - memos-data:/app/data
+    networks:
+      - living-agent-network
+    depends_on:
+      memos-neo4j:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/product/users"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+    profiles:
+      - full
+
+  # ===========================================
+  # MemOS Neo4j - 图数据库 (可选，完整模式)
+  # ===========================================
+  memos-neo4j:
+    image: neo4j:5.26.4
+    container_name: living-agent-memos-neo4j
+    hostname: memos-neo4j
+    ports:
+      - "7475:7474"
+      - "7688:7687"
+    environment:
+      NEO4J_ACCEPT_LICENSE_AGREEMENT: "yes"
+      NEO4J_AUTH: neo4j/memos123456
+      NEO4J_server_memory_heap_initial__size: "512m"
+      NEO4J_server_memory_heap_max__size: "1G"
+    volumes:
+      - memos-neo4j-data:/data
+      - memos-neo4j-logs:/logs
+    networks:
+      - living-agent-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:7474"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+    profiles:
+      - full
+
+  # ===========================================
+  # PostgreSQL - 企业知识存储 (可选)
+  # ===========================================
+  postgres:
+    image: pgvector/pgvector:pg15
+    container_name: living-agent-postgres
+    hostname: postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=livingagent
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-livingagent123}
+      - POSTGRES_DB=livingagent
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d
+    networks:
+      - living-agent-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U livingagent"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    profiles:
+      - full
+
+  # ===========================================
+  # Qdrant - 向量数据库 (可选)
+  # ===========================================
+  qdrant:
+    image: qdrant/qdrant:v1.15.3
+    container_name: living-agent-qdrant
+    hostname: qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    environment:
+      QDRANT__SERVICE__GRPC_PORT: 6334
+      QDRANT__SERVICE__HTTP_PORT: 6333
+    networks:
+      - living-agent-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    profiles:
+      - full
+
+  # ===========================================
+  # Redis - 分布式缓存 (可选)
+  # ===========================================
+  redis:
+    image: redis:7-alpine
+    container_name: living-agent-redis
+    hostname: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - living-agent-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    profiles:
+      - full
+
+networks:
+  living-agent-network:
+    driver: bridge
+    name: living-agent-network
+
+volumes:
+  living-agent-data:
+    name: living-agent-data
+  living-agent-logs:
+    name: living-agent-logs
+  crawl4ai-cache:
+    name: crawl4ai-cache
+  postgres-data:
+    name: living-agent-postgres-data
+  qdrant-data:
+    name: living-agent-qdrant-data
+  redis-data:
+    name: living-agent-redis-data
+  # MemOS volumes
+  memos-src:
+    name: living-agent-memos-src
+  memos-data:
+    name: living-agent-memos-data
+  memos-neo4j-data:
+    name: living-agent-memos-neo4j-data
+  memos-neo4j-logs:
+    name: living-agent-memos-neo4j-logs

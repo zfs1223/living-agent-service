@@ -1,0 +1,6 @@
+{
+  "git": {
+    "sha1": "d86fc1726932662d80e8e1d8e95be12aaba4906c"
+  },
+  "path_in_vcs": "crates/jni-macros"
+}

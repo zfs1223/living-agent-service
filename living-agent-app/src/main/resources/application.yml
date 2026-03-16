@@ -1,0 +1,380 @@
+server:
+  port: 8382
+
+spring:
+  application:
+    name: living-agent-service
+  profiles:
+    active: dev
+  
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/livingagent}
+    username: ${DATABASE_USERNAME:livingagent}
+    password: ${DATABASE_PASSWORD:livingagent123}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      idle-timeout: 300000
+      connection-timeout: 30000
+      max-lifetime: 1800000
+      pool-name: LivingAgentPool
+  
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+        jdbc:
+          batch_size: 50
+        order_inserts: true
+        order_updates: true
+  
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DATABASE:0}
+      timeout: 10000ms
+      lettuce:
+        pool:
+          max-active: 20
+          max-idle: 10
+          min-idle: 5
+  
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: living-agent-group
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+    producer:
+      acks: all
+      retries: 3
+      properties:
+        enable.idempotence: true
+
+logging:
+  level:
+    root: INFO
+    com.livingagent: DEBUG
+
+# ===========================================
+# 本地AI模型配置 (参考dialogue-service)
+# ===========================================
+ai-models:
+  # 模型根目录
+  base-path: ${AI_MODELS_PATH:/app/ai-models}
+  
+  # ===========================================
+  # Ollama 远程服务配置 (192.168.0.6:2025)
+  # 可灵活切换模型，等 qwen3.5:27b 部署后直接修改 default-model 即可
+  # ===========================================
+  ollama:
+    enabled: ${OLLAMA_ENABLED:true}
+    base-url: ${OLLAMA_BASE_URL:http://192.168.0.249:2025}
+    # 当前可用模型: qwen3.5:9b, qwen2.5:3b, qwen2.5:latest, deepseek-r1:14b, llama3.2:latest
+    # 部署 qwen3.5:27b 后改为: qwen3.5:27b
+    default-model: ${OLLAMA_DEFAULT_MODEL:qwen3.5:9b}
+    timeout: ${OLLAMA_TIMEOUT:120000}
+    models:
+      - name: qwen3.5:9b
+        enabled: true
+        description: "Qwen3.5 9B - 当前主力模型"
+        max-tokens: 4096
+        temperature: 0.7
+      - name: qwen2.5:3b
+        enabled: true
+        description: "Qwen2.5 3B - 轻量快速模型"
+        max-tokens: 2048
+        temperature: 0.7
+      - name: qwen2.5:latest
+        enabled: true
+        description: "Qwen2.5 7.6B - 中等规模模型"
+        max-tokens: 4096
+        temperature: 0.7
+      - name: deepseek-r1:14b
+        enabled: true
+        description: "DeepSeek R1 14B - 推理增强模型"
+        max-tokens: 4096
+        temperature: 0.7
+      - name: llama3.2:latest
+        enabled: true
+        description: "Llama3.2 3.2B - Meta轻量模型"
+        max-tokens: 2048
+        temperature: 0.7
+      - name: qwen2.5-coder:3b
+        enabled: true
+        description: "Qwen2.5 Coder 3B - 代码专用模型"
+        max-tokens: 4096
+        temperature: 0.3
+      # 预留: qwen3.5:27b 部署后启用
+      - name: qwen3.5:27b
+        enabled: false
+        description: "Qwen3.5 27B - 主大脑模型 (待部署)"
+        max-tokens: 8192
+        temperature: 0.7
+  
+  # LLM配置 - 本地模型
+  llm:
+    default-model: qwen3-0.6b
+    models:
+      - name: qwen3-0.6b
+        type: local
+        enabled: true
+        model-path: ${AI_MODELS_PATH:/app/ai-models}/Qwen3-0.6B-GGUF/Qwen3-0.6B-Q8_0.gguf
+        max-tokens: 2048
+        temperature: 0.7
+        python-script: ${PYTHON_SCRIPTS_PATH:/opt/python_scripts}/llm/run_qwen3.py
+      # Qwen3.5-2B - 默认工具神经元模型 (通过 Ollama)
+      - name: qwen3.5-2b
+        type: ollama
+        enabled: ${OLLAMA_ENABLED:true}
+        ollama-url: ${OLLAMA_BASE_URL:http://192.168.0.249:2025}
+        ollama-model: qwen3.5:2b
+        max-tokens: 4096
+        temperature: 0.7
+        description: "Qwen3.5-2B - 默认工具神经元模型"
+      # BitNet-1.58-3B - 资源受限场景备选
+      - name: bitnet-1.58-3b
+        type: local
+        enabled: true
+        model-path: ${AI_MODELS_PATH:/app/ai-models}/BitNet/ggml-model-i2_s.gguf
+        binary-path: ${AI_MODELS_PATH:/app/ai-models}/BitNet/compiled/bin/llama-cli
+        max-tokens: 2048
+        temperature: 0.7
+        description: "BitNet-1.58-3B - 资源受限场景备选"
+      # Ollama 远程模型作为本地模型的补充
+      - name: ollama-qwen3.5
+        type: ollama
+        enabled: ${OLLAMA_ENABLED:true}
+        ollama-url: ${OLLAMA_BASE_URL:http://192.168.0.249:2025}
+        ollama-model: qwen3.5:9b
+        max-tokens: 4096
+        temperature: 0.7
+      - name: ollama-deepseek
+        type: ollama
+        enabled: ${OLLAMA_ENABLED:true}
+        ollama-url: ${OLLAMA_BASE_URL:http://192.168.0.249:2025}
+        ollama-model: deepseek-r1:14b
+        max-tokens: 4096
+        temperature: 0.7
+  
+  # ASR配置 - 本地FunASR/Sherpa-NCNN
+  asr:
+    default-provider: sherpa-ncnn
+    sample-rate: 16000
+    channels: 1
+    language: zh-CN
+    providers:
+      - name: sherpa-ncnn
+        enabled: true
+        model-path: ${AI_MODELS_PATH:/app/ai-models}/sherpa-ncnn/sherpa-ncnn-sense-voice-zh-en-ja-ko-yue-2025-09-09
+        python-script: ${PYTHON_SCRIPTS_PATH:/opt/python_scripts}/asr/run_sherpa_ncnn.py
+      - name: funasr
+        enabled: true
+        model-path: ${AI_MODELS_PATH:/app/ai-models}/funasr/models
+        python-script: ${PYTHON_SCRIPTS_PATH:/opt/python_scripts}/asr/run_funasr.py
+  
+  # TTS配置 - 本地Kokoro/MeloTTS
+  tts:
+    default-provider: kokoro
+    default-voice: zf_xiaobei
+    default-speed: 1.0
+    providers:
+      - name: kokoro
+        enabled: true
+        model-path: ${AI_MODELS_PATH:/app/ai-models}/Kokoro/kokoro-v1_0.pth
+        voices-path: ${AI_MODELS_PATH:/app/ai-models}/Kokoro/voices
+        python-script: ${PYTHON_SCRIPTS_PATH:/opt/python_scripts}/tts/run_kokoro.py
+      - name: melotts
+        enabled: true
+        model-path: ${AI_MODELS_PATH:/app/ai-models}/MeloTTS
+        languages: [zh, en, jp, kr, es, fr]
+        python-script: ${PYTHON_SCRIPTS_PATH:/opt/python_scripts}/tts/run_melotts.py
+  
+  # 声纹识别配置 - 本地CAM++
+  speaker-verification:
+    enabled: true
+    model-path: ${AI_MODELS_PATH:/app/ai-models}/cam/campplus_cn_en_common.pt
+    threshold: 0.33
+    python-script: ${PYTHON_SCRIPTS_PATH:/opt/python_scripts}/speaker_verifier.py
+
+# ===========================================
+# Agent配置
+# ===========================================
+agent:
+  defaults:
+    provider: local
+    model: qwen3-0.6b
+    context-tokens: 8192
+    timeout-seconds: 300
+  fallback:
+    enabled: false
+  exec:
+    host: true
+    security: sandbox
+    timeout-sec: 60
+
+# ===========================================
+# Tool Neuron 模型选择配置
+# ===========================================
+tool-neuron:
+  model:
+    default: qwen3.5-2b
+    auto-select: true
+    memory-threshold-mb: 2048
+    cpu-load-threshold: 0.8
+    models:
+      - id: qwen3.5-2b
+        enabled: true
+        description: "Qwen3.5-2B - 默认工具神经元模型"
+        memory-mb: 4096
+        context-length: 262144
+        multimodal: true
+        recommended: true
+      - id: bitnet-1.58-3b
+        enabled: true
+        description: "BitNet-1.58-3B - 资源受限场景备选"
+        memory-mb: 1024
+        context-length: 4096
+        multimodal: false
+        recommended: false
+
+# ===========================================
+# 通道配置
+# ===========================================
+channels:
+  perception:
+    audio:
+      id: channel://perception/audio
+      type: UNICAST
+    text:
+      id: channel://perception/text
+      type: UNICAST
+  dispatch:
+    tech:
+      id: channel://tech/tasks
+      type: ROUND_ROBIN
+      max-concurrency: 5
+    hr:
+      id: channel://hr/tasks
+      type: UNICAST
+    fin:
+      id: channel://fin/tasks
+      type: UNICAST
+    sal:
+      id: channel://sal/tasks
+      type: UNICAST
+    cs:
+      id: channel://cs/tasks
+      type: UNICAST
+    adm:
+      id: channel://adm/tasks
+      type: UNICAST
+    leg:
+      id: channel://leg/tasks
+      type: UNICAST
+    ops:
+      id: channel://ops/tasks
+      type: UNICAST
+  output:
+    text:
+      id: channel://output/text
+      type: BROADCAST
+    speech:
+      id: channel://output/speech
+      type: UNICAST
+
+# ===========================================
+# Living Agent 核心配置
+# ===========================================
+living-agent:
+  data:
+    path: ${LIVING_AGENT_DATA_PATH:/app/data}
+  memory:
+    backend: ${MEMORY_PROVIDER:sqlite}
+    memos:
+      enabled: ${MEMOS_ENABLED:false}
+      base-url: ${MEMOS_BASE_URL:http://memos:8381}
+  knowledge:
+    backend: sqlite
+
+# ===========================================
+# 记忆系统配置
+# ===========================================
+memory:
+  enabled: true
+  provider: ${MEMORY_PROVIDER:sqlite}
+  # SQLite 配置 (本地缓存/兜底)
+  sqlite:
+    path: ${LIVING_AGENT_DATA_PATH:/app/data}/memory.db
+  # MemOS 配置 (完整模式)
+  memos:
+    enabled: ${MEMOS_ENABLED:false}
+    base-url: ${MEMOS_BASE_URL:http://memos:8381}
+    timeout: 30000
+    default-cube-id: ${MEMOS_DEFAULT_CUBE_ID:living-agent}
+    user-id: ${MEMOS_USER_ID:living-agent-system}
+  # 查询配置
+  query:
+    max-results: 20
+    min-score: 0.3
+
+# ===========================================
+# 安全配置
+# ===========================================
+security:
+  autonomy-level: SUPERVISED
+  workspace-dir: ${LIVING_AGENT_DATA_PATH:/app/data}/workspace
+  workspace-only: true
+  max-actions-per-hour: 100
+  max-cost-per-day-cents: 0
+
+# ===========================================
+# Python脚本路径配置
+# ===========================================
+python-scripts:
+  asr: ${PYTHON_SCRIPTS_PATH:/opt/python_scripts}/asr
+  tts: ${PYTHON_SCRIPTS_PATH:/opt/python_scripts}/tts
+  llm: ${PYTHON_SCRIPTS_PATH:/opt/python_scripts}/llm
+  speaker: ${PYTHON_SCRIPTS_PATH:/opt/python_scripts}/speaker
+
+# ===========================================
+# 技能配置
+# ===========================================
+skills:
+  path: ${LIVING_AGENT_SKILLS_PATH:/app/skills}
+  auto-discover: true
+  core-skills:
+    - tavily-search
+    - find-skills
+    - proactive-agent
+    - weather
+
+qdrant:
+  host: ${QDRANT_HOST:localhost}
+  port: 6333
+  grpc-port: 6334
+  api-key: ${QDRANT_API_KEY:}
+  timeout: 30
+  collection-prefix: living_agent_
+  collections:
+    knowledge: knowledge_vectors
+    employee: employee_vectors
+    experience: experience_vectors
+
+vector:
+  embedding:
+    model: ${EMBEDDING_MODEL:bge-m3}
+    dimension: 1024
+    batch-size: 32
+
+lifecycle:
+  health-check-interval: 300000
+  max-idle-time: 3600000
+  auto-terminate: true

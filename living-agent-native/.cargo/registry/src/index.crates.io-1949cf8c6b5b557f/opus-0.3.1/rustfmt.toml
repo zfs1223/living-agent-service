@@ -1,0 +1,3 @@
+hard_tabs = true
+struct_lit_width = 45
+use_small_heuristics = "Max"

@@ -1,0 +1,13 @@
+services:
+  rust-verify:
+    image: living-agent-rust-verify:1.0
+    container_name: living-agent-rust-verify
+    stdin_open: true
+    tty: true
+    volumes:
+      - ./living-agent-native:/build
+      - ./image:/image
+    working_dir: /build
+    environment:
+      - CARGO_HOME=/build/.cargo
+    command: ["bash"]

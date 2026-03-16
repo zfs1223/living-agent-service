@@ -1,0 +1,60 @@
+# Git
+.git
+.gitignore
+
+# IDE
+.idea
+*.iml
+.vscode
+*.swp
+*.swo
+
+# Maven build output (will be built in container)
+**/target/
+
+# Gradle
+.gradle
+build/
+
+# Logs
+logs/
+*.log
+
+# Data directories
+data/
+workspace/
+
+# Documentation
+docs/
+*.md
+!living-agent-skill/src/main/resources/skills/*/SKILL.md
+
+# Large image files (loaded separately)
+# Note: Commented out to allow tar files for offline build
+# image/*.tar
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Node modules
+node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment files
+.env
+.env.*
+
+# Test files
+**/test/
+**/tests/
+**/*Test.java
+**/*Tests.java
+
+# Scripts (not needed in build)
+scripts/

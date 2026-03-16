@@ -1,0 +1,25 @@
+[package]
+name = "audioadapter"
+version = "2.0.0"
+edition = "2021"
+rust-version = "1.74"
+authors = ["HEnquist <henrik.enquist@gmail.com>"]
+description = "A library for making it easier to work with buffers of audio data"
+license = "MIT"
+repository = "https://github.com/HEnquist/audioadapter-rs"
+keywords = ["audio", "buffer", "dsp", "sample", "pcm"]
+categories = ["multimedia::audio"]
+readme = "README.md"
+
+[features]
+default = ["audio"]
+audio = ["audio-core"]
+test-utils = []
+
+
+[dependencies]
+num-traits = "0.2.15"
+audio-core = { version = "0.2.0", optional = true }
+
+[dev-dependencies]
+audio = "0.2.0"
