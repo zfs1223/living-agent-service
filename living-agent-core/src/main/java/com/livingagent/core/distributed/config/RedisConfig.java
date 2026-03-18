@@ -22,15 +22,15 @@ public class RedisConfig {
 
     private static final Logger log = LoggerFactory.getLogger(RedisConfig.class);
 
-    @Value("${spring.data.redis.host:localhost}")
+    @Value("${spring.data.redis.host}")
     private String host;
-
-    @Value("${spring.data.redis.port:6379}")
+    
+    @Value("${spring.data.redis.port}")
     private int port;
-
+    
     @Value("${spring.data.redis.password:}")
     private String password;
-
+    
     @Value("${spring.data.redis.database:0}")
     private int database;
 

@@ -140,7 +140,7 @@ public class DistributedCacheService {
 
     public void addToSet(String setKey, String... values) {
         String key = "set:" + setKey;
-        redisTemplate.opsForSet().add(key, values);
+        redisTemplate.opsForSet().add(key, (Object[]) values);
     }
 
     public Set<Object> getSetMembers(String setKey) {

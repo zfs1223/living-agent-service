@@ -1,5 +1,15 @@
 package com.livingagent.gateway.config;
 
+import com.livingagent.core.brain.BrainRegistry;
+import com.livingagent.core.brain.impl.BrainRegistryImpl;
+import com.livingagent.core.employee.EmployeeService;
+import com.livingagent.core.knowledge.KnowledgeManager;
+import com.livingagent.core.neuron.NeuronRegistry;
+import com.livingagent.core.proactive.suggestion.ProactiveSuggestionService;
+import com.livingagent.core.security.auth.OAuthService;
+import com.livingagent.core.security.auth.UnifiedAuthService;
+import com.livingagent.core.security.voiceprint.VoicePrintService;
+import com.livingagent.core.security.auth.PhoneVerificationService;
 import com.livingagent.core.tool.Tool;
 import com.livingagent.core.tool.ToolRegistry;
 import com.livingagent.gateway.executor.ToolExecutor;
@@ -17,6 +27,23 @@ import java.util.Map;
 public class GatewayConfig {
     
     private static final Logger log = LoggerFactory.getLogger(GatewayConfig.class);
+
+    @Bean
+    public UnifiedAuthService unifiedAuthService(
+            List<OAuthService> oauthServices,
+            VoicePrintService voicePrintService,
+            PhoneVerificationService phoneVerificationService
+    ) {
+        log.info("Initializing UnifiedAuthService with {} OAuth providers", 
+                oauthServices != null ? oauthServices.size() : 0);
+        return new UnifiedAuthService(oauthServices, voicePrintService, phoneVerificationService);
+    }
+
+    @Bean
+    public ProactiveSuggestionService proactiveSuggestionService() {
+        log.info("Initializing ProactiveSuggestionService");
+        return new ProactiveSuggestionService(null, null, List.of());
+    }
     
     @Bean
     public ToolExecutorService toolExecutorService(

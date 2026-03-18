@@ -1,7 +1,9 @@
 package com.livingagent.core.security.auth.impl;
 
+import com.livingagent.core.security.AccessLevel;
 import com.livingagent.core.security.Employee;
 import com.livingagent.core.security.UserIdentity;
+import com.livingagent.core.security.auth.FounderService;
 import com.livingagent.core.security.auth.OAuthService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,19 +30,25 @@ public class FeishuOAuthService implements OAuthService {
     private final HttpClient httpClient;
     private final String appId;
     private final String appSecret;
+    private final FounderService founderService;
     
     private String tenantAccessToken;
     private long tokenExpireTime;
     
     private final Map<String, Employee> employeeCache = new ConcurrentHashMap<>();
 
-    public FeishuOAuthService(String appId, String appSecret) {
+    public FeishuOAuthService(String appId, String appSecret, FounderService founderService) {
         this.appId = appId;
         this.appSecret = appSecret;
+        this.founderService = founderService;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(30))
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
+    }
+
+    public FeishuOAuthService(String appId, String appSecret) {
+        this(appId, appSecret, null);
     }
 
     @Override
@@ -165,11 +173,17 @@ public class FeishuOAuthService implements OAuthService {
         employee.setPhone(userInfo.phone());
         employee.setDepartment(userInfo.department());
         employee.setPosition(userInfo.position());
-        employee.setIdentity(UserIdentity.INTERNAL_ACTIVE);
         employee.setOauthProvider("feishu");
         employee.setOauthUserId(userInfo.providerUserId());
         employee.setLastSyncTime(Instant.now());
         employee.setSyncSource("feishu_oauth");
+
+        if (founderService != null && founderService.isFirstUser()) {
+            founderService.assignFounderRole(employee);
+            log.info("First user detected, assigned Chairman role: {}", employee.getName());
+        } else {
+            employee.setIdentity(UserIdentity.INTERNAL_ACTIVE);
+        }
 
         employeeCache.put(cacheKey, employee);
 

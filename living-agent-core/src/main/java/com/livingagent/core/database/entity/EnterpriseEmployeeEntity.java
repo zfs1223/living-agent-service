@@ -5,7 +5,7 @@ import java.time.Instant;
 
 @Entity
 @Table(name = "enterprise_employees")
-public class EmployeeEntity {
+public class EnterpriseEmployeeEntity {
 
     @Id
     @Column(name = "employee_id", length = 36)
@@ -34,6 +34,9 @@ public class EmployeeEntity {
     
     @Column(name = "access_level", length = 20)
     private String accessLevel;
+    
+    @Column(name = "is_founder")
+    private boolean founder;
     
     @Column(name = "voice_print_id", length = 100)
     private String voicePrintId;
@@ -68,7 +71,7 @@ public class EmployeeEntity {
     @Column(name = "updated_at")
     private Instant updatedAt;
 
-    public EmployeeEntity() {
+    public EnterpriseEmployeeEntity() {
         this.active = true;
         this.createdAt = Instant.now();
         this.updatedAt = Instant.now();
@@ -100,6 +103,9 @@ public class EmployeeEntity {
 
     public String getAccessLevel() { return accessLevel; }
     public void setAccessLevel(String accessLevel) { this.accessLevel = accessLevel; }
+
+    public boolean isFounder() { return founder; }
+    public void setFounder(boolean founder) { this.founder = founder; }
 
     public String getVoicePrintId() { return voicePrintId; }
     public void setVoicePrintId(String voicePrintId) { this.voicePrintId = voicePrintId; }

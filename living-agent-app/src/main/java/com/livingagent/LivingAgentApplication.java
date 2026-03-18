@@ -6,8 +6,8 @@ import org.springframework.boot.autoconfigure.domain.EntityScan;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 
 @SpringBootApplication
-@EntityScan("com.livingagent.core.database.entity")
-@EnableJpaRepositories("com.livingagent.core.database.repository")
+@EntityScan({"com.livingagent.core.database.entity", "com.livingagent.core.employee.entity"})
+@EnableJpaRepositories({"com.livingagent.core.database.repository", "com.livingagent.core.employee.repository"})
 public class LivingAgentApplication {
 
     public static void main(String[] args) {

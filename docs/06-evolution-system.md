@@ -46,12 +46,148 @@
 
 ### 2.2 信号提取器
 
+> **✅ 已完整实现** (2026-03-17 更新)
+>
+> `DefaultSignalExtractor` 提供完整的信号提取功能，支持从对话内容、日志、指标中提取进化信号。
+
 ```java
 public interface SignalExtractor {
     List<EvolutionSignal> extractFromConversation(Conversation conv);
     List<EvolutionSignal> extractFromLogs(LogEntry[] logs);
     List<EvolutionSignal> extractFromMetrics(MetricData[] metrics);
     List<EvolutionSignal> extractFromUserFeedback(Feedback feedback);
+}
+```
+
+#### 2.2.1 实现类: DefaultSignalExtractor
+
+```java
+@Component
+public class DefaultSignalExtractor implements SignalExtractor {
+    
+    // 信号检测模式
+    private static final Pattern ERROR_PATTERN = Pattern.compile(
+        "(ERROR|Exception|Failed|failure|error|异常|失败)", 
+        Pattern.CASE_INSENSITIVE
+    );
+    private static final Pattern PERFORMANCE_PATTERN = Pattern.compile(
+        "(slow|timeout|超时|缓慢|延迟|性能)",
+        Pattern.CASE_INSENSITIVE
+    );
+    private static final Pattern OPPORTUNITY_PATTERN = Pattern.compile(
+        "(可以|能够|建议|优化|improve|enhance|better)",
+        Pattern.CASE_INSENSITIVE
+    );
+    
+    @Override
+    public List<EvolutionSignal> extractFromConversationContent(
+            String conversationId, String content, String brainDomain) {
+        List<EvolutionSignal> signals = new ArrayList<>();
+        
+        // 1. 错误信号检测
+        if (ERROR_PATTERN.matcher(content).find()) {
+            signals.add(EvolutionSignal.builder()
+                .type(SignalType.ERROR)
+                .source("conversation:" + conversationId)
+                .description("检测到错误相关内容")
+                .brainDomain(brainDomain)
+                .strength(0.8)
+                .build());
+        }
+        
+        // 2. 性能信号检测
+        if (PERFORMANCE_PATTERN.matcher(content).find()) {
+            signals.add(EvolutionSignal.builder()
+                .type(SignalType.PERFORMANCE)
+                .source("conversation:" + conversationId)
+                .description("检测到性能相关内容")
+                .brainDomain(brainDomain)
+                .strength(0.6)
+                .build());
+        }
+        
+        // 3. 机会信号检测
+        if (OPPORTUNITY_PATTERN.matcher(content).find()) {
+            signals.add(EvolutionSignal.builder()
+                .type(SignalType.OPPORTUNITY)
+                .source("conversation:" + conversationId)
+                .description("检测到优化机会")
+                .brainDomain(brainDomain)
+                .strength(0.5)
+                .build());
+        }
+        
+        // 4. 能力缺口信号检测
+        // ... 根据上下文判断是否需要新技能
+        
+        return signals;
+    }
+    
+    @Override
+    public List<EvolutionSignal> extractFromLogs(String logContent) {
+        // 从日志中提取 ERROR 和 WARN 信号
+    }
+    
+    @Override
+    public List<EvolutionSignal> extractFromMetrics(Map<String, Object> metrics) {
+        // 从指标中提取信号:
+        // - errorRate > 0.1 → ERROR 信号
+        // - avgResponseTime > 5000ms → PERFORMANCE 信号
+        // - toolSuccessRate < 0.8 → CAPABILITY_GAP 信号
+        // - memoryUsage > 0.9 → STABILITY 信号
+    }
+}
+```
+
+#### 2.2.2 信号类型与触发条件
+
+| 信号类型 | 触发条件 | 强度 | 推荐策略 |
+|---------|---------|------|---------|
+| **ERROR** | 错误关键词、异常堆栈、失败消息 | 0.8 | REPAIR |
+| **PERFORMANCE** | 响应超时、性能下降、资源紧张 | 0.6 | OPTIMIZE |
+| **OPPORTUNITY** | 优化建议、改进机会、用户需求 | 0.5 | OPTIMIZE |
+| **CAPABILITY_GAP** | 工具失败、技能缺失、能力不足 | 0.7 | INNOVATE |
+| **STABILITY** | 内存过高、系统不稳定 | 0.9 | DEFER |
+
+#### 2.2.3 进化信号触发器
+
+> **✅ 已集成到神经元** - `EvolutionSignalTrigger` 已集成到 `AbstractNeuron`
+
+```java
+public class EvolutionSignalTrigger {
+    
+    private final EvolutionExecutor executor;
+    private final String neuronId;
+    private final String department;
+    
+    /**
+     * 记录工具调用失败，触发进化信号
+     */
+    public void recordToolFailure(String toolName, String errorMessage) {
+        EvolutionSignal signal = EvolutionSignal.builder()
+            .type(SignalType.CAPABILITY_GAP)
+            .source("neuron:" + neuronId)
+            .description("工具调用失败: " + toolName + " - " + errorMessage)
+            .brainDomain(department)
+            .strength(0.7)
+            .context(Map.of("toolName", toolName, "error", errorMessage))
+            .build();
+        executor.submitEvolution(signal);
+    }
+    
+    /**
+     * 记录性能问题，触发进化信号
+     */
+    public void recordPerformanceIssue(String operation, long durationMs) {
+        // 触发 PERFORMANCE 信号
+    }
+    
+    /**
+     * 记录用户反馈，触发进化信号
+     */
+    public void recordUserFeedback(String feedback, boolean positive) {
+        // 触发 OPPORTUNITY 或 ERROR 信号
+    }
 }
 ```
 

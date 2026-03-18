@@ -28,5 +28,8 @@ public interface LedgerService {
         String status,
         Instant createdAt,
         Instant receivedAt
-    ) {}
+    ) {
+        public String id() { return incomeId; }
+        public Instant timestamp() { return createdAt; }
+    }
 }

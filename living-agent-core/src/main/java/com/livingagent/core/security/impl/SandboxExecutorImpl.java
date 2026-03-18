@@ -11,6 +11,7 @@ import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Component
@@ -138,6 +139,16 @@ public class SandboxExecutorImpl implements SandboxExecutor {
     public ExecutionResult<?> executeScript(SandboxConfig config, String script, String language) {
         log.info("Executing {} script in sandbox", language);
         
+        if (!isLanguageAllowed(language)) {
+            log.warn("Script execution blocked: language {} not allowed", language);
+            return ExecutionResult.failure("Language not allowed: " + language);
+        }
+        
+        if (containsDangerousPatterns(script)) {
+            log.warn("Script execution blocked: contains dangerous patterns");
+            return ExecutionResult.failure("Script contains forbidden patterns (e.g., file access, network calls)");
+        }
+
         try {
             Path tempScript = createTempScript(script, language);
             
@@ -161,6 +172,20 @@ public class SandboxExecutorImpl implements SandboxExecutor {
 
     @Override
     public ExecutionResult<?> executeCommand(SandboxConfig config, String command, String[] args) {
+        if (!isCommandAllowed(command)) {
+            log.warn("Command execution blocked: command {} not in allowed list", command);
+            return ExecutionResult.failure("Command not allowed: " + command);
+        }
+        
+        if (args != null) {
+            for (String arg : args) {
+                if (!isArgumentAllowed(arg, config)) {
+                    log.warn("Command execution blocked: argument {} not allowed", arg);
+                    return ExecutionResult.failure("Argument not allowed: " + arg);
+                }
+            }
+        }
+        
         List<String> commandParts = new ArrayList<>();
         commandParts.add(command);
         if (args != null) {
@@ -168,6 +193,70 @@ public class SandboxExecutorImpl implements SandboxExecutor {
         }
         
         return executeInProcess(config, commandParts.toArray(new String[0]));
+    }
+    
+    private boolean isLanguageAllowed(String language) {
+        if (language == null) return false;
+        return switch (language.toLowerCase()) {
+            case "python", "python3", "javascript", "node", "nodejs", 
+                 "bash", "shell", "sh", "ruby", "perl" -> true;
+            default -> false;
+        };
+    }
+    
+    private boolean isCommandAllowed(String command) {
+        if (command == null || command.isEmpty()) return false;
+        
+        Path commandPath = Paths.get(command);
+        String fileName = commandPath.getFileName().toString();
+        
+        List<String> allowedCommands = List.of(
+            "python3", "python", "node", "npm", "bash", "sh", "ruby", "perl",
+            "git", "curl", "wget", "echo", "cat", "ls", "mkdir", "rm", "cp", "mv"
+        );
+        
+        return allowedCommands.contains(fileName);
+    }
+    
+    private boolean isArgumentAllowed(String arg, SandboxConfig config) {
+        if (arg == null) return true;
+        
+        for (String denied : config.deniedPaths()) {
+            String expandedDenied = expandPath(denied);
+            if (arg.contains(denied) || arg.contains(expandedDenied)) {
+                return false;
+            }
+        }
+        
+        return true;
+    }
+    
+    private boolean containsDangerousPatterns(String script) {
+        if (script == null) return false;
+        
+        List<Pattern> dangerousPatterns = List.of(
+            Pattern.compile("(?i)(rm\\s+-rf|del\\s+/s|format\\s+c:)", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("(?i)(/etc/passwd|/etc/shadow|\\.ssh|\\.gnupg)"),
+            Pattern.compile("(?i)(eval\\s*\\(|exec\\s*\\(|system\\s*\\()", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("(?i)(socket\\.socket|urllib\\.request|requests\\.)", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("(?i)(subprocess|os\\.system|os\\.popen)", Pattern.CASE_INSENSITIVE)
+        );
+        
+        for (Pattern pattern : dangerousPatterns) {
+            if (pattern.matcher(script).find()) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+    
+    private String expandPath(String path) {
+        if (path == null) return "";
+        if (path.startsWith("~")) {
+            return System.getProperty("user.home") + path.substring(1);
+        }
+        return path;
     }
 
     private ExecutionResult<String> executeInProcess(SandboxConfig config, String[] command) {

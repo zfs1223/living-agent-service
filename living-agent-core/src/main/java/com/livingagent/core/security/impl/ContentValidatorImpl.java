@@ -17,12 +17,12 @@ public class ContentValidatorImpl implements ContentValidator {
 
     static {
         THREAT_PATTERNS.put(ThreatType.SQL_INJECTION, List.of(
-            Pattern.compile("(?i)(\\bunion\\b.*\\bselect\\b|\\bselect\\b.*\\bfrom\\b)", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("(?i)(\\binsert\\b.*\\binto\\b|\\bdelete\\b.*\\bfrom\\b)", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("(?i)(\\bdrop\\b.*\\b(table|database)\\b)", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("(?i)(--|;|\\/\\*|\\*\\/)", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("(?i)(\\bexec\\b|\\bexecute\\b)", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("(?i)('\\s*or\\s*'\\s*=\\s*')", Pattern.CASE_INSENSITIVE)
+            Pattern.compile("(?i)(\\bunion\\b.*\\bselect\\b|\\bselect\\b.*\\bfrom\\b)"),
+            Pattern.compile("(?i)(\\binsert\\b.*\\binto\\b|\\bdelete\\b.*\\bfrom\\b)"),
+            Pattern.compile("(?i)(\\bdrop\\b.*\\b(table|database)\\b)"),
+            Pattern.compile("(?i)(--|;|\\/\\*|\\*\\/)"),
+            Pattern.compile("(?i)(\\bexec\\b|\\bexecute\\b)"),
+            Pattern.compile("(?i)('\\s*or\\s*'\\s*=\\s*')")
         ));
 
         THREAT_PATTERNS.put(ThreatType.XSS, List.of(
@@ -36,17 +36,17 @@ public class ContentValidatorImpl implements ContentValidator {
         ));
 
         THREAT_PATTERNS.put(ThreatType.COMMAND_INJECTION, List.of(
-            Pattern.compile("[;&|`$]", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("\\|\\|", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("\\$\\([^)]+\\)", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("`[^`]+`", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("\\$\\{[^}]+\\}", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("(?i)(rm\\s+-rf|rm\\s+-r|del\\s+/|format\\s+)", Pattern.CASE_INSENSITIVE)
+            Pattern.compile("[;&|`$]"),
+            Pattern.compile("\\|\\|"),
+            Pattern.compile("\\$\\([^)]+\\)"),
+            Pattern.compile("`[^`]+`"),
+            Pattern.compile("\\$\\{[^}]+\\}"),
+            Pattern.compile("(?i)(rm\\s+-rf|rm\\s+-r|del\\s+/|format\\s+)")
         ));
 
         THREAT_PATTERNS.put(ThreatType.PATH_TRAVERSAL, List.of(
-            Pattern.compile("\\.\\./", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("\\.\\.\\\\", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("\\.\\./"),
+            Pattern.compile("\\.\\.\\\\"),
             Pattern.compile("%2e%2e", Pattern.CASE_INSENSITIVE),
             Pattern.compile("%252e", Pattern.CASE_INSENSITIVE),
             Pattern.compile("\\.\\.%2f", Pattern.CASE_INSENSITIVE),
@@ -54,25 +54,25 @@ public class ContentValidatorImpl implements ContentValidator {
         ));
 
         THREAT_PATTERNS.put(ThreatType.MALICIOUS_CODE, List.of(
-            Pattern.compile("(?i)(eval\\s*\\(|exec\\s*\\(|system\\s*\\()", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("(?i)(Runtime\\.getRuntime|ProcessBuilder)", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("(?i)(import\\s+os|subprocess|Popen)", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("(?i)(shell_exec|passthru|system\\()", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("(?i)(base64_decode|gzinflate|str_rot13)", Pattern.CASE_INSENSITIVE)
+            Pattern.compile("(?i)(eval\\s*\\(|exec\\s*\\(|system\\s*\\()"),
+            Pattern.compile("(?i)(Runtime\\.getRuntime|ProcessBuilder)"),
+            Pattern.compile("(?i)(import\\s+os|subprocess|Popen)"),
+            Pattern.compile("(?i)(shell_exec|passthru|system\\()"),
+            Pattern.compile("(?i)(base64_decode|gzinflate|str_rot13)")
         ));
 
         THREAT_PATTERNS.put(ThreatType.CODE_INJECTION, List.of(
-            Pattern.compile("(?i)(eval\\(|Function\\(|new\\s+Function)", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("(?i)(require\\s*\\(|include\\s*\\()", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("(?i)(import\\s+__|__import__)", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("(?i)(compile\\(|exec\\(\\s*\\(\\s*\"\\s*\")", Pattern.CASE_INSENSITIVE)
+            Pattern.compile("(?i)(eval\\(|Function\\(|new\\s+Function)"),
+            Pattern.compile("(?i)(require\\s*\\(|include\\s*\\()"),
+            Pattern.compile("(?i)(import\\s+__|__import__)"),
+            Pattern.compile("(?i)(compile\\(|exec\\(\\s*\\(\\s*\"\\s*\")")
         ));
 
         THREAT_PATTERNS.put(ThreatType.SENSITIVE_DATA, List.of(
-            Pattern.compile("(?i)(password\\s*=|passwd\\s*=)", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("(?i)(api[_-]?key\\s*=|secret[_-]?key\\s*=)", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("(?i)(token\\s*=|auth[_-]?token\\s*=)", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("(?i)(private[_-]?key\\s*=|access[_-]?key\\s*=)", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("(?i)(password\\s*=|passwd\\s*=)"),
+            Pattern.compile("(?i)(api[_-]?key\\s*=|secret[_-]?key\\s*=)"),
+            Pattern.compile("(?i)(token\\s*=|auth[_-]?token\\s*=)"),
+            Pattern.compile("(?i)(private[_-]?key\\s*=|access[_-]?key\\s*=)"),
             Pattern.compile("\\b[A-Za-z0-9]{32,}\\b")
         ));
     }

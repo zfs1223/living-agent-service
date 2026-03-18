@@ -2,9 +2,11 @@ package com.livingagent.core.neuron.impl;
 
 import com.livingagent.core.channel.Channel;
 import com.livingagent.core.channel.ChannelMessage;
+import com.livingagent.core.evolution.executor.EvolutionExecutor;
 import com.livingagent.core.neuron.Neuron;
 import com.livingagent.core.neuron.NeuronContext;
 import com.livingagent.core.neuron.NeuronState;
+import com.livingagent.core.neuron.evolution.EvolutionSignalTrigger;
 import com.livingagent.core.skill.Skill;
 import com.livingagent.core.tool.Tool;
 import com.livingagent.core.util.IdUtils;
@@ -13,6 +15,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
 
 public abstract class AbstractNeuron implements Neuron {
@@ -37,6 +40,8 @@ public abstract class AbstractNeuron implements Neuron {
     protected volatile boolean running = false;
     protected final List<Channel> subscribedChannelObjects = new ArrayList<>();
     protected final List<Channel> publishingChannelObjects = new ArrayList<>();
+    
+    protected EvolutionSignalTrigger evolutionTrigger;
 
     private static final Set<String> CORE_SKILLS = Set.of(
             "tavily-search",
@@ -160,6 +165,14 @@ public abstract class AbstractNeuron implements Neuron {
     @Override
     public void initialize(NeuronContext context) {
         this.context = context;
+        
+        this.evolutionTrigger = new EvolutionSignalTrigger(
+            null, 
+            id, 
+            department
+        );
+        log.debug("Neuron {} initialized evolution trigger", id);
+        
         setState(NeuronState.ACTIVE);
         log.info("Neuron {} initialized", id);
     }
@@ -275,7 +288,42 @@ public abstract class AbstractNeuron implements Neuron {
         } catch (Exception e) {
             log.error("Error processing message in neuron: {}", id, e);
             state.set(NeuronState.ERROR);
+            
+            if (evolutionTrigger != null) {
+                evolutionTrigger.recordError(e.getClass().getSimpleName(), e.getMessage());
+            }
         }
+    }
+    
+    protected void recordToolFailure(String toolName, String errorMessage) {
+        log.warn("Tool {} failed for neuron {}: {}", toolName, id, errorMessage);
+        if (evolutionTrigger != null) {
+            evolutionTrigger.recordToolFailure(toolName, errorMessage);
+        }
+    }
+    
+    protected void recordToolSuccess(String toolName) {
+        if (evolutionTrigger != null) {
+            evolutionTrigger.recordToolSuccess(toolName);
+        }
+    }
+    
+    protected void recordCapabilityGap(String missingCapability, String context) {
+        log.info("Capability gap detected for neuron {}: {}", id, missingCapability);
+        if (evolutionTrigger != null) {
+            evolutionTrigger.recordCapabilityGap(missingCapability, context);
+        }
+    }
+    
+    protected void recordEvolutionOpportunity(String opportunity, double confidence) {
+        if (evolutionTrigger != null) {
+            evolutionTrigger.recordOpportunity(opportunity, confidence);
+        }
+    }
+    
+    protected void onNewSkillGenerated(String skillName) {
+        addSkill(skillName);
+        log.info("Neuron {} auto-learned new skill: {}", id, skillName);
     }
 
     @Override

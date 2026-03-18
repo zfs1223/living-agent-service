@@ -1,6 +1,9 @@
 package com.livingagent.core.autonomous.config;
 
 import com.livingagent.core.autonomous.bounty.*;
+import com.livingagent.core.autonomous.bounty.impl.BugBountyScannerImpl;
+import com.livingagent.core.autonomous.bounty.impl.CompositeTaskExecutor;
+import com.livingagent.core.autonomous.bounty.impl.FreelanceScannerImpl;
 import com.livingagent.core.autonomous.evolution.EvolutionManager;
 import com.livingagent.core.autonomous.evolution.HardwareUpgradeService;
 import com.livingagent.core.autonomous.incentive.CreditAccountService;
@@ -41,19 +44,25 @@ public class AutonomousOperationConfig {
 
     @Bean
     public FreelanceScanner freelanceScanner() {
-        log.info("Initializing FreelanceScanner");
-        return (keywords, maxBudget) -> Collections.emptyList();
+        log.info("Initializing FreelanceScannerImpl");
+        return new FreelanceScannerImpl();
     }
 
     @Bean
     public BugBountyScanner bugBountyScanner() {
-        log.info("Initializing BugBountyScanner");
-        return (platforms, maxBudget) -> Collections.emptyList();
+        log.info("Initializing BugBountyScannerImpl");
+        return new BugBountyScannerImpl();
+    }
+
+    @Bean
+    public TaskExecutor bountyTaskExecutor() {
+        log.info("Initializing CompositeTaskExecutor");
+        return new CompositeTaskExecutor();
     }
 
     @Bean
     public LedgerService ledgerService() {
-        log.info("Initializing LedgerService");
+        log.info("Initializing LedgerService as unified balance source");
         return new InMemoryLedgerService();
     }
 
@@ -63,9 +72,12 @@ public class AutonomousOperationConfig {
             FreelanceScanner freelanceScanner,
             BugBountyScanner bugBountyScanner,
             LedgerService ledgerService,
-            TokenCostEstimator costEstimator) {
+            TokenCostEstimator costEstimator,
+            TaskExecutor bountyTaskExecutor) {
         log.info("Initializing BountyHunterSkill (enabled: {})", bountyHunterEnabled);
-        return new BountyHunterSkill(gitHubScanner, freelanceScanner, bugBountyScanner, ledgerService, costEstimator);
+        BountyHunterSkill skill = new BountyHunterSkill(gitHubScanner, freelanceScanner, bugBountyScanner, ledgerService, costEstimator);
+        skill.setTaskExecutor(bountyTaskExecutor);
+        return skill;
     }
     
     @Bean
@@ -81,21 +93,23 @@ public class AutonomousOperationConfig {
     }
 
     @Bean
-    public EvolutionManager evolutionManager(HardwareUpgradeService hardwareUpgradeService) {
-        log.info("Initializing EvolutionManager");
-        return new EvolutionManager(hardwareUpgradeService);
+    public EvolutionManager evolutionManager(
+            HardwareUpgradeService hardwareUpgradeService,
+            LedgerService ledgerService) {
+        log.info("Initializing EvolutionManager with unified LedgerService");
+        return new EvolutionManager(hardwareUpgradeService, ledgerService);
     }
 
     @Bean
-    public CreditAccountService creditAccountService() {
-        log.info("Initializing CreditAccountService");
-        return new InMemoryCreditAccountService();
+    public CreditAccountService creditAccountService(LedgerService ledgerService) {
+        log.info("Initializing CreditAccountService with unified LedgerService");
+        return new UnifiedCreditAccountService(ledgerService);
     }
 
     @Bean
-    public EvolutionTracker evolutionTracker() {
-        log.info("Initializing EvolutionTracker");
-        return new InMemoryEvolutionTracker();
+    public EvolutionTracker evolutionTracker(LedgerService ledgerService) {
+        log.info("Initializing EvolutionTracker with unified LedgerService");
+        return new UnifiedEvolutionTracker(ledgerService);
     }
 
     @Bean
@@ -255,6 +269,99 @@ public class AutonomousOperationConfig {
         @Override
         public int getAccumulatedFunds(String employeeId) {
             return funds.getOrDefault(employeeId, 0);
+        }
+    }
+
+    /**
+     * Unified CreditAccountService that delegates to the shared LedgerService.
+     * This ensures all balance data comes from a single source of truth.
+     */
+    private static class UnifiedCreditAccountService implements CreditAccountService {
+        private final LedgerService ledgerService;
+
+        public UnifiedCreditAccountService(LedgerService ledgerService) {
+            this.ledgerService = ledgerService;
+        }
+
+        @Override
+        public int getBalance(String employeeId) {
+            return ledgerService.getBalance(employeeId);
+        }
+
+        @Override
+        public void credit(String employeeId, int amountCents) {
+            ledgerService.recordReward(employeeId, amountCents, "Credit");
+        }
+
+        @Override
+        public boolean debit(String employeeId, int amountCents) {
+            int current = ledgerService.getBalance(employeeId);
+            if (current < amountCents) return false;
+            ledgerService.recordReward(employeeId, -amountCents, "Debit");
+            return true;
+        }
+
+        @Override
+        public int getTotalEarned(String employeeId) {
+            return ledgerService.getTotalEarned(employeeId);
+        }
+
+        @Override
+        public double getPerformanceScore(String employeeId) {
+            return 0.5; // Default performance score
+        }
+
+        @Override
+        public List<String> getEmployeesByDepartment(String departmentId) {
+            return List.of();
+        }
+
+        @Override
+        public List<CreditTransaction> getTransactionHistory(String employeeId, int limit) {
+            return ledgerService.getIncomeHistory(employeeId, limit).stream()
+                .map(r -> new CreditTransaction(r.id(), r.employeeId(), "CREDIT", r.amountCents(), r.sourceType(), r.sourceId(), r.timestamp()))
+                .toList();
+        }
+
+        @Override
+        public Map<String, Object> getAccountStats(String employeeId) {
+            return Map.of("balance", getBalance(employeeId), "totalEarned", getTotalEarned(employeeId));
+        }
+    }
+
+    /**
+     * Unified EvolutionTracker that delegates to the shared LedgerService.
+     * This ensures all evolution fund data comes from a single source of truth.
+     */
+    private static class UnifiedEvolutionTracker implements EvolutionTracker {
+        private final LedgerService ledgerService;
+
+        public UnifiedEvolutionTracker(LedgerService ledgerService) {
+            this.ledgerService = ledgerService;
+        }
+
+        @Override
+        public void recordAchievement(String employeeId, IncentiveManager.TaskResult result) {
+            ledgerService.recordIncome(employeeId, "ACHIEVEMENT", result.taskId(), result.payoutCents(), result.taskDescription());
+        }
+
+        @Override
+        public void updateTier(String employeeId) {
+            // Tier is computed on-demand in getCurrentTier
+        }
+
+        @Override
+        public EvolutionManager.EvolutionTier getCurrentTier(String employeeId) {
+            int fund = ledgerService.getBalance(employeeId);
+            if (fund >= 100000) return EvolutionManager.EvolutionTier.EVOLVING;
+            if (fund >= 50000) return EvolutionManager.EvolutionTier.NORMAL;
+            if (fund >= 10000) return EvolutionManager.EvolutionTier.SAVING;
+            return EvolutionManager.EvolutionTier.MINIMAL;
+        }
+
+        @Override
+        public int getAccumulatedFunds(String employeeId) {
+            return ledgerService.getBalance(employeeId);
         }
     }
 }

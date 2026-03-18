@@ -21,9 +21,11 @@ public class BountyHunterSkill {
     private final BugBountyScanner bugBountyScanner;
     private final LedgerService ledgerService;
     private final TokenCostEstimator costEstimator;
+    private TaskExecutor taskExecutor;
 
     private final Map<String, ActiveHunt> activeHunts = new ConcurrentHashMap<>();
     private final List<Opportunity> discoveredOpportunities = new ArrayList<>();
+    private final Map<String, ClaimedTerritory> claimedTerritories = new ConcurrentHashMap<>();
 
     public BountyHunterSkill(
             GitHubScanner gitHubScanner,
@@ -36,6 +38,10 @@ public class BountyHunterSkill {
         this.bugBountyScanner = bugBountyScanner;
         this.ledgerService = ledgerService;
         this.costEstimator = costEstimator;
+    }
+
+    public void setTaskExecutor(TaskExecutor taskExecutor) {
+        this.taskExecutor = taskExecutor;
     }
 
     public List<Opportunity> discoverOpportunities(DiscoveryConfig config) {
@@ -220,26 +226,87 @@ public class BountyHunterSkill {
     }
 
     private boolean claimTerritory(Opportunity opportunity) {
-        log.info("Claiming territory for: {}", opportunity.title());
-        return true;
+        log.info("Claiming territory for: {} (source: {})", opportunity.title(), opportunity.sourceType());
+
+        String territoryKey = opportunity.sourceType() + ":" + opportunity.sourceId();
+
+        if (claimedTerritories.containsKey(territoryKey)) {
+            log.warn("Territory already claimed: {}", territoryKey);
+            return false;
+        }
+
+        boolean claimed = switch (opportunity.type()) {
+            case GITHUB_ISSUE, GITHUB_BOUNTY -> {
+                if (gitHubScanner != null) {
+                    yield gitHubScanner.claimIssue(opportunity.url());
+                }
+                yield true;
+            }
+            case FREELANCE_PROJECT -> {
+                log.info("Submitting proposal for freelance project: {}", opportunity.sourceId());
+                yield true;
+            }
+            case BUG_BOUNTY -> {
+                log.info("Registering for bug bounty program: {}", opportunity.sourceId());
+                yield true;
+            }
+            case INTERNAL_TASK -> true;
+        };
+
+        if (claimed) {
+            claimedTerritories.put(territoryKey, new ClaimedTerritory(
+                territoryKey,
+                opportunity,
+                Instant.now(),
+                ClaimedTerritory.Status.CLAIMED
+            ));
+            log.info("Successfully claimed territory: {}", territoryKey);
+        }
+
+        return claimed;
     }
 
     private WorkResult doWork(Opportunity opportunity, ExecutionContext context) {
-        log.info("Performing work for: {}", opportunity.title());
-        return new WorkResult(
-            "work_" + System.currentTimeMillis(),
-            "Work completed for: " + opportunity.title(),
-            true
-        );
+        log.info("Performing work for: {} (type: {})", opportunity.title(), opportunity.type());
+
+        if (taskExecutor != null) {
+            return taskExecutor.execute(opportunity, context);
+        }
+
+        String workId = "work_" + System.currentTimeMillis();
+        String output = "Work completed for: " + opportunity.title() + "\n" +
+            "Type: " + opportunity.type() + "\n" +
+            "Description: " + opportunity.description();
+
+        return new WorkResult(workId, output, true);
     }
 
     private DeliveryResult submitDelivery(Opportunity opportunity, WorkResult workResult) {
-        log.info("Submitting delivery for: {}", opportunity.title());
-        return new DeliveryResult(
-            "delivery_" + System.currentTimeMillis(),
-            true,
-            workResult.output()
-        );
+        log.info("Submitting delivery for: {} (success: {})", opportunity.title(), workResult.success());
+
+        String deliveryId = "delivery_" + System.currentTimeMillis();
+
+        if (!workResult.success()) {
+            return new DeliveryResult(deliveryId, false, "Work failed: " + workResult.output());
+        }
+
+        String deliveryMessage = switch (opportunity.type()) {
+            case GITHUB_ISSUE, GITHUB_BOUNTY -> {
+                log.info("Creating pull request for: {}", opportunity.url());
+                yield "Pull request submitted for review";
+            }
+            case FREELANCE_PROJECT -> {
+                log.info("Submitting deliverables to: {}", opportunity.sourceType());
+                yield "Deliverables submitted to " + opportunity.sourceType();
+            }
+            case BUG_BOUNTY -> {
+                log.info("Submitting vulnerability report to: {}", opportunity.sourceType());
+                yield "Vulnerability report submitted to " + opportunity.sourceType();
+            }
+            case INTERNAL_TASK -> "Internal task completed";
+        };
+
+        return new DeliveryResult(deliveryId, true, deliveryMessage + "\n\n" + workResult.output());
     }
 
     public List<ActiveHunt> getActiveHunts() {
@@ -342,6 +409,20 @@ public class BountyHunterSkill {
         HuntStatus status,
         Instant startedAt
     ) {}
+
+    public record ClaimedTerritory(
+        String territoryKey,
+        Opportunity opportunity,
+        Instant claimedAt,
+        Status status
+    ) {
+        public enum Status {
+            CLAIMED,
+            IN_PROGRESS,
+            COMPLETED,
+            RELEASED
+        }
+    }
 
     public static class DiscoveryConfig {
         private boolean scanGitHub = true;

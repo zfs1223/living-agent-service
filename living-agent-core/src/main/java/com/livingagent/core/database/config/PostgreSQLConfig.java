@@ -20,30 +20,30 @@ public class PostgreSQLConfig {
 
     private static final Logger log = LoggerFactory.getLogger(PostgreSQLConfig.class);
 
-    @Value("${spring.datasource.url:jdbc:postgresql://localhost:5432/living_agent}")
+    @Value("${spring.datasource.url}")
     private String jdbcUrl;
-
-    @Value("${spring.datasource.username:postgres}")
+    
+    @Value("${spring.datasource.username}")
     private String username;
-
-    @Value("${spring.datasource.password:postgres}")
+    
+    @Value("${spring.datasource.password}")
     private String password;
-
+    
     @Value("${spring.datasource.driver-class-name:org.postgresql.Driver}")
     private String driverClassName;
-
+    
     @Value("${spring.datasource.hikari.maximum-pool-size:20}")
     private int maximumPoolSize;
-
+    
     @Value("${spring.datasource.hikari.minimum-idle:5}")
     private int minimumIdle;
-
+    
     @Value("${spring.datasource.hikari.idle-timeout:300000}")
     private long idleTimeout;
-
+    
     @Value("${spring.datasource.hikari.connection-timeout:30000}")
     private long connectionTimeout;
-
+    
     @Value("${spring.datasource.hikari.max-lifetime:1800000}")
     private long maxLifetime;
 

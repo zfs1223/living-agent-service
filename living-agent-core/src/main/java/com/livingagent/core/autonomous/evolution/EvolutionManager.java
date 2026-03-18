@@ -1,5 +1,6 @@
 package com.livingagent.core.autonomous.evolution;
 
+import com.livingagent.core.autonomous.bounty.LedgerService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -17,11 +18,18 @@ public class EvolutionManager {
     private static final int THRESHOLD_SAVING = 10_000;
 
     private final Map<String, EvolutionTier> employeeTiers = new ConcurrentHashMap<>();
-    private final Map<String, Integer> employeeFunds = new ConcurrentHashMap<>();
     private final HardwareUpgradeService hardwareUpgradeService;
+    private final LedgerService ledgerService;
 
     public EvolutionManager(HardwareUpgradeService hardwareUpgradeService) {
         this.hardwareUpgradeService = hardwareUpgradeService;
+        this.ledgerService = null;
+    }
+
+    public EvolutionManager(HardwareUpgradeService hardwareUpgradeService, LedgerService ledgerService) {
+        this.hardwareUpgradeService = hardwareUpgradeService;
+        this.ledgerService = ledgerService;
+        log.info("EvolutionManager initialized with unified LedgerService");
     }
 
     public EvolutionTier determineTier(int balanceCents) {
@@ -106,7 +114,6 @@ public class EvolutionManager {
 
         if (oldTier != newTier) {
             employeeTiers.put(employeeId, newTier);
-            employeeFunds.put(employeeId, balanceCents);
             log.info("Employee {} tier changed: {} -> {} (balance: {} cents)", 
                 employeeId, oldTier, newTier, balanceCents);
 
@@ -115,27 +122,31 @@ public class EvolutionManager {
     }
 
     public int getAccumulatedFunds(String employeeId) {
-        return employeeFunds.getOrDefault(employeeId, 0);
+        if (ledgerService != null) {
+            return ledgerService.getBalance(employeeId);
+        }
+        return 0;
     }
 
     public void addFunds(String employeeId, int amountCents) {
-        int current = employeeFunds.getOrDefault(employeeId, 0);
-        int newBalance = current + amountCents;
-        employeeFunds.put(employeeId, newBalance);
-        updateEmployeeTier(employeeId, newBalance);
-        log.info("Added {} cents to employee {}. New balance: {}", amountCents, employeeId, newBalance);
+        if (ledgerService != null) {
+            ledgerService.recordReward(employeeId, amountCents, "Evolution fund addition");
+            updateEmployeeTier(employeeId, ledgerService.getBalance(employeeId));
+            log.info("Added {} cents to employee {}. New balance: {}", amountCents, employeeId, ledgerService.getBalance(employeeId));
+        }
     }
 
     public boolean deductFunds(String employeeId, int amountCents) {
-        int current = employeeFunds.getOrDefault(employeeId, 0);
-        if (current < amountCents) {
-            return false;
+        if (ledgerService != null) {
+            int current = ledgerService.getBalance(employeeId);
+            if (current < amountCents) {
+                return false;
+            }
+            updateEmployeeTier(employeeId, current - amountCents);
+            log.info("Deducted {} cents from employee {}. New balance: {}", amountCents, employeeId, current - amountCents);
+            return true;
         }
-        int newBalance = current - amountCents;
-        employeeFunds.put(employeeId, newBalance);
-        updateEmployeeTier(employeeId, newBalance);
-        log.info("Deducted {} cents from employee {}. New balance: {}", amountCents, employeeId, newBalance);
-        return true;
+        return false;
     }
 
     public EvolutionTier getTier(String employeeId) {

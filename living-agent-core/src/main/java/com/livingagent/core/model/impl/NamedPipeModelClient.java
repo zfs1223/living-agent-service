@@ -28,9 +28,10 @@ public class NamedPipeModelClient implements ModelClient {
     
     private static final Logger log = LoggerFactory.getLogger(NamedPipeModelClient.class);
     private static final int DEFAULT_TIMEOUT_MS = 60000;
-    private static final String CONTROL_REQUEST_PIPE = "/tmp/dialogue_daemon_control_request";
-    private static final String CONTROL_RESPONSE_PIPE = "/tmp/dialogue_daemon_control_response";
     
+    private final String controlRequestPipe;
+    private final String controlResponsePipe;
+    private final String sessionPipePrefix;
     private final ObjectMapper objectMapper;
     private final ConcurrentHashMap<String, ModelSession> sessions;
     private final ConcurrentHashMap<String, CompletableFuture<ModelResponse>> pendingRequests;
@@ -39,21 +40,36 @@ public class NamedPipeModelClient implements ModelClient {
     private final int timeoutMs;
     
     public NamedPipeModelClient() {
-        this("/opt/dialogue-service", DEFAULT_TIMEOUT_MS);
+        this("/opt/dialogue-service", DEFAULT_TIMEOUT_MS, "/tmp");
     }
     
     public NamedPipeModelClient(String daemonPath, int timeoutMs) {
+        this(daemonPath, timeoutMs, "/tmp");
+    }
+    
+    public NamedPipeModelClient(String daemonPath, int timeoutMs, String pipeDir) {
         this.objectMapper = new ObjectMapper();
         this.sessions = new ConcurrentHashMap<>();
         this.pendingRequests = new ConcurrentHashMap<>();
         this.connected = new AtomicBoolean(false);
         this.daemonPath = daemonPath;
         this.timeoutMs = timeoutMs;
+        this.controlRequestPipe = pipeDir + "/dialogue_daemon_control_request";
+        this.controlResponsePipe = pipeDir + "/dialogue_daemon_control_response";
+        this.sessionPipePrefix = pipeDir + "/dialogue_daemon";
+    }
+    
+    public String getControlRequestPipe() {
+        return controlRequestPipe;
+    }
+    
+    public String getControlResponsePipe() {
+        return controlResponsePipe;
     }
     
     @Override
     public boolean isConnected() {
-        return connected.get() && Files.exists(Paths.get(CONTROL_REQUEST_PIPE));
+        return connected.get() && Files.exists(Paths.get(controlRequestPipe));
     }
     
     @Override
@@ -135,7 +151,7 @@ public class NamedPipeModelClient implements ModelClient {
     public CompletableFuture<ModelResponse> sendControlRequest(ModelRequest request) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                return writeToPipe(CONTROL_REQUEST_PIPE, CONTROL_RESPONSE_PIPE, request);
+                return writeToPipe(controlRequestPipe, controlResponsePipe, request);
             } catch (Exception e) {
                 log.error("Error sending control request: {}", e.getMessage());
                 return ModelResponse.failure("Control communication error: " + e.getMessage());

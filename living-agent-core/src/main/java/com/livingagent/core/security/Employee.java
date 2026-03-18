@@ -16,6 +16,7 @@ public class Employee {
     private String position;
     private UserIdentity identity;
     private AccessLevel accessLevel;
+    private boolean founder;
     private Set<String> allowedBrains;
     private String voicePrintId;
     private String oauthProvider;
@@ -103,6 +104,9 @@ public class Employee {
 
     public AccessLevel getAccessLevel() { return accessLevel; }
     public void setAccessLevel(AccessLevel accessLevel) { this.accessLevel = accessLevel; }
+
+    public boolean isFounder() { return founder; }
+    public void setFounder(boolean founder) { this.founder = founder; }
 
     public Set<String> getAllowedBrains() { return allowedBrains; }
     public void setAllowedBrains(Set<String> allowedBrains) { this.allowedBrains = allowedBrains; }

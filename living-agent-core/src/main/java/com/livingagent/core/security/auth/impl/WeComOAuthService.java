@@ -1,7 +1,9 @@
 package com.livingagent.core.security.auth.impl;
 
+import com.livingagent.core.security.AccessLevel;
 import com.livingagent.core.security.Employee;
 import com.livingagent.core.security.UserIdentity;
+import com.livingagent.core.security.auth.FounderService;
 import com.livingagent.core.security.auth.OAuthService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,20 +30,26 @@ public class WeComOAuthService implements OAuthService {
     private final String corpId;
     private final String agentId;
     private final String corpSecret;
+    private final FounderService founderService;
     
     private String accessToken;
     private long tokenExpireTime;
     
     private final Map<String, Employee> employeeCache = new ConcurrentHashMap<>();
 
-    public WeComOAuthService(String corpId, String agentId, String corpSecret) {
+    public WeComOAuthService(String corpId, String agentId, String corpSecret, FounderService founderService) {
         this.corpId = corpId;
         this.agentId = agentId;
         this.corpSecret = corpSecret;
+        this.founderService = founderService;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(30))
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
+    }
+
+    public WeComOAuthService(String corpId, String agentId, String corpSecret) {
+        this(corpId, agentId, corpSecret, null);
     }
 
     @Override
@@ -181,11 +189,17 @@ public class WeComOAuthService implements OAuthService {
         employee.setPhone(userInfo.phone());
         employee.setDepartment(userInfo.department());
         employee.setPosition(userInfo.position());
-        employee.setIdentity(UserIdentity.INTERNAL_ACTIVE);
         employee.setOauthProvider("wecom");
         employee.setOauthUserId(userInfo.providerUserId());
         employee.setLastSyncTime(Instant.now());
         employee.setSyncSource("wecom_oauth");
+
+        if (founderService != null && founderService.isFirstUser()) {
+            founderService.assignFounderRole(employee);
+            log.info("First user detected, assigned Chairman role: {}", employee.getName());
+        } else {
+            employee.setIdentity(UserIdentity.INTERNAL_ACTIVE);
+        }
 
         employeeCache.put(cacheKey, employee);
 

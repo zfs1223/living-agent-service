@@ -311,14 +311,80 @@ employee://digital/sales/channel-manager/001  // 渠道经理
 
 ## 六、标准通道定义
 
+> **✅ 已实现会话隔离** (2026-03-17 更新)
+>
+> 通道ID现在包含 sessionId，确保不同会话的消息互不干扰。
+
 ```java
 public class NeuronCoordinator {
-    public static final String PERCEPTION_CHANNEL = "channel://perception";
-    public static final String DISPATCH_CHANNEL = "channel://dispatch";
-    public static final String TOOL_INTENT_CHANNEL = "channel://tool-intent";
-    public static final String RESPONSE_CHANNEL = "channel://response";
+    // 会话隔离的通道命名格式
+    private static final String PERCEPTION_CHANNEL_PREFIX = "channel://perception/";
+    private static final String DISPATCH_CHANNEL_PREFIX = "channel://dispatch/";
+    private static final String TOOL_INTENT_CHANNEL_PREFIX = "channel://tool-intent/";
+    private static final String RESPONSE_CHANNEL_PREFIX = "channel://response/";
+    
+    // 实际通道ID示例:
+    // channel://perception/session-a1b2c3d4
+    // channel://dispatch/session-a1b2c3d4
+    // channel://tool-intent/session-a1b2c3d4
+    // channel://response/session-a1b2c3d4
+    
+    /**
+     * 创建新会话，返回唯一的sessionId
+     * 每个会话拥有独立的通道集合
+     */
+    public String createSession() {
+        String sessionId = "session-" + UUID.randomUUID().toString().substring(0, 8);
+        // 创建会话专属通道...
+        return sessionId;
+    }
+    
+    /**
+     * 销毁会话，清理所有相关资源
+     */
+    public void destroySession(String sessionId) {
+        // 取消神经元订阅
+        // 销毁通道
+        // 清理会话状态
+    }
 }
 ```
+
+### 6.1 通道生命周期管理
+
+| 操作 | 说明 |
+|------|------|
+| `createSession()` | 创建新会话，生成唯一sessionId，创建会话专属通道 |
+| `destroySession(sessionId)` | 销毁会话，取消订阅，销毁通道，释放资源 |
+| `getOrCreateSession(sessionId)` | 获取或创建指定会话 |
+
+### 6.2 Kafka 消息中间件
+
+> **核心依赖** - Kafka 是神经元通讯的基础设施，支持进化信号的传递
+
+```yaml
+# docker-compose.yml
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    environment:
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_NUM_PARTITIONS: 3
+    depends_on:
+      - zookeeper
+```
+
+**Kafka 在进化系统中的作用:**
+- 进化信号 (EvolutionSignal) 的异步传递
+- 知识更新事件的发布/订阅
+- 系统事件的广播通知
+- 任务分发到不同大脑
 
 ---
 

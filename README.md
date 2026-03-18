@@ -1,17 +1,11 @@
 # Living Agent Service
 
-<div align="center">
+企业的"openclaw"
+完全个人思路，考虑到企业使用，所以设计是尽量按本地部署处理。因代码能力有限，所以一些功能还在完善中。希望能得到大佬的建议和帮助。
 
 **新一代企业级智能体服务平台**
 
-*神经元架构 · 自主进化 · 贾维斯模式*
-
-[!\[Java\](https://img.shields.io/badge/Java-21-orange.svg null)](https://openjdk.org/)
-[!\[Spring Boot\](https://img.shields.io/badge/Spring%20Boot-3.4-brightgreen.svg null)](https://spring.io/)
-[!\[Rust\](https://img.shields.io/badge/Rust-1.85-dea584.svg null)](https://www.rust-lang.org/)
-[!\[License\](https://img.shields.io/badge/License-Enterprise-blue.svg null)]()
-
-</div>
+*神经元架构 · 自主进化 *
 
 ***
 
@@ -132,7 +126,7 @@ L3: 共享知识库 (PostgreSQL+Qdrant)  → 通用知识、公司制度
 ├─────────────────────────────────────────────────────────────────────┤
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌────────────┐ │
 │  │  Gateway    │  │ Perception  │  │    Skill    │  │   Native   │ │
-│  │ WebSocket   │  │ ASR · TTS   │  │  50+ Skills │  │   Rust     │ │
+│  │ WebSocket   │  │ ASR · TTS   │  │  76 Skills │  │   Rust     │ │
 │  │ REST API    │  │ Text NLP    │  │ Hot Reload  │  │  JNI桥接   │ │
 │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └─────┬──────┘ │
 │         │                │                │                │        │
@@ -145,9 +139,9 @@ L3: 共享知识库 (PostgreSQL+Qdrant)  → 通用知识、公司制度
 │  └─────────────────────────────────────────────────────────────────┘ │
 ├─────────────────────────────────────────────────────────────────────┤
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌────────────┐ │
-│  │  Qwen3.5    │  │   Qwen3     │  │   BitNet    │  │   MemOS    │ │
-│  │   -27B      │  │   -0.6B     │  │   -1.58     │  │   2.0.7    │ │
-│  │  决策大脑   │  │  执行神经元  │  │  边缘推理   │  │  记忆系统  │ │
+│  │  Qwen3.5    │  │   Qwen3     │  │  Qwen3.5-2B │  │   MemOS    │ │
+│  │   -27B      │  │   -0.6B     │  │  /BitNet    │  │   2.0.7    │ │
+│  │  决策大脑   │  │  执行神经元  │  │  工具神经元  │  │  记忆系统  │ │
 │  └─────────────┘  └─────────────┘  └─────────────┘  └────────────┘ │
 ├─────────────────────────────────────────────────────────────────────┤
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌────────────┐ │
@@ -228,7 +222,7 @@ living-agent-service/
 
 ```bash
 # 克隆项目
-git clone https://github.com/your-org/living-agent-service.git
+git clone https://github.com/zfs1223/living-agent-service.git
 cd living-agent-service
 
 # 快速模式 (核心服务)
@@ -264,7 +258,7 @@ docker compose --profile full up -d
 | 知识积累 | 主动学习      | 自动进化 |
 | 协作方式 | 自然交互      | 管道通信 |
 
-### 50+ 企业级技能
+### 76个企业级技能
 
 预置丰富的企业级技能，支持热加载：
 
@@ -334,10 +328,5 @@ docker compose --profile full up -d
 
 ***
 
-<div align="center">
-
 **Living Agent Service** - 让AI成为企业真正的数字员工
 
-*Powered by Neuron Architecture*
-
-</div>

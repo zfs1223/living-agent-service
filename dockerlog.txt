@@ -1,0 +1,72 @@
+
+2026-03-17 14:41:07.298 |   .   ____          _            __ _ _
+2026-03-17 14:41:07.298 |  /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+2026-03-17 14:41:07.298 | ( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+2026-03-17 14:41:07.298 |  \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+2026-03-17 14:41:07.298 |   '  |____| .__|_| |_|_| |_\__, | / / / /
+2026-03-17 14:41:07.298 |  =========|_|==============|___/=/_/_/_/
+2026-03-17 14:41:07.298 | 
+2026-03-17 14:41:07.301 |  :: Spring Boot ::                (v3.4.0)
+2026-03-17 14:41:07.301 | 
+2026-03-17 14:41:07.381 | 2026-03-17T06:41:07.379Z  INFO 1 --- [living-agent-service] [           main] com.livingagent.LivingAgentApplication   : Starting LivingAgentApplication using Java 21.0.10 with PID 1 (/app/app.jar started by livingagent in /app)
+2026-03-17 14:41:07.381 | 2026-03-17T06:41:07.381Z DEBUG 1 --- [living-agent-service] [           main] com.livingagent.LivingAgentApplication   : Running with Spring Boot v3.4.0, Spring v6.2.0
+2026-03-17 14:41:07.382 | 2026-03-17T06:41:07.382Z  INFO 1 --- [living-agent-service] [           main] com.livingagent.LivingAgentApplication   : The following 1 profile is active: "prod"
+2026-03-17 14:41:08.199 | 2026-03-17T06:41:08.199Z  INFO 1 --- [living-agent-service] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Multiple Spring Data modules found, entering strict repository configuration mode
+2026-03-17 14:41:08.199 | 2026-03-17T06:41:08.199Z  INFO 1 --- [living-agent-service] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2026-03-17 14:41:08.311 | 2026-03-17T06:41:08.311Z  INFO 1 --- [living-agent-service] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 103 ms. Found 1 JPA repository interface.
+2026-03-17 14:41:08.322 | 2026-03-17T06:41:08.321Z  INFO 1 --- [living-agent-service] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Multiple Spring Data modules found, entering strict repository configuration mode
+2026-03-17 14:41:08.322 | 2026-03-17T06:41:08.321Z  INFO 1 --- [living-agent-service] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2026-03-17 14:41:08.329 | 2026-03-17T06:41:08.329Z  WARN 1 --- [living-agent-service] [           main] ConfigServletWebServerApplicationContext : Exception encountered during context initialization - cancelling refresh attempt: org.springframework.beans.factory.support.BeanDefinitionOverrideException: Invalid bean definition with name 'employeeRepository' defined in com.livingagent.core.database.repository.EmployeeRepository defined in @EnableJpaRepositories declared on LivingAgentApplication: Cannot register bean definition [Root bean: class=org.springframework.data.jpa.repository.support.JpaRepositoryFactoryBean; scope=; abstract=false; lazyInit=false; autowireMode=0; dependencyCheck=0; autowireCandidate=true; primary=false; fallback=false; factoryBeanName=null; factoryMethodName=null; initMethodNames=null; destroyMethodNames=null; defined in com.livingagent.core.database.repository.EmployeeRepository defined in @EnableJpaRepositories declared on LivingAgentApplication] for bean 'employeeRepository' since there is already [Root bean: class=org.springframework.data.jpa.repository.support.JpaRepositoryFactoryBean; scope=; abstract=false; lazyInit=false; autowireMode=0; dependencyCheck=0; autowireCandidate=true; primary=false; fallback=false; factoryBeanName=null; factoryMethodName=null; initMethodNames=null; destroyMethodNames=null; defined in com.livingagent.core.employee.repository.EmployeeRepository defined in @EnableJpaRepositories declared on LivingAgentCoreConfig] bound.
+2026-03-17 14:41:08.336 | 2026-03-17T06:41:08.335Z  INFO 1 --- [living-agent-service] [           main] .s.b.a.l.ConditionEvaluationReportLogger : 
+2026-03-17 14:41:08.336 | 
+2026-03-17 14:41:08.336 | Error starting ApplicationContext. To display the condition evaluation report re-run your application with 'debug' enabled.
+2026-03-17 14:41:08.357 | 2026-03-17T06:41:08.357Z ERROR 1 --- [living-agent-service] [           main] o.s.b.d.LoggingFailureAnalysisReporter   : 
+2026-03-17 14:41:08.357 | 
+2026-03-17 14:41:08.357 | ***************************
+2026-03-17 14:41:08.357 | APPLICATION FAILED TO START
+2026-03-17 14:41:08.357 | ***************************
+2026-03-17 14:41:08.357 | 
+2026-03-17 14:41:08.357 | Description:
+2026-03-17 14:41:08.357 | 
+2026-03-17 14:41:08.357 | The bean 'employeeRepository', defined in com.livingagent.core.database.repository.EmployeeRepository defined in @EnableJpaRepositories declared on LivingAgentApplication, could not be registered. A bean with that name has already been defined in com.livingagent.core.employee.repository.EmployeeRepository defined in @EnableJpaRepositories declared on LivingAgentCoreConfig and overriding is disabled.
+2026-03-17 14:41:08.357 | 
+2026-03-17 14:41:08.357 | Action:
+2026-03-17 14:41:08.357 | 
+2026-03-17 14:41:08.357 | Consider renaming one of the beans or enabling overriding by setting spring.main.allow-bean-definition-overriding=true
+2026-03-17 14:41:08.357 | 
+2026-03-17 14:42:10.703 | 
+2026-03-17 14:42:10.703 |   .   ____          _            __ _ _
+2026-03-17 14:42:10.703 |  /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+2026-03-17 14:42:10.703 | ( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+2026-03-17 14:42:10.703 |  \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+2026-03-17 14:42:10.703 |   '  |____| .__|_| |_|_| |_\__, | / / / /
+2026-03-17 14:42:10.703 |  =========|_|==============|___/=/_/_/_/
+2026-03-17 14:42:10.703 | 
+2026-03-17 14:42:10.707 |  :: Spring Boot ::                (v3.4.0)
+2026-03-17 14:42:10.707 | 
+2026-03-17 14:42:10.791 | 2026-03-17T06:42:10.789Z  INFO 1 --- [living-agent-service] [           main] com.livingagent.LivingAgentApplication   : Starting LivingAgentApplication using Java 21.0.10 with PID 1 (/app/app.jar started by livingagent in /app)
+2026-03-17 14:42:10.792 | 2026-03-17T06:42:10.792Z DEBUG 1 --- [living-agent-service] [           main] com.livingagent.LivingAgentApplication   : Running with Spring Boot v3.4.0, Spring v6.2.0
+2026-03-17 14:42:10.792 | 2026-03-17T06:42:10.792Z  INFO 1 --- [living-agent-service] [           main] com.livingagent.LivingAgentApplication   : The following 1 profile is active: "prod"
+2026-03-17 14:42:11.808 | 2026-03-17T06:42:11.808Z  INFO 1 --- [living-agent-service] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Multiple Spring Data modules found, entering strict repository configuration mode
+2026-03-17 14:42:11.808 | 2026-03-17T06:42:11.808Z  INFO 1 --- [living-agent-service] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2026-03-17 14:42:11.958 | 2026-03-17T06:42:11.957Z  INFO 1 --- [living-agent-service] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 136 ms. Found 1 JPA repository interface.
+2026-03-17 14:42:11.973 | 2026-03-17T06:42:11.972Z  INFO 1 --- [living-agent-service] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Multiple Spring Data modules found, entering strict repository configuration mode
+2026-03-17 14:42:11.973 | 2026-03-17T06:42:11.973Z  INFO 1 --- [living-agent-service] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2026-03-17 14:42:11.983 | 2026-03-17T06:42:11.983Z  WARN 1 --- [living-agent-service] [           main] ConfigServletWebServerApplicationContext : Exception encountered during context initialization - cancelling refresh attempt: org.springframework.beans.factory.support.BeanDefinitionOverrideException: Invalid bean definition with name 'employeeRepository' defined in com.livingagent.core.database.repository.EmployeeRepository defined in @EnableJpaRepositories declared on LivingAgentApplication: Cannot register bean definition [Root bean: class=org.springframework.data.jpa.repository.support.JpaRepositoryFactoryBean; scope=; abstract=false; lazyInit=false; autowireMode=0; dependencyCheck=0; autowireCandidate=true; primary=false; fallback=false; factoryBeanName=null; factoryMethodName=null; initMethodNames=null; destroyMethodNames=null; defined in com.livingagent.core.database.repository.EmployeeRepository defined in @EnableJpaRepositories declared on LivingAgentApplication] for bean 'employeeRepository' since there is already [Root bean: class=org.springframework.data.jpa.repository.support.JpaRepositoryFactoryBean; scope=; abstract=false; lazyInit=false; autowireMode=0; dependencyCheck=0; autowireCandidate=true; primary=false; fallback=false; factoryBeanName=null; factoryMethodName=null; initMethodNames=null; destroyMethodNames=null; defined in com.livingagent.core.employee.repository.EmployeeRepository defined in @EnableJpaRepositories declared on LivingAgentCoreConfig] bound.
+2026-03-17 14:42:11.990 | 2026-03-17T06:42:11.990Z  INFO 1 --- [living-agent-service] [           main] .s.b.a.l.ConditionEvaluationReportLogger : 
+2026-03-17 14:42:11.990 | 
+2026-03-17 14:42:11.990 | Error starting ApplicationContext. To display the condition evaluation report re-run your application with 'debug' enabled.
+2026-03-17 14:42:12.018 | 2026-03-17T06:42:12.018Z ERROR 1 --- [living-agent-service] [           main] o.s.b.d.LoggingFailureAnalysisReporter   : 
+2026-03-17 14:42:12.018 | 
+2026-03-17 14:42:12.018 | ***************************
+2026-03-17 14:42:12.018 | APPLICATION FAILED TO START
+2026-03-17 14:42:12.018 | ***************************
+2026-03-17 14:42:12.018 | 
+2026-03-17 14:42:12.018 | Description:
+2026-03-17 14:42:12.018 | 
+2026-03-17 14:42:12.018 | The bean 'employeeRepository', defined in com.livingagent.core.database.repository.EmployeeRepository defined in @EnableJpaRepositories declared on LivingAgentApplication, could not be registered. A bean with that name has already been defined in com.livingagent.core.employee.repository.EmployeeRepository defined in @EnableJpaRepositories declared on LivingAgentCoreConfig and overriding is disabled.
+2026-03-17 14:42:12.018 | 
+2026-03-17 14:42:12.018 | Action:
+2026-03-17 14:42:12.018 | 
+2026-03-17 14:42:12.018 | Consider renaming one of the beans or enabling overriding by setting spring.main.allow-bean-definition-overriding=true
+2026-03-17 14:42:12.018 | 

@@ -27,9 +27,11 @@ import com.livingagent.core.provider.impl.BitNetProvider;
 import com.livingagent.core.provider.impl.ProviderRegistryImpl;
 import com.livingagent.core.provider.impl.QwenProvider;
 import com.livingagent.core.provider.impl.TtsProvider;
-import com.livingagent.core.security.EmployeeService;
+import com.livingagent.core.employee.EmployeeService;
+import com.livingagent.core.employee.impl.EmployeeServiceImpl;
+import com.livingagent.core.employee.impl.JpaEmployeeServiceImpl;
+import com.livingagent.core.employee.repository.EmployeeRepository;
 import com.livingagent.core.security.PermissionService;
-import com.livingagent.core.security.impl.EmployeeServiceImpl;
 import com.livingagent.core.security.impl.PermissionServiceImpl;
 import com.livingagent.core.tool.Tool;
 import com.livingagent.core.tool.ToolRegistry;
@@ -61,6 +63,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
@@ -326,15 +329,33 @@ public class LivingAgentCoreConfig {
     }
 
     @Bean
-    public EmployeeService employeeService() {
-        log.info("Initializing EmployeeService");
-        return new EmployeeServiceImpl();
+    public EmployeeService employeeService(NeuronRegistry neuronRegistry, EmployeeRepository employeeRepository) {
+        log.info("Initializing EmployeeService with JPA persistence");
+        return new JpaEmployeeServiceImpl(employeeRepository, neuronRegistry);
     }
 
     @Bean
-    public PermissionService permissionService(EmployeeService employeeService) {
+    public com.livingagent.core.security.EmployeeService securityEmployeeService() {
+        log.info("Initializing SecurityEmployeeService");
+        return new com.livingagent.core.security.impl.EmployeeServiceImpl();
+    }
+
+    @Bean
+    public PermissionService permissionService(com.livingagent.core.security.EmployeeService securityEmployeeService) {
         log.info("Initializing PermissionService");
-        return new PermissionServiceImpl(employeeService);
+        return new PermissionServiceImpl(securityEmployeeService);
+    }
+
+    @Bean
+    public com.livingagent.core.security.voiceprint.VoicePrintService voicePrintService() {
+        log.info("Initializing VoicePrintService");
+        return new com.livingagent.core.security.voiceprint.impl.VoicePrintServiceImpl(null);
+    }
+
+    @Bean
+    public com.livingagent.core.security.auth.PhoneVerificationService phoneVerificationService() {
+        log.info("Initializing PhoneVerificationService");
+        return new com.livingagent.core.security.auth.PhoneVerificationService();
     }
 
     @Bean

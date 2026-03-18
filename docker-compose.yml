@@ -24,6 +24,9 @@ services:
       # Qdrant 连接
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
+      # Kafka 连接
+      - KAFKA_ENABLED=${KAFKA_ENABLED:-true}
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       # 数据路径
       - LIVING_AGENT_DATA_PATH=/app/data
       - LIVING_AGENT_SKILLS_PATH=/app/skills
@@ -36,12 +39,12 @@ services:
       - MEMOS_BASE_URL=http://memos:8381
       - MEMOS_DEFAULT_CUBE_ID=living-agent
       # 可选: 云端API (备用)
-      - TAVILY_API_KEY=${TAVILY_API_KEY:-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}
+      - TAVILY_API_KEY=${TAVILY_API_KEY:-tvly-dev-xxxxxxxxxxxxxxx}
       # - NOTION_API_KEY=${NOTION_API_KEY:ntn-dev-1234567890abcdef1234567890abcdef}
       # - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:slack-bot-token-1234567890abcdef1234567890abcdef}
       # 天气API (可选，有免费wttr.in兜底)
-      - WEATHER_QWEATHER_KEY=${WEATHER_QWEATHER_KEY:-a3eb51b642e44b298c694c95c4ddf2b6}
-      - WEATHER_OPENWEATHERMAP_KEY=${WEATHER_OPENWEATHERMAP_KEY:-28f6a4c55203fa1ccde2e703aaa1120c}
+      - WEATHER_QWEATHER_KEY=${WEATHER_QWEATHER_KEY:-xxxxxxxxxxxxxxxx}
+      - WEATHER_OPENWEATHERMAP_KEY=${WEATHER_OPENWEATHERMAP_KEY:-xxxxxxxxxxxxxx}
     volumes:
       # 数据持久化
       - living-agent-data:/app/data
@@ -59,10 +62,16 @@ services:
     networks:
       - living-agent-network
     depends_on:
-      crawl4ai:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      kafka:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8380/actuator/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8382/actuator/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -78,35 +87,35 @@ services:
   # ===========================================
   # Crawl4AI - 网页爬取辅助服务
   # ===========================================
-  crawl4ai:
-    image: unclecode/crawl4ai:latest
-    container_name: crawl4ai
-    hostname: crawl4ai
-    ports:
-      - "11235:11235"
-    environment:
+  #crawl4ai:
+    #image: unclecode/crawl4ai:latest
+    #container_name: crawl4ai
+  #  hostname: crawl4ai
+  #  ports:
+  #    - "11235:11235"
+  #  environment:
       # 使用本地 Ollama 模型
-      - LLM_PROVIDER=ollama/qwen2.5:latest
-      - LLM_BASE_URL=http://192.168.0.249:2025/v1
-      - LLM_TEMPERATURE=0.7
-    volumes:
-      - /dev/shm:/dev/shm
-      - crawl4ai-cache:/home/appuser/.cache
-    networks:
-      - living-agent-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11235/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 4G
-        reservations:
-          memory: 1G
+  #    - LLM_PROVIDER=ollama/qwen2.5:latest
+  #    - LLM_BASE_URL=http://192.168.0.249:2025/v1
+  #    - LLM_TEMPERATURE=0.7
+  #  volumes:
+  #    - /dev/shm:/dev/shm
+  #    - crawl4ai-cache:/home/appuser/.cache
+  #  networks:
+  #    - living-agent-network
+  #  healthcheck:
+  #    test: ["CMD", "curl", "-f", "http://localhost:11235/health"]
+  #    interval: 30s
+  #    timeout: 10s
+  #    retries: 3
+  #    start_period: 60s
+  #  restart: unless-stopped
+  #  deploy:
+  #    resources:
+  #      limits:
+  #        memory: 4G
+  #      reservations:
+  #        memory: 1G
 
   # ===========================================
   # MemOS - 记忆系统 (可选，完整模式)
@@ -118,7 +127,7 @@ services:
     container_name: living-agent-memos
     hostname: memos
     ports:
-      - "8381:8000"
+      - "8381:8381"
     env_file:
       - ../MemOS-2.0.7/.env
     environment:
@@ -158,8 +167,7 @@ services:
           memory: 4G
         reservations:
           memory: 2G
-    profiles:
-      - full
+
 
   # ===========================================
   # MemOS Neo4j - 图数据库 (可选，完整模式)
@@ -188,11 +196,10 @@ services:
       retries: 10
       start_period: 30s
     restart: unless-stopped
-    profiles:
-      - full
+
 
   # ===========================================
-  # PostgreSQL - 企业知识存储 (可选)
+  # PostgreSQL - 企业知识存储
   # ===========================================
   postgres:
     image: pgvector/pgvector:pg15
@@ -215,11 +222,9 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
-    profiles:
-      - full
 
   # ===========================================
-  # Qdrant - 向量数据库 (可选)
+  # Qdrant - 向量数据库
   # ===========================================
   qdrant:
     image: qdrant/qdrant:v1.15.3
@@ -241,11 +246,9 @@ services:
       timeout: 10s
       retries: 3
     restart: unless-stopped
-    profiles:
-      - full
 
   # ===========================================
-  # Redis - 分布式缓存 (可选)
+  # Redis - 分布式缓存
   # ===========================================
   redis:
     image: redis:7-alpine
@@ -263,8 +266,72 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
-    profiles:
-      - full
+
+  # ===========================================
+  # Zookeeper - Kafka 依赖
+  # ===========================================
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: living-agent-zookeeper
+    hostname: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+      - zookeeper-logs:/var/lib/zookeeper/log
+    networks:
+      - living-agent-network
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ===========================================
+  # Kafka - 神经元消息通讯
+  # ===========================================
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: living-agent-kafka
+    hostname: kafka
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_NUM_PARTITIONS: 3
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    networks:
+      - living-agent-network
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
 
 networks:
   living-agent-network:
@@ -293,3 +360,10 @@ volumes:
     name: living-agent-memos-neo4j-data
   memos-neo4j-logs:
     name: living-agent-memos-neo4j-logs
+  # Kafka volumes
+  zookeeper-data:
+    name: living-agent-zookeeper-data
+  zookeeper-logs:
+    name: living-agent-zookeeper-logs
+  kafka-data:
+    name: living-agent-kafka-data

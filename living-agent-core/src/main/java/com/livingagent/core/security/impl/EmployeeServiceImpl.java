@@ -251,6 +251,16 @@ public class EmployeeServiceImpl implements EmployeeService {
             .collect(Collectors.toList());
     }
 
+    @Override
+    public boolean hasAnyEmployee() {
+        return !employeeStore.isEmpty();
+    }
+
+    @Override
+    public boolean hasFounder() {
+        return employeeStore.values().stream().anyMatch(Employee::isFounder);
+    }
+
     private void updateIndexes(Employee employee) {
         String id = employee.getEmployeeId();
 

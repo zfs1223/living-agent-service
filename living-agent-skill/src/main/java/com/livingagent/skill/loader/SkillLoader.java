@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,6 +32,7 @@ public class SkillLoader {
     );
 
     private final SkillVetter skillVetter;
+    private final List<Skill> quarantinedSkillsCache = new ArrayList<>();
 
     @Autowired
     public SkillLoader(SkillVetter skillVetter) {
@@ -38,12 +40,16 @@ public class SkillLoader {
     }
 
     public List<Skill> loadSkillsFromDirectory(Path skillsDir) {
-        List<Skill> skills = new ArrayList<>();
-        List<Skill> quarantinedSkills = new ArrayList<>();
+        return loadSkillsWithResult(skillsDir).getSkills();
+    }
+
+    public SkillLoadResult loadSkillsWithResult(Path skillsDir) {
+        SkillLoadResult result = new SkillLoadResult();
+        quarantinedSkillsCache.clear();
         
         if (!Files.exists(skillsDir)) {
             log.warn("Skills directory does not exist: {}", skillsDir);
-            return skills;
+            return result;
         }
 
         try (Stream<Path> paths = Files.walk(skillsDir)) {
@@ -68,7 +74,9 @@ public class SkillLoader {
                             log.warn("Skill {} quarantined: {}", skill.getName(), vettingResult.summary());
                             skill.getMetadata().put("quarantined", true);
                             skill.getMetadata().put("vettingResult", vettingResult);
-                            quarantinedSkills.add(skill);
+                            skill.getMetadata().put("quarantinedAt", System.currentTimeMillis());
+                            result.addQuarantinedSkill(skill);
+                            quarantinedSkillsCache.add(skill);
                             continue;
                         }
                         
@@ -83,7 +91,7 @@ public class SkillLoader {
                         skill.setSkillPath(skillFile.getParent().toString());
                         skill.getMetadata().put("vettingId", vettingResult.vettingId());
                         skill.getMetadata().put("riskLevel", vettingResult.riskLevel().name());
-                        skills.add(skill);
+                        result.addSkill(skill);
                         log.debug("Loaded skill: {} -> {} (risk: {})", 
                             skill.getName(), skill.getTargetBrain(), vettingResult.riskLevel());
                     }
@@ -96,8 +104,16 @@ public class SkillLoader {
         }
 
         log.info("Loaded {} skills from {} ({} quarantined)", 
-            skills.size(), skillsDir, quarantinedSkills.size());
-        return skills;
+            result.getApprovedCount(), skillsDir, result.getQuarantinedCount());
+        return result;
+    }
+
+    public List<Skill> getQuarantinedSkills() {
+        return Collections.unmodifiableList(quarantinedSkillsCache);
+    }
+
+    public void clearQuarantinedSkills() {
+        quarantinedSkillsCache.clear();
     }
 
     public SkillImpl loadSkill(Path skillFile) throws IOException {
@@ -128,16 +144,26 @@ public class SkillLoader {
         Map<String, Object> metadata = new HashMap<>();
         String[] lines = frontmatter.split("\n");
         
-        for (String line : lines) {
-            line = line.trim();
+        int i = 0;
+        while (i < lines.length) {
+            String line = lines[i].trim();
             if (line.isEmpty() || line.startsWith("#")) {
+                i++;
                 continue;
             }
 
             Matcher matcher = YAML_KEY_VALUE_PATTERN.matcher(line);
             if (matcher.matches()) {
                 String key = matcher.group(1);
-                Object value = parseYamlValue(matcher.group(2));
+                String valueStr = matcher.group(2).trim();
+                Object value = parseYamlValueAdvanced(valueStr, lines, i);
+                
+                if (value instanceof ParseResult pr) {
+                    i = pr.nextLineIndex();
+                    value = pr.value();
+                } else {
+                    i++;
+                }
                 
                 switch (key) {
                     case "name":
@@ -146,16 +172,134 @@ public class SkillLoader {
                     case "description":
                         skill.setDescription((String) value);
                         break;
+                    case "version":
+                        skill.setVersion((String) value);
+                        break;
+                    case "author":
+                        skill.setAuthor((String) value);
+                        break;
                     default:
                         metadata.put(key, value);
                 }
+            } else {
+                i++;
             }
         }
 
         skill.setMetadata(metadata);
     }
 
-    private Object parseYamlValue(String value) {
+    private record ParseResult(Object value, int nextLineIndex) {}
+
+    private Object parseYamlValueAdvanced(String valueStr, String[] lines, int currentLine) {
+        if (valueStr == null || valueStr.isEmpty()) {
+            return "";
+        }
+
+        valueStr = valueStr.trim();
+        
+        if (isQuotedString(valueStr)) {
+            return unquoteString(valueStr);
+        }
+        
+        if (valueStr.equals("|") || valueStr.equals(">")) {
+            return parseMultilineString(lines, currentLine + 1, valueStr.equals(">"));
+        }
+        
+        if (valueStr.startsWith("[")) {
+            return parseYamlList(valueStr, lines, currentLine);
+        }
+        
+        if (valueStr.startsWith("{")) {
+            return parseYamlObject(valueStr);
+        }
+        
+        return parsePrimitiveAdvanced(valueStr);
+    }
+
+    private String parseMultilineString(String[] lines, int startLine, boolean folded) {
+        StringBuilder sb = new StringBuilder();
+        int i = startLine;
+        
+        while (i < lines.length) {
+            String line = lines[i];
+            if (line.isEmpty() || (!line.startsWith(" ") && !line.startsWith("\t"))) {
+                break;
+            }
+            
+            String content = line.trim();
+            if (folded) {
+                if (sb.length() > 0) {
+                    sb.append(" ");
+                }
+                sb.append(content);
+            } else {
+                if (sb.length() > 0) {
+                    sb.append("\n");
+                }
+                sb.append(content);
+            }
+            i++;
+        }
+        
+        return sb.toString();
+    }
+
+    private List<Object> parseYamlList(String valueStr, String[] lines, int currentLine) {
+        List<Object> list = new ArrayList<>();
+        
+        if (valueStr.equals("[]")) {
+            return list;
+        }
+        
+        if (valueStr.startsWith("[") && valueStr.endsWith("]")) {
+            String inner = valueStr.substring(1, valueStr.length() - 1).trim();
+            if (!inner.isEmpty()) {
+                for (String item : inner.split(",")) {
+                    list.add(parsePrimitiveAdvanced(item.trim()));
+                }
+            }
+            return list;
+        }
+        
+        int i = currentLine + 1;
+        while (i < lines.length) {
+            String line = lines[i].trim();
+            if (line.isEmpty() || (!line.startsWith("- ") && !line.startsWith("-\t"))) {
+                break;
+            }
+            
+            String item = line.substring(1).trim();
+            list.add(parsePrimitiveAdvanced(item));
+            i++;
+        }
+        
+        return list;
+    }
+
+    private Map<String, Object> parseYamlObject(String valueStr) {
+        Map<String, Object> map = new HashMap<>();
+        
+        if (valueStr.equals("{}")) {
+            return map;
+        }
+        
+        if (valueStr.startsWith("{") && valueStr.endsWith("}")) {
+            String inner = valueStr.substring(1, valueStr.length() - 1).trim();
+            if (!inner.isEmpty()) {
+                for (String pair : inner.split(",")) {
+                    String[] kv = pair.split(":", 2);
+                    if (kv.length == 2) {
+                        map.put(kv[0].trim(), parsePrimitiveAdvanced(kv[1].trim()));
+                    }
+                }
+            }
+        }
+        
+        return map;
+    }
+
+    private Object parsePrimitiveAdvanced(String value) {
         if (value == null || value.isEmpty()) {
             return "";
         }
@@ -166,34 +310,40 @@ public class SkillLoader {
             return unquoteString(value);
         }
         
-        if (isJsonObjectOrArray(value)) {
-            return value;
+        if ("null".equalsIgnoreCase(value) || "~".equals(value)) {
+            return null;
         }
         
-        return parsePrimitive(value);
-    }
-
-    private boolean isQuotedString(String value) {
-        return (value.startsWith("\"") && value.endsWith("\"")) 
-            || (value.startsWith("'") && value.endsWith("'"));
-    }
-
-    private String unquoteString(String value) {
-        return value.substring(1, value.length() - 1);
-    }
-
-    private boolean isJsonObjectOrArray(String value) {
-        return value.startsWith("{") || value.startsWith("[");
-    }
-
-    private Object parsePrimitive(String value) {
         if ("true".equalsIgnoreCase(value)) {
             return true;
         }
         if ("false".equalsIgnoreCase(value)) {
             return false;
         }
-        return value;
+        
+        try {
+            if (value.contains(".")) {
+                return Double.parseDouble(value);
+            } else {
+                long longValue = Long.parseLong(value);
+                if (longValue >= Integer.MIN_VALUE && longValue <= Integer.MAX_VALUE) {
+                    return (int) longValue;
+                }
+                return longValue;
+            }
+        } catch (NumberFormatException e) {
+            return value;
+        }
+    }
+    
+    private boolean isQuotedString(String value) {
+        return (value.startsWith("\"") && value.endsWith("\"")) 
+            || (value.startsWith("'") && value.endsWith("'"));
+    }
+    
+    private String unquoteString(String value) {
+        if (value.length() <= 2) return "";
+        return value.substring(1, value.length() - 1);
     }
 
     private String extractCategory(Path skillFile, Path skillsDir) {

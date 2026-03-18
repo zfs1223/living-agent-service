@@ -9,34 +9,35 @@ CREATE EXTENSION IF NOT EXISTS "pg_trgm";
 -- 企业权限管理表
 -- ============================================
 
--- 员工表
+-- 员工表 (支持数字员工和人类员工继承)
 CREATE TABLE IF NOT EXISTS employees (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    employee_id VARCHAR(50) UNIQUE NOT NULL,
+    id VARCHAR(36) PRIMARY KEY,
+    employee_type VARCHAR(20) NOT NULL DEFAULT 'DIGITAL',
     name VARCHAR(100) NOT NULL,
-    phone VARCHAR(20),
-    email VARCHAR(100),
     department VARCHAR(50),
+    status VARCHAR(20) DEFAULT 'ACTIVE',
     position VARCHAR(100),
-    identity VARCHAR(30) DEFAULT 'EXTERNAL_VISITOR',
-    access_level VARCHAR(20) DEFAULT 'CHAT_ONLY',
-    voice_print_id VARCHAR(100),
-    oauth_provider VARCHAR(50),
-    oauth_user_id VARCHAR(100),
-    join_date TIMESTAMP,
-    leave_date TIMESTAMP,
-    last_sync_time TIMESTAMP,
-    sync_source VARCHAR(50),
-    is_active BOOLEAN DEFAULT true,
-    metadata JSONB DEFAULT '{}',
+    hire_date DATE,
+    metadata TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    -- DigitalEmployeeEntity 字段
+    model VARCHAR(100),
+    brain_domain VARCHAR(50),
+    max_concurrent_tasks INTEGER,
+    skills TEXT,
+    capabilities TEXT,
+    
+    -- HumanEmployeeEntity 字段
+    email VARCHAR(100),
+    phone VARCHAR(20),
+    role VARCHAR(50)
 );
 
 CREATE INDEX idx_employees_department ON employees(department);
-CREATE INDEX idx_employees_identity ON employees(identity);
-CREATE INDEX idx_employees_phone ON employees(phone);
-CREATE INDEX idx_employees_email ON employees(email);
+CREATE INDEX idx_employees_status ON employees(status);
+CREATE INDEX idx_employees_type ON employees(employee_type);
 
 -- 访问审计日志表
 CREATE TABLE IF NOT EXISTS access_audit_logs (

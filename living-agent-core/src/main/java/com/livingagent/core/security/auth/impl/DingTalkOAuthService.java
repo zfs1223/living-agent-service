@@ -1,7 +1,9 @@
 package com.livingagent.core.security.auth.impl;
 
+import com.livingagent.core.security.AccessLevel;
 import com.livingagent.core.security.Employee;
 import com.livingagent.core.security.UserIdentity;
+import com.livingagent.core.security.auth.FounderService;
 import com.livingagent.core.security.auth.OAuthService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,17 +31,23 @@ public class DingTalkOAuthService implements OAuthService {
     private final String appKey;
     private final String appSecret;
     private final String corpId;
+    private final FounderService founderService;
     
     private final Map<String, Employee> employeeCache = new ConcurrentHashMap<>();
 
-    public DingTalkOAuthService(String appKey, String appSecret, String corpId) {
+    public DingTalkOAuthService(String appKey, String appSecret, String corpId, FounderService founderService) {
         this.appKey = appKey;
         this.appSecret = appSecret;
         this.corpId = corpId;
+        this.founderService = founderService;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(30))
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
+    }
+
+    public DingTalkOAuthService(String appKey, String appSecret, String corpId) {
+        this(appKey, appSecret, corpId, null);
     }
 
     @Override
@@ -159,11 +167,17 @@ public class DingTalkOAuthService implements OAuthService {
         employee.setPhone(userInfo.phone());
         employee.setDepartment(userInfo.department());
         employee.setPosition(userInfo.position());
-        employee.setIdentity(UserIdentity.INTERNAL_ACTIVE);
         employee.setOauthProvider("dingtalk");
         employee.setOauthUserId(userInfo.providerUserId());
         employee.setLastSyncTime(Instant.now());
         employee.setSyncSource("dingtalk_oauth");
+
+        if (founderService != null && founderService.isFirstUser()) {
+            founderService.assignFounderRole(employee);
+            log.info("First user detected, assigned Chairman role: {}", employee.getName());
+        } else {
+            employee.setIdentity(UserIdentity.INTERNAL_ACTIVE);
+        }
 
         employeeCache.put(cacheKey, employee);
 

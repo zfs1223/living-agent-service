@@ -99,4 +99,19 @@ public class SkillImpl implements Skill {
                 ", targetBrain='" + targetBrain + '\'' +
                 '}';
     }
+
+    
+    public void setVersion(String version) {
+        if (metadata == null) {
+            metadata = new HashMap<>();
+        }
+        metadata.put("version", version);
+    }
+    
+    public void setAuthor(String author) {
+        if (metadata == null) {
+            metadata = new HashMap<>();
+        }
+        metadata.put("author", author);
+    }
 }

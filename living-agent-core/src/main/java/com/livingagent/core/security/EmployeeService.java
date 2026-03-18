@@ -53,6 +53,10 @@ public interface EmployeeService {
 
     List<Employee> getEmployeesNeedingSync();
 
+    boolean hasAnyEmployee();
+
+    boolean hasFounder();
+
     enum ChangeType {
         RESIGN("离职"),
         JOIN("入职"),

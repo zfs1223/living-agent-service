@@ -34,6 +34,9 @@ public class SkillRegistryImpl implements SkillRegistry {
     private final Map<String, Skill> skillsByName = new ConcurrentHashMap<>();
     private final Map<String, List<Skill>> skillsByBrain = new ConcurrentHashMap<>();
     private final Map<String, List<Skill>> skillsByCategory = new ConcurrentHashMap<>();
+    
+    private volatile boolean isReloading = false;
+    private final Object reloadLock = new Object();
 
     @Autowired
     public SkillRegistryImpl(SkillLoader skillLoader) {
@@ -159,9 +162,101 @@ public class SkillRegistryImpl implements SkillRegistry {
 
     @Override
     public void reloadSkills() {
-        skillsByName.clear();
-        skillsByBrain.clear();
-        skillsByCategory.clear();
-        init();
+        synchronized (reloadLock) {
+            if (isReloading) {
+                log.warn("Skill reload already in progress, skipping...");
+                return;
+            }
+            isReloading = true;
+        }
+        
+        try {
+            log.info("Starting atomic skill reload...");
+            
+            Map<String, Skill> newSkillsByName = new ConcurrentHashMap<>();
+            Map<String, List<Skill>> newSkillsByBrain = new ConcurrentHashMap<>();
+            Map<String, List<Skill>> newSkillsByCategory = new ConcurrentHashMap<>();
+            
+            loadSkillsToMaps(newSkillsByName, newSkillsByBrain, newSkillsByCategory);
+            
+            synchronized (reloadLock) {
+                skillsByName.clear();
+                skillsByName.putAll(newSkillsByName);
+                
+                skillsByBrain.clear();
+                skillsByBrain.putAll(newSkillsByBrain);
+                
+                skillsByCategory.clear();
+                skillsByCategory.putAll(newSkillsByCategory);
+                
+                isReloading = false;
+            }
+            
+            log.info("Skill reload completed. Total skills: {}", skillsByName.size());
+            
+        } catch (Exception e) {
+            log.error("Failed to reload skills: {}", e.getMessage());
+            synchronized (reloadLock) {
+                isReloading = false;
+            }
+        }
+    }
+    
+    private void loadSkillsToMaps(
+            Map<String, Skill> nameMap,
+            Map<String, List<Skill>> brainMap,
+            Map<String, List<Skill>> categoryMap) {
+        
+        Path builtInSkillsPath = Path.of("src/main/resources/skills");
+        if (builtInSkillsPath.toFile().exists()) {
+            List<Skill> skills = skillLoader.loadSkillsFromDirectory(builtInSkillsPath);
+            addSkillsToMaps(skills, nameMap, brainMap, categoryMap);
+            log.info("Loaded {} built-in skills", skills.size());
+        }
+        
+        try {
+            Path configSkillsPath = Path.of(configPath);
+            if (configSkillsPath.toFile().exists()) {
+                List<Skill> skills = skillLoader.loadSkillsFromDirectory(configSkillsPath);
+                addSkillsToMaps(skills, nameMap, brainMap, categoryMap);
+                log.info("Loaded {} config skills", skills.size());
+            }
+        } catch (Exception e) {
+            log.warn("Failed to load config skills: {}", e.getMessage());
+        }
+        
+        try {
+            Path dataSkillsPath = Path.of(dataPath);
+            if (dataSkillsPath.toFile().exists()) {
+                List<Skill> skills = skillLoader.loadSkillsFromDirectory(dataSkillsPath);
+                addSkillsToMaps(skills, nameMap, brainMap, categoryMap);
+                log.info("Loaded {} data skills", skills.size());
+            }
+        } catch (Exception e) {
+            log.warn("Failed to load data skills: {}", e.getMessage());
+        }
+    }
+    
+    private void addSkillsToMaps(
+            List<Skill> skills,
+            Map<String, Skill> nameMap,
+            Map<String, List<Skill>> brainMap,
+            Map<String, List<Skill>> categoryMap) {
+        
+        for (Skill skill : skills) {
+            if (skill.getName() == null) continue;
+            
+            nameMap.put(skill.getName(), skill);
+            
+            String brain = skill.getTargetBrain();
+            if (brain != null) {
+                brainMap.computeIfAbsent(brain, k -> new ArrayList<>()).add(skill);
+            }
+            
+            String category = skill.getCategory();
+            if (category != null) {
+                categoryMap.computeIfAbsent(category, k -> new ArrayList<>()).add(skill);
+            }
+        }
     }
 }

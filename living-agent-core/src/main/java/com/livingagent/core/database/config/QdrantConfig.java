@@ -15,12 +15,12 @@ public class QdrantConfig {
 
     private static final Logger log = LoggerFactory.getLogger(QdrantConfig.class);
 
-    @Value("${qdrant.host:localhost}")
+    @Value("${qdrant.host}")
     private String host;
-
+    
     @Value("${qdrant.port:6333}")
     private int port;
-
+    
     @Value("${qdrant.grpc-port:6334}")
     private int grpcPort;
 

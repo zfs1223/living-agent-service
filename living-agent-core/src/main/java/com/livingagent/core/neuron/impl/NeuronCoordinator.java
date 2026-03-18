@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -14,34 +15,18 @@ import org.slf4j.LoggerFactory;
 import com.livingagent.core.channel.Channel;
 import com.livingagent.core.channel.ChannelMessage;
 import com.livingagent.core.channel.ChannelManager;
+import com.livingagent.core.channel.Channel.ChannelType;
 import com.livingagent.core.neuron.Neuron;
 import com.livingagent.core.neuron.NeuronRegistry;
 
-/**
- * NeuronCoordinator - 神经元协调器
- * 
- * 职责边界：
- * 1. 会话生命周期管理 - 创建、维护、销毁会话
- * 2. 通道编排 - 创建和管理会话相关的通道
- * 3. 神经元绑定 - 将神经元绑定到会话通道
- * 
- * 不负责：
- * - 意图识别和路由决策 (由 RouterNeuron 负责)
- * - 消息内容处理 (由各神经元负责)
- * 
- * 与 RouterNeuron 的关系：
- * - NeuronCoordinator 创建和管理通道基础设施
- * - RouterNeuron 基于用户部门信息进行路由决策
- * - 两者协作完成消息从用户到目标大脑的传递
- */
 public class NeuronCoordinator {
     
     private static final Logger log = LoggerFactory.getLogger(NeuronCoordinator.class);
     
-    public static final String PERCEPTION_CHANNEL = "channel://perception";
-    public static final String DISPATCH_CHANNEL = "channel://dispatch";
-    public static final String TOOL_INTENT_CHANNEL = "channel://tool-intent";
-    public static final String RESPONSE_CHANNEL = "channel://response";
+    private static final String PERCEPTION_CHANNEL_PREFIX = "channel://perception/";
+    private static final String DISPATCH_CHANNEL_PREFIX = "channel://dispatch/";
+    private static final String TOOL_INTENT_CHANNEL_PREFIX = "channel://tool-intent/";
+    private static final String RESPONSE_CHANNEL_PREFIX = "channel://response/";
     
     private final NeuronRegistry neuronRegistry;
     private final ChannelManager channelManager;
@@ -55,31 +40,30 @@ public class NeuronCoordinator {
         this.sessionStates = new ConcurrentHashMap<>();
     }
     
-    /**
-     * 创建会话 - 创建会话相关的通道和状态
-     */
     public String createSession() {
-        String sessionId = "session-" + System.currentTimeMillis();
-        
-        Channel perceptionChannel = channelManager.getOrCreateChannel(PERCEPTION_CHANNEL);
-        Channel dispatchChannel = channelManager.getOrCreateChannel(DISPATCH_CHANNEL);
-        Channel toolIntentChannel = channelManager.getOrCreateChannel(TOOL_INTENT_CHANNEL);
-        Channel responseChannel = channelManager.getOrCreateChannel(RESPONSE_CHANNEL);
-        
+        String sessionId = "session-" + UUID.randomUUID().toString().substring(0, 8);
         SessionState state = new SessionState(sessionId);
+        
+        Channel perceptionChannel = channelManager.create(
+            PERCEPTION_CHANNEL_PREFIX + sessionId, ChannelType.BROADCAST);
+        Channel dispatchChannel = channelManager.create(
+            DISPATCH_CHANNEL_PREFIX + sessionId, ChannelType.ROUND_ROBIN);
+        Channel toolIntentChannel = channelManager.create(
+            TOOL_INTENT_CHANNEL_PREFIX + sessionId, ChannelType.UNICAST);
+        Channel responseChannel = channelManager.create(
+            RESPONSE_CHANNEL_PREFIX + sessionId, ChannelType.BROADCAST);
+        
         state.setPerceptionChannel(perceptionChannel);
         state.setDispatchChannel(dispatchChannel);
         state.setToolIntentChannel(toolIntentChannel);
         state.setResponseChannel(responseChannel);
-        sessionStates.put(sessionId, state);
         
+        sessionStates.put(sessionId, state);
         log.info("Session created: {}", sessionId);
+        
         return sessionId;
     }
     
-    /**
-     * 绑定神经元到会话 - 将神经元订阅到会话通道
-     */
     public void bindNeuronToSession(String sessionId, String neuronId) {
         SessionState state = sessionStates.get(sessionId);
         if (state == null) {
@@ -94,20 +78,12 @@ public class NeuronCoordinator {
         });
     }
     
-    /**
-     * 发布用户输入 - 将用户输入发布到感知通道
-     * 
-     * 注意：此方法只负责消息发布，不负责路由决策
-     * 路由决策由 RouterNeuron 基于用户部门信息完成
-     */
-    public void processUserInput(String sessionId, String userInput, Map<String, Object> userContext) {
+    public void publishUserInput(String sessionId, String userInput, Map<String, Object> userContext) {
         SessionState state = sessionStates.get(sessionId);
         if (state == null) {
-            log.warn("No session state found for: {}", sessionId);
+            log.warn("No session state found for session: {}", sessionId);
             return;
         }
-        
-        Channel perceptionChannel = state.getPerceptionChannel();
         
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("sessionId", sessionId);
@@ -116,39 +92,48 @@ public class NeuronCoordinator {
         
         Map<String, Object> payload = new HashMap<>();
         payload.put("userInput", userInput);
+        payload.put("userContext", userContext);
         
-        ChannelMessage message = ChannelMessage.text(
-            perceptionChannel.getId(),
+        ChannelMessage message = new ChannelMessage(
+            state.getPerceptionChannel().getId(),
             "coordinator",
-            perceptionChannel.getId(),
+            "perception",
             sessionId,
-            userInput
+            ChannelMessage.MessageType.TEXT,
+            payload
         );
-        perceptionChannel.publish(message);
         
+        state.getPerceptionChannel().publish(message);
         log.debug("Published user input to perception channel for session: {}", sessionId);
     }
     
-    /**
-     * 获取会话状态
-     */
     public SessionState getSessionState(String sessionId) {
         return sessionStates.get(sessionId);
     }
     
-    /**
-     * 销毁会话 - 清理会话资源
-     */
     public void destroySession(String sessionId) {
         SessionState state = sessionStates.remove(sessionId);
         if (state != null) {
-            log.info("Session destroyed: {}", sessionId);
+            channelManager.destroy(PERCEPTION_CHANNEL_PREFIX + sessionId);
+            channelManager.destroy(DISPATCH_CHANNEL_PREFIX + sessionId);
+            channelManager.destroy(TOOL_INTENT_CHANNEL_PREFIX + sessionId);
+            channelManager.destroy(RESPONSE_CHANNEL_PREFIX + sessionId);
+            
+            state.setPerceptionChannel(null);
+            state.setDispatchChannel(null);
+            state.setToolIntentChannel(null);
+            state.setResponseChannel(null);
+            state.getUserContext().clear();
+            
+            log.info("Session destroyed and resources cleaned: {}", sessionId);
         }
     }
     
     public void shutdown() {
+        for (String sessionId : sessionStates.keySet()) {
+            destroySession(sessionId);
+        }
         coordinatorExecutor.shutdown();
-        sessionStates.clear();
         log.info("NeuronCoordinator shutdown complete");
     }
     

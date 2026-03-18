@@ -15,6 +15,7 @@ import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
@@ -32,13 +33,13 @@ public class OllamaProvider implements Provider {
     private RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     
-    @Value("${ai-models.ollama.base-url:http://192.168.0.6:2025}")
+    @Value("${ai-models.ollama.base-url}")
     private String baseUrl;
     
-    @Value("${ai-models.ollama.default-model:qwen3.5:9b}")
+    @Value("${ai-models.ollama.default-model}")
     private String defaultModel;
     
-    @Value("${ai-models.ollama.timeout:120000}")
+    @Value("${ai-models.ollama.timeout}")
     private int timeout;
     
     @Autowired
@@ -51,19 +52,19 @@ public class OllamaProvider implements Provider {
         this.baseUrl = baseUrl;
         this.defaultModel = defaultModel;
         this.timeout = timeout;
-        this.restTemplate = new RestTemplateBuilder()
-            .setConnectTimeout(java.time.Duration.ofMillis(timeout))
-            .setReadTimeout(java.time.Duration.ofMillis(timeout))
-            .build();
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(timeout);
+        factory.setReadTimeout(timeout);
+        this.restTemplate = new RestTemplate(factory);
         this.objectMapper = new ObjectMapper();
     }
     
     @PostConstruct
     public void init() {
-        this.restTemplate = new RestTemplateBuilder()
-            .setConnectTimeout(java.time.Duration.ofMillis(timeout))
-            .setReadTimeout(java.time.Duration.ofMillis(timeout))
-            .build();
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(timeout);
+        factory.setReadTimeout(timeout);
+        this.restTemplate = new RestTemplate(factory);
         log.info("OllamaProvider initialized with baseUrl={}, model={}, timeout={}ms", 
             baseUrl, defaultModel, timeout);
     }

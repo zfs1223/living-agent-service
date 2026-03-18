@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS enterprise_employees (
     position VARCHAR(64),
     identity VARCHAR(32) NOT NULL DEFAULT 'INTERNAL_ACTIVE',
     access_level VARCHAR(16) NOT NULL DEFAULT 'DEPARTMENT',
+    is_founder BOOLEAN DEFAULT FALSE,
     voice_print_id VARCHAR(64),
     oauth_provider VARCHAR(32),
     oauth_user_id VARCHAR(128),
@@ -67,6 +68,7 @@ CREATE INDEX idx_employees_department ON enterprise_employees(department_id);
 CREATE INDEX idx_employees_identity ON enterprise_employees(identity);
 CREATE INDEX idx_employees_access_level ON enterprise_employees(access_level);
 CREATE INDEX idx_employees_active ON enterprise_employees(active);
+CREATE INDEX idx_employees_founder ON enterprise_employees(is_founder);
 CREATE INDEX idx_employees_oauth ON enterprise_employees(oauth_provider, oauth_user_id);
 CREATE INDEX idx_employees_name_trgm ON enterprise_employees USING gin(name gin_trgm_ops);
 

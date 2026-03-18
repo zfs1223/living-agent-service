@@ -47,16 +47,21 @@ spring:
           min-idle: 5
   
   kafka:
+    enabled: ${KAFKA_ENABLED:true}
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     consumer:
       group-id: living-agent-group
       auto-offset-reset: earliest
       enable-auto-commit: false
+      max-poll-records: 100
     producer:
       acks: all
       retries: 3
       properties:
         enable.idempotence: true
+    listener:
+      auto-startup: ${KAFKA_ENABLED:true}
+      concurrency: 3
 
 logging:
   level:

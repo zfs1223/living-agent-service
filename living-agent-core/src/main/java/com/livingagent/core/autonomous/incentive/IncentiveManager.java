@@ -124,6 +124,12 @@ public class IncentiveManager {
         boolean success,
         double successRate,
         long completionTimeMs,
-        Instant completedAt
-    ) {}
+        Instant completedAt,
+        String taskDescription
+    ) {
+        public TaskResult(String taskId, String employeeId, int payoutCents, 
+                         boolean success, double successRate, long completionTimeMs, Instant completedAt) {
+            this(taskId, employeeId, payoutCents, success, successRate, completionTimeMs, completedAt, "Task completed");
+        }
+    }
 }

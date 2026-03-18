@@ -117,9 +117,16 @@ public class QwenProvider implements Provider {
         }
         
         if (!history.isEmpty()) {
-            ChatMessage lastMsg = request.messages().get(request.messages().size() - 1);
-            if ("user".equals(lastMsg.role())) {
-                prompt.append(lastMsg.content());
+            for (Map<String, String> msg : history) {
+                String msgRole = msg.get("role");
+                String msgContent = msg.get("content");
+                if ("user".equals(msgRole)) {
+                    prompt.append("User: ").append(msgContent).append("\n");
+                } else if ("assistant".equals(msgRole)) {
+                    prompt.append("Assistant: ").append(msgContent).append("\n");
+                } else if ("tool".equals(msgRole)) {
+                    prompt.append("Tool: ").append(msgContent).append("\n");
+                }
             }
         }
         
