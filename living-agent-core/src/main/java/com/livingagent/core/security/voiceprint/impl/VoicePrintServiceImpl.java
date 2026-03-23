@@ -33,6 +33,10 @@ public class VoicePrintServiceImpl implements VoicePrintService {
     }
 
     private void initializeCollection() {
+        if (vectorStore == null) {
+            log.info("VectorStore not available, using in-memory cache for voice prints");
+            return;
+        }
         try {
             vectorStore.createCollection(COLLECTION_NAME);
             log.info("Voice print collection initialized");
@@ -63,12 +67,14 @@ public class VoicePrintServiceImpl implements VoicePrintService {
         log.info("Enrolling voice print embedding for user: {}", userId);
 
         try {
-            Map<String, Object> payload = new HashMap<>();
-            payload.put("userId", userId);
-            payload.put("enrolledAt", Instant.now().toString());
-            payload.put("dimension", EMBEDDING_DIMENSION);
+            if (vectorStore != null) {
+                Map<String, Object> payload = new HashMap<>();
+                payload.put("userId", userId);
+                payload.put("enrolledAt", Instant.now().toString());
+                payload.put("dimension", EMBEDDING_DIMENSION);
 
-            vectorStore.upsertVector(COLLECTION_NAME, userId, embedding, payload);
+                vectorStore.upsertVector(COLLECTION_NAME, userId, embedding, payload);
+            }
 
             VoicePrintProfile existing = profileCache.get(userId);
             int enrollmentCount = existing != null ? existing.enrollmentCount() + 1 : 1;
@@ -117,28 +123,30 @@ public class VoicePrintServiceImpl implements VoicePrintService {
         log.debug("Identifying voice from embedding");
 
         try {
-            List<QdrantVectorStore.SearchResult> results = 
-                    vectorStore.search(COLLECTION_NAME, embedding, 1, (float) matchThreshold);
+            if (vectorStore != null) {
+                List<QdrantVectorStore.SearchResult> results = 
+                        vectorStore.search(COLLECTION_NAME, embedding, 1, (float) matchThreshold);
 
-            if (results.isEmpty()) {
-                log.debug("No matching voice print found");
-                return Optional.empty();
+                if (!results.isEmpty()) {
+                    QdrantVectorStore.SearchResult topResult = results.get(0);
+                    String userId = topResult.getId();
+
+                    VoicePrintProfile profile = profileCache.get(userId);
+                    String userName = profile != null ? profile.userName() : userId;
+
+                    log.info("Voice identified: {} with confidence {}", userId, topResult.getScore());
+
+                    return Optional.of(new VoicePrintMatch(
+                            userId,
+                            userName,
+                            topResult.getScore(),
+                            matchThreshold
+                    ));
+                }
             }
 
-            QdrantVectorStore.SearchResult topResult = results.get(0);
-            String userId = topResult.getId();
-
-            VoicePrintProfile profile = profileCache.get(userId);
-            String userName = profile != null ? profile.userName() : userId;
-
-            log.info("Voice identified: {} with confidence {}", userId, topResult.getScore());
-
-            return Optional.of(new VoicePrintMatch(
-                    userId,
-                    userName,
-                    topResult.getScore(),
-                    matchThreshold
-            ));
+            log.debug("No matching voice print found");
+            return Optional.empty();
 
         } catch (Exception e) {
             log.error("Failed to search voice prints: {}", e.getMessage());
@@ -186,7 +194,9 @@ public class VoicePrintServiceImpl implements VoicePrintService {
         log.info("Deleting voice print for user: {}", userId);
 
         try {
-            vectorStore.deleteVector(COLLECTION_NAME, userId);
+            if (vectorStore != null) {
+                vectorStore.deleteVector(COLLECTION_NAME, userId);
+            }
             profileCache.remove(userId);
             log.info("Voice print deleted for user: {}", userId);
             return true;

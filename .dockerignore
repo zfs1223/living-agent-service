@@ -57,4 +57,11 @@ Thumbs.db
 **/*Tests.java
 
 # Scripts (not needed in build)
-scripts/
+# Allow Python scripts for model daemon
+scripts/crawl4ai_client.py
+scripts/crawl4ai_usage_guide.py
+scripts/install-skills.sh
+scripts/install_skills.py
+# Keep Python model daemon scripts and entrypoint
+# scripts/python/
+# living-agent-app/entrypoint.sh

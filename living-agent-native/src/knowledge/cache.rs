@@ -2,7 +2,6 @@ use crate::knowledge::types::KnowledgeEntry;
 use lru::LruCache;
 use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::hash::Hash;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::{Duration, Instant};

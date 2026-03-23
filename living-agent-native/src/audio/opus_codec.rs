@@ -19,6 +19,7 @@ impl Default for OpusConfig {
     }
 }
 
+#[allow(dead_code)]
 pub struct OpusEncoder {
     encoder: opus::Encoder,
     config: OpusConfig,
@@ -70,6 +71,7 @@ impl OpusEncoder {
     }
 }
 
+#[allow(dead_code)]
 pub struct OpusDecoder {
     decoder: opus::Decoder,
     config: OpusConfig,
@@ -141,7 +143,7 @@ impl AudioFrame {
         if self.sample_rate == 0 {
             return 0;
         }
-        (self.samples.len() as u32 / self.sample_rate * 1000 / self.channels as u32)
+        self.samples.len() as u32 / self.sample_rate * 1000 / self.channels as u32
     }
     
     pub fn to_mono(&self) -> Self {

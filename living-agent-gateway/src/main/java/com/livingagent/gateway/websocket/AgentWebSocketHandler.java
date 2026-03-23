@@ -58,6 +58,7 @@ public class AgentWebSocketHandler extends TextWebSocketHandler {
             switch (type) {
                 case "text" -> handleTextMessage(session, request);
                 case "audio" -> handleAudioMessage(session, request);
+                case "audio_full" -> handleAudioFullChainMessage(session, request);
                 case "control" -> handleControlMessage(session, request);
                 default -> sendError(session, "Unknown message type: " + type);
             }
@@ -99,6 +100,28 @@ public class AgentWebSocketHandler extends TextWebSocketHandler {
             .exceptionally(e -> {
                 log.error("Error processing audio message", e);
                 sendError(session, "Audio processing error: " + e.getMessage());
+                return null;
+            });
+    }
+    
+    private void handleAudioFullChainMessage(WebSocketSession session, Map<String, Object> request) {
+        String audioData = (String) request.get("audio");
+        
+        if (audioData == null || audioData.isEmpty()) {
+            sendError(session, "Missing audio data");
+            return;
+        }
+        
+        log.info("[{}] Processing full audio chain", session.getId());
+        
+        agentService.processAudioFullChain(session.getId(), audioData)
+            .thenAccept(response -> {
+                sendMessage(session, response);
+                log.info("[{}] Full audio chain completed", session.getId());
+            })
+            .exceptionally(e -> {
+                log.error("[{}] Error processing full audio chain", session.getId(), e);
+                sendError(session, "Full chain processing error: " + e.getMessage());
                 return null;
             });
     }

@@ -1,9 +1,10 @@
 use crate::channel::{ChannelError, ChannelConfig};
-use crossbeam::channel::{self, Sender, Receiver, TryRecvError, TrySendError, RecvTimeoutError};
+use crossbeam::channel::{self, Sender, Receiver, TryRecvError, RecvTimeoutError};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use parking_lot::RwLock;
 
+#[allow(dead_code)]
 pub struct BroadcastChannel<T> {
     name: String,
     subscribers: Arc<RwLock<Vec<Sender<T>>>>,
@@ -16,6 +17,7 @@ pub struct BroadcastSender<T> {
     closed: Arc<AtomicBool>,
 }
 
+#[allow(dead_code)]
 pub struct BroadcastReceiver<T> {
     receiver: Receiver<T>,
     closed: Arc<AtomicBool>,

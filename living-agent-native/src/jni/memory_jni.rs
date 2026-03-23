@@ -1,9 +1,8 @@
-use jni::objects::{JClass, JString, JObject, JValue, JByteArray};
+use jni::objects::{JClass, JString};
 use jni::sys::{jstring, jlong, jint};
 use jni::Env;
-use jni::strings::JNIString;
 use crate::memory::{MemoryBackend, MemoryConfig, MemoryEntry, MemoryCategory, MemoryQuery};
-use crate::jni::{jstring_to_string, string_to_jstring, jbyte_array_to_bytes};
+use crate::jni::{jstring_to_string, string_to_jstring};
 
 #[no_mangle]
 pub extern "system" fn Java_com_livingagent_native_MemoryNative_createBackend(

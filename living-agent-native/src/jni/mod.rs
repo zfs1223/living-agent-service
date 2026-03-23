@@ -1,3 +1,5 @@
+#![allow(improper_ctypes_definitions)]
+
 mod audio_jni;
 mod channel_jni;
 mod security_jni;
@@ -10,10 +12,9 @@ pub use security_jni::*;
 pub use memory_jni::*;
 pub use knowledge_jni::*;
 
-use jni::objects::{JByteArray, JClass, JString, JObject, JValue};
-use jni::sys::{jstring, jlong, jint, jboolean, jfloat};
+use jni::objects::{JByteArray, JString};
+use jni::sys::jstring;
 use jni::Env;
-use jni::strings::JNIString;
 
 pub fn jstring_to_string(env: &mut Env, jstr: JString) -> Result<String, String> {
     jstr.mutf8_chars(env)

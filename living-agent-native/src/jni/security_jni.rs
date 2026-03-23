@@ -1,7 +1,6 @@
-use jni::objects::{JClass, JString, JObject, JValue};
-use jni::sys::{jstring, jlong, jint};
+use jni::objects::{JClass, JString};
+use jni::sys::{jlong, jint};
 use jni::Env;
-use jni::strings::JNIString;
 use crate::security::{SecurityValidator, SecurityContext, SecurityLevel};
 use crate::jni::jstring_to_string;
 

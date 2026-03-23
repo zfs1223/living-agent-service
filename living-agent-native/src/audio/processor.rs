@@ -28,6 +28,7 @@ impl Default for AudioConfig {
     }
 }
 
+#[allow(dead_code)]
 pub struct AudioProcessor {
     config: AudioConfig,
     opus_decoder: Option<OpusDecoder>,
@@ -45,10 +46,16 @@ struct AudioStatsInner {
 
 impl AudioProcessor {
     pub fn new(config: AudioConfig) -> Result<Self> {
+        let frame_size_ms = if config.sample_rate > 0 {
+            (config.frame_size as u32 * 1000) / config.sample_rate
+        } else {
+            20
+        };
+        
         let opus_config = OpusConfig {
             sample_rate: config.sample_rate,
             channels: config.channels,
-            frame_size_ms: 20,
+            frame_size_ms,
             ..Default::default()
         };
         

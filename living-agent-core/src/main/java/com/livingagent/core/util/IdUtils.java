@@ -46,7 +46,7 @@ public final class IdUtils {
         Objects.requireNonNull(role, "role cannot be null");
         Objects.requireNonNull(instance, "instance cannot be null");
         return String.format("%sdigital/%s/%s/%s", EMPLOYEE_PREFIX, 
-            department.toLowerCase(), role.toLowerCase(), instance);
+            sanitizePathSegment(department), sanitizePathSegment(role), sanitizePathSegment(instance));
     }
 
     public static String generateNeuronId(String department, String role, String instance) {
@@ -54,7 +54,12 @@ public final class IdUtils {
         Objects.requireNonNull(role, "role cannot be null");
         Objects.requireNonNull(instance, "instance cannot be null");
         return String.format("%s%s/%s/%s", NEURON_PREFIX, 
-            department.toLowerCase(), role.toLowerCase(), instance);
+            sanitizePathSegment(department), sanitizePathSegment(role), sanitizePathSegment(instance));
+    }
+
+    private static String sanitizePathSegment(String segment) {
+        if (segment == null) return null;
+        return segment.replace("/", "-").replace("\\", "-");
     }
 
     public static String generateChannelId(String scope, String name) {

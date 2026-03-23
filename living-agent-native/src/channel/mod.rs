@@ -7,7 +7,6 @@ pub use broadcast_channel::{BroadcastChannel, BroadcastSender, BroadcastReceiver
 pub use message::{ChannelMessage, MessagePriority, MessageType};
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChannelConfig {

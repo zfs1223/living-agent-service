@@ -326,4 +326,27 @@ public class ModelManagerImpl implements ModelManager {
                 return null;
             });
     }
+    
+    @Override
+    public CompletableFuture<ModelResponse> processChatWithIntent(String sessionId, String userInput, List<Map<String, String>> history) {
+        ModelRequest request = ModelRequest.builder()
+            .service("chat")
+            .param("prompt", userInput)
+            .param("history", history)
+            .build();
+        
+        return executeWithSession(sessionId, request);
+    }
+    
+    @Override
+    public CompletableFuture<ModelResponse> synthesizeSpeechRaw(String sessionId, String text, String language, double speed) {
+        ModelRequest request = ModelRequest.builder()
+            .service("tts")
+            .param("text", text)
+            .param("language", language != null ? language : "zh")
+            .param("speed", speed > 0 ? speed : 1.0)
+            .build();
+        
+        return executeWithSession(sessionId, request);
+    }
 }

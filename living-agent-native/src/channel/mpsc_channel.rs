@@ -2,8 +2,8 @@ use crate::channel::{ChannelError, ChannelConfig};
 use crossbeam::channel::{self, Sender, Receiver, TryRecvError, TrySendError, RecvTimeoutError};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use parking_lot::RwLock;
 
+#[allow(dead_code)]
 pub struct MpscChannel<T> {
     name: String,
     sender: Sender<T>,
@@ -17,6 +17,7 @@ pub struct MpscSender<T> {
     closed: Arc<AtomicBool>,
 }
 
+#[allow(dead_code)]
 pub struct MpscReceiver<T> {
     receiver: Receiver<T>,
     closed: Arc<AtomicBool>,

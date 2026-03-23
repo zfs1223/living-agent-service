@@ -1,9 +1,8 @@
-use crate::knowledge::types::{KnowledgeEntry, KnowledgeStats, KnowledgeType, Importance, Validity, KnowledgeMetadata};
+use crate::knowledge::types::{KnowledgeEntry, KnowledgeType};
 use crate::knowledge::similarity::{cosine_similarity, euclidean_distance};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 

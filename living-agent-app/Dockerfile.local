@@ -49,6 +49,9 @@ LABEL maintainer="Living Agent Team"
 LABEL description="AI Enterprise Management Agent Service - Offline Build"
 LABEL version="1.0.0"
 
+# 切换回 root 用户进行安装
+USER root
+
 # 设置工作目录
 WORKDIR /app
 
@@ -67,18 +70,57 @@ RUN --mount=type=bind,source=image,target=/tmp/image \
 # 复制技能目录
 COPY living-agent-skill/src/main/resources/skills /app/skills
 
-# 解压本地 Python wheels 并安装 (优先本地，缺失时从网络下载)
+# 解压本地 Python wheels 并安装 (包含基础依赖和 AI 模型依赖)
+# 离线部署: 使用 --no-index 强制只使用本地 wheel，禁止网络下载
+# 先安装 setuptools/wheel 以便编译源码包
 COPY image/python-wheels.tar /tmp/
 RUN mkdir -p /tmp/wheels && \
-    cd /tmp/wheels && \
-    tar -xvf /tmp/python-wheels.tar || true && \
-    pip3 install --no-cache-dir --break-system-packages --find-links=/tmp/wheels \
+    tar -xf /tmp/python-wheels.tar -C /tmp/wheels && \
+    echo "=== Installing build tools first ===" && \
+    pip3 install --no-cache-dir --break-system-packages --no-index --find-links=/tmp/wheels setuptools wheel && \
+    echo "=== Installing Python packages from local wheels (offline) ===" && \
+    pip3 install --no-cache-dir --break-system-packages --no-index --find-links=/tmp/wheels \
         pypdf pdfplumber python-docx openpyxl python-pptx huggingface-hub requests beautifulsoup4 lxml \
-    && rm -rf /tmp/wheels /tmp/python-wheels.tar || true
+        sherpa-ncnn soundfile scipy numpy \
+        torch torchaudio transformers \
+        librosa Unidecode phonemizer \
+        cn2an eng-to-ipa jieba pypinyin \
+        mecab-python3 fugashi jaconv \
+        nltk unidic-lite num2words pykakasi g2p-en anyascii jamo gruut g2pkk pydub inflect langid loguru cached-path python-mecab-ko python-mecab-ko-dic \
+    && echo "=== Verifying installations ===" && \
+    python3 -c "import numpy; print(f'numpy: {numpy.__version__}')" && \
+    python3 -c "import scipy; print(f'scipy: {scipy.__version__}')" && \
+    python3 -c "import soundfile; print('soundfile: OK')" && \
+    python3 -c "import sherpa_ncnn; print('sherpa_ncnn: OK')" && \
+    rm -rf /tmp/wheels /tmp/python-wheels.tar
+
+# 复制 NLTK 数据 (MeloTTS 需要)
+COPY image/nltk_data /opt/nltk_data
+ENV NLTK_DATA=/opt/nltk_data
+
+# 安装预编译的 llama.cpp (支持 Qwen3.5)
+# 运行 python image/build_llama_cpp.py 预编译
+COPY image/llama-cpp-built.tar /tmp/
+RUN cd /tmp && \
+    mkdir -p /opt/llama.cpp && \
+    cd /opt/llama.cpp && \
+    tar -xvf /tmp/llama-cpp-built.tar && \
+    rm /tmp/llama-cpp-built.tar
+
+# 设置 llama.cpp 环境变量
+ENV LLAMA_CPP_PATH=/opt/llama.cpp
+ENV PATH="${LLAMA_CPP_PATH}/build/bin:${PATH}"
+
+# 复制模型守护进程脚本
+COPY scripts/python /opt/python_scripts
+
+# 复制启动脚本 (在切换用户之前设置权限)
+COPY living-agent-app/entrypoint.sh /app/entrypoint.sh
 
 # 设置权限 (基础镜像已配置 livingagent 用户)
 RUN mkdir -p /app/data /app/logs /app/lib && \
-    chown -R livingagent:livingagent /app 2>/dev/null || true
+    chmod +x /app/entrypoint.sh /opt/python_scripts/*.py 2>/dev/null || true && \
+    chown -R livingagent:livingagent /app /opt/python_scripts 2>/dev/null || true
 
 # 设置环境变量
 ENV LIVING_AGENT_DATA_PATH=/app/data \
@@ -100,5 +142,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
 # JVM 选项
 ENV JAVA_OPTS="-Xms512m -Xmx1536m -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
 
-# 启动应用
-ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
+# 启动应用 (使用启动脚本，先启动模型守护进程)
+ENTRYPOINT ["/app/entrypoint.sh"]

@@ -18,6 +18,8 @@ public class AudioNative {
     
     public static native byte[] applyGain(byte[] pcmData, float gainDb);
     
+    public static native String getStats(long handle);
+    
     public static class Processor implements AutoCloseable {
         
         private final long handle;
@@ -28,6 +30,10 @@ public class AudioNative {
             if (this.handle == 0) {
                 throw new RuntimeException("Failed to create audio processor");
             }
+        }
+        
+        public Processor() {
+            this(16000, 1, 960, true);
         }
         
         public byte[] decodeOpus(byte[] opusData) {
@@ -43,6 +49,11 @@ public class AudioNative {
         public boolean detectVoiceActivity(byte[] pcmData) {
             checkClosed();
             return AudioNative.detectVoiceActivity(handle, pcmData);
+        }
+        
+        public String getStats() {
+            checkClosed();
+            return AudioNative.getStats(handle);
         }
         
         private void checkClosed() {

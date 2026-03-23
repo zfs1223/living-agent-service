@@ -46,4 +46,8 @@ public interface ModelManager {
     CompletableFuture<String> chatAsync(String modelId, String prompt);
     
     CompletableFuture<String> chatWithImageAsync(String modelId, String prompt, String imageUrl);
+    
+    CompletableFuture<ModelResponse> processChatWithIntent(String sessionId, String userInput, List<Map<String, String>> history);
+    
+    CompletableFuture<ModelResponse> synthesizeSpeechRaw(String sessionId, String text, String language, double speed);
 }

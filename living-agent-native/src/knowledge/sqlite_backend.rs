@@ -3,7 +3,6 @@ use crate::knowledge::types::{
     KnowledgeMetadata, KnowledgeStats,
 };
 use rusqlite::{Connection, params, OptionalExtension};
-use std::path::PathBuf;
 use std::sync::Mutex;
 use anyhow::Result;
 
@@ -24,6 +23,7 @@ impl Default for MemoryConfig {
     }
 }
 
+#[allow(dead_code)]
 pub struct SQLiteKnowledgeBackend {
     conn: Mutex<Connection>,
     config: MemoryConfig,

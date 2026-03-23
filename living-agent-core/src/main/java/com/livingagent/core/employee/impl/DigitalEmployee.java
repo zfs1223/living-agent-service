@@ -26,6 +26,8 @@ public class DigitalEmployee implements Employee {
     private final List<String> tools;
     private final AccessLevel accessLevel;
     private final UserIdentity identity;
+    private final AccessType accessType;
+    private final boolean isPublic;
     
     private EmployeePersonality personality;
     private EmployeeStatus status;
@@ -58,6 +60,8 @@ public class DigitalEmployee implements Employee {
         this.tools = Collections.unmodifiableList(builder.tools);
         this.accessLevel = builder.accessLevel;
         this.identity = builder.identity;
+        this.accessType = builder.accessType;
+        this.isPublic = builder.isPublic;
         this.personality = builder.personality;
         this.status = builder.status;
         this.subscribeChannels = Collections.unmodifiableList(builder.subscribeChannels);
@@ -188,6 +192,10 @@ public class DigitalEmployee implements Employee {
 
     public String getNeuronId() { return neuronId; }
     
+    public AccessType getAccessType() { return accessType; }
+    
+    public boolean isPublic() { return isPublic; }
+    
     public void setPersonality(EmployeePersonality personality) {
         this.personality = personality;
     }
@@ -229,6 +237,8 @@ public class DigitalEmployee implements Employee {
         private List<String> tools = new ArrayList<>();
         private AccessLevel accessLevel = AccessLevel.DEPARTMENT;
         private UserIdentity identity = UserIdentity.INTERNAL_ACTIVE;
+        private AccessType accessType = AccessType.DEPARTMENT;
+        private boolean isPublic = false;
         
         private EmployeePersonality personality;
         private EmployeeStatus status = EmployeeStatus.ACTIVE;
@@ -336,6 +346,17 @@ public class DigitalEmployee implements Employee {
 
         public Builder identity(UserIdentity identity) {
             this.identity = identity;
+            return this;
+        }
+
+        public Builder accessType(AccessType accessType) {
+            this.accessType = accessType;
+            this.isPublic = accessType.isPublicAccess();
+            return this;
+        }
+
+        public Builder isPublic(boolean isPublic) {
+            this.isPublic = isPublic;
             return this;
         }
 

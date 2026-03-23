@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # ===========================================
   # Living Agent Service - 主服务
@@ -33,6 +31,11 @@ services:
       # 本地AI模型路径
       - AI_MODELS_PATH=/app/ai-models
       - PYTHON_SCRIPTS_PATH=/opt/python_scripts
+      # 模型守护进程配置
+      - SHERPA_MODEL_DIR=/app/ai-models/sherpa-ncnn/sherpa-ncnn-sense-voice-zh-en-ja-ko-yue-2025-09-09
+      - QWEN3_MODEL_FILE=/app/ai-models/Qwen3-0.6B-GGUF/Qwen3-0.6B-Q8_0.gguf
+      - QWEN35_MODEL_FILE=/app/ai-models/Qwen3.5-2B-GGUF/Qwen3.5-2B-Q4_K_M.gguf
+      - MELOTTS_MODEL_DIR=/app/ai-models/MeloTTS
       # 爬虫服务
       #- LIVING_AGENT_CRAWL4AI_URL=http://crawl4ai:11235
       # MemOS 记忆系统
@@ -80,7 +83,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 4G
+          memory: 8G
         reservations:
           memory: 2G
 

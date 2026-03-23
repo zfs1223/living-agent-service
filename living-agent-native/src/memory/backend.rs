@@ -21,6 +21,7 @@ impl Default for MemoryConfig {
     }
 }
 
+#[allow(dead_code)]
 pub struct MemoryBackend {
     conn: Mutex<Connection>,
     config: MemoryConfig,

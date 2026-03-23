@@ -80,7 +80,7 @@
 │         ▼                                                                   │
 │  ┌─────────────┐                                                            │
 │  │  MINIMAL    │  最低功耗模式                                               │
-│  │  基础状态   │  ├── 当前模型: BitNet-1.58-3B (最低功耗)                     │
+│  │  基础状态   │  ├── 当前模型: qwen3.5-2b/BitNet-1.58-3B (最低功耗)                     │
 │  │  ($0)       │  ├── 只处理高价值任务                                       │
 │  └─────────────┘  └── 持续运行，等待收益                                     │
 │                                                                             │
@@ -445,7 +445,7 @@ public class EvolutionManager {
                 
             case MINIMAL:
                 // 最低功耗模式: 只处理高价值任务
-                employee.setInferenceModel("bitnet-1.58-3b");
+                employee.setInferenceModel("qwen3.5-2b");
                 employee.setHeartbeatInterval(Duration.ofHours(1));
                 employee.setMaxConcurrentTasks(1);
                 employee.setMinPayoutThreshold(50_00); // $50以上任务
