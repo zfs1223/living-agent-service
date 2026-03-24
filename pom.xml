@@ -211,6 +211,10 @@
                     <configuration>
                         <source>${java.version}</source>
                         <target>${java.version}</target>
+                        <parameters>true</parameters>
+                        <compilerArgs>
+                            <arg>-parameters</arg>
+                        </compilerArgs>
                         <annotationProcessorPaths>
                             <path>
                                 <groupId>org.projectlombok</groupId>

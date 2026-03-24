@@ -196,6 +196,7 @@ public class BitNetNeuron implements Neuron {
         if (running.compareAndSet(false, true)) {
             state = NeuronState.ACTIVE;
             executionThread = new Thread(this::executionLoop, "bitnet-neuron-" + neuronId);
+            executionThread.setDaemon(true);
             executionThread.start();
             log.info("BitNetNeuron {} started", neuronId);
         }

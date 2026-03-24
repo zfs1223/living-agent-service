@@ -1,11 +1,14 @@
 package com.livingagent.gateway.controller;
 
-import com.livingagent.core.security.AccessLevel;
 import com.livingagent.core.security.Employee;
 import com.livingagent.core.security.UserIdentity;
+import com.livingagent.core.security.AccessLevel;
 import com.livingagent.core.security.auth.FounderService;
 import com.livingagent.gateway.service.SystemConfigService;
 import com.livingagent.gateway.service.SystemConfigService.*;
+import com.livingagent.core.security.auth.UnifiedAuthService;
+import com.livingagent.core.security.auth.UnifiedAuthService.AuthResult;
+import com.livingagent.core.security.auth.UnifiedAuthService.AuthSession;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -23,10 +26,12 @@ public class SystemController {
 
     private final FounderService founderService;
     private final SystemConfigService configService;
+    private final UnifiedAuthService authService;
 
-    public SystemController(FounderService founderService, SystemConfigService configService) {
+    public SystemController(FounderService founderService, SystemConfigService configService, UnifiedAuthService authService) {
         this.founderService = founderService;
         this.configService = configService;
+        this.authService = authService;
     }
 
     @GetMapping("/status")
@@ -75,11 +80,15 @@ public class SystemController {
 
         log.info("Registered founder: {} ({})", founder.getName(), founder.getEmail());
 
+        AuthResult authResult = authService.createInternalSession(founder);
+        AuthSession session = authResult.session();
+
         RegistrationResult result = new RegistrationResult(
                 founder.getEmployeeId(),
                 founder.getName(),
                 founder.getIdentity().name(),
-                founder.getAccessLevel().name()
+                founder.getAccessLevel().name(),
+                session.sessionId()
         );
 
         return ResponseEntity.ok(ApiResponse.success(result));
@@ -163,6 +172,7 @@ public class SystemController {
             String employeeId,
             String name,
             String identity,
-            String accessLevel
+            String accessLevel,
+            String sessionId
     ) {}
 }

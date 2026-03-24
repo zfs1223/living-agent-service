@@ -149,6 +149,16 @@ public class UnifiedAuthService {
         log.debug("Cleaned up expired sessions");
     }
 
+    /**
+     * Create internal session for system-registered users (e.g., founder registration)
+     */
+    public AuthResult createInternalSession(Employee employee) {
+        log.info("Creating internal session for user: {} ({})", employee.getName(), employee.getEmployeeId());
+        
+        AuthSession session = createSession(employee, "internal");
+        return AuthResult.success(employee, session);
+    }
+
     private AuthSession createSession(Employee employee, String authMethod) {
         String sessionId = "sess_" + System.currentTimeMillis() + "_" + employee.getEmployeeId().hashCode();
         AuthSession session = new AuthSession(
