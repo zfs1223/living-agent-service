@@ -42,6 +42,9 @@ services:
       - MEMOS_BASE_URL=http://memos:8381
       - MEMOS_DEFAULT_CUBE_ID=living-agent
       # 可选: 云端API (备用)
+      # 声纹识别远程服务配置
+      - SPEAKER_USE_REMOTE=false
+      #- SPEAKER_SERVICE_URL=http://host.docker.internal:8390
       - TAVILY_API_KEY=${TAVILY_API_KEY:-tvly-dev-xxxxxxxxxxxxxxx}
       # - NOTION_API_KEY=${NOTION_API_KEY:ntn-dev-1234567890abcdef1234567890abcdef}
       # - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:slack-bot-token-1234567890abcdef1234567890abcdef}

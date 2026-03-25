@@ -68,7 +68,9 @@ public interface EmployeeService {
         Duration ttl,
         List<String> subscribeChannels,
         List<String> publishChannels,
-        List<WorkflowBinding> workflowBindings
+        List<WorkflowBinding> workflowBindings,
+        String email,
+        String phone
     ) {}
 
     record EmployeeUpdateRequest(

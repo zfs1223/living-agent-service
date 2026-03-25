@@ -87,11 +87,13 @@ RUN mkdir -p /tmp/wheels && \
         cn2an eng-to-ipa jieba pypinyin \
         mecab-python3 fugashi jaconv \
         nltk unidic-lite num2words pykakasi g2p-en anyascii jamo gruut g2pkk pydub inflect langid loguru cached-path python-mecab-ko python-mecab-ko-dic \
+        funasr modelscope \
     && echo "=== Verifying installations ===" && \
     python3 -c "import numpy; print(f'numpy: {numpy.__version__}')" && \
     python3 -c "import scipy; print(f'scipy: {scipy.__version__}')" && \
     python3 -c "import soundfile; print('soundfile: OK')" && \
     python3 -c "import sherpa_ncnn; print('sherpa_ncnn: OK')" && \
+    python3 -c "from funasr import AutoModel; print('funasr: OK')" && \
     rm -rf /tmp/wheels /tmp/python-wheels.tar
 
 # 复制 NLTK 数据 (MeloTTS 需要)

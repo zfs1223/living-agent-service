@@ -49,6 +49,11 @@ QWEN35_MODEL_FILE = os.environ.get('QWEN35_MODEL_FILE',
     '/app/ai-models/Qwen3.5-2B-GGUF/Qwen3.5-2B-Q4_K_M.gguf')
 MELOTTS_MODEL_DIR = os.environ.get('MELOTTS_MODEL_DIR', 
     '/app/ai-models/MeloTTS')
+CAM_MODEL_DIR = os.environ.get('CAM_MODEL_DIR',
+    '/app/ai-models/cam')
+SPEAKER_DATA_FILE = os.environ.get('SPEAKER_DATA_FILE',
+    '/app/data/speaker_embeddings.json')
+SPEAKER_THRESHOLD = float(os.environ.get('SPEAKER_THRESHOLD', '0.33'))
 
 CHAT_CONFIG = {
     'max_history_turns': 5,
@@ -467,7 +472,7 @@ class SessionHistory:
 
 
 class ModelManager:
-    """模型管理器 - 支持双模型路由"""
+    """模型管理器 - 支持双模型路由和声纹识别"""
     
     def __init__(self):
         self.sherpa_recognizer = None
@@ -475,17 +480,24 @@ class ModelManager:
         self.melotts_model = None
         self.llama_cli_path = None
         
+        # CAM++ 声纹识别模型
+        self.cam_model = None
+        self.speaker_embeddings = {}
+        self.speaker_profiles = {}
+        
         self.models_loaded = {
             'sherpa': False,
             'qwen3': False,
             'qwen35': False,
-            'melotts': False
+            'melotts': False,
+            'cam': False
         }
         
         self.sherpa_lock = threading.Lock()
         self.qwen3_lock = threading.Lock()
         self.qwen35_lock = threading.Lock()
         self.tts_lock = threading.Lock()
+        self.cam_lock = threading.Lock()
         
         self.session_manager = None
         self.intent_classifier = DualModelIntentClassifier()
@@ -497,6 +509,8 @@ class ModelManager:
             'quick_responses': 0,
             'chat_model_calls': 0,
             'tool_model_calls': 0,
+            'speaker_verifications': 0,
+            'speaker_registrations': 0,
             'total_latency_ms': 0,
             'chat_latency_ms': 0,
             'tool_latency_ms': 0,
@@ -521,6 +535,7 @@ class ModelManager:
         threads.append(threading.Thread(target=self._load_sherpa, name="Sherpa-Loader"))
         threads.append(threading.Thread(target=self._load_llm, name="LLM-Loader"))
         threads.append(threading.Thread(target=self._load_melotts, name="TTS-Loader"))
+        threads.append(threading.Thread(target=self._load_cam, name="CAM-Loader"))
         
         for thread in threads:
             thread.start()
@@ -674,6 +689,237 @@ class ModelManager:
         except Exception as e:
             print(f"[ModelDaemon] ❌ MeloTTS 加载失败: {str(e)}", file=sys.stderr, flush=True)
             traceback.print_exc(file=sys.stderr)
+    
+    def _load_cam(self):
+        """加载CAM++声纹识别模型"""
+        print("[ModelDaemon] 🎤 加载 CAM++ 声纹识别模型...", file=sys.stderr, flush=True)
+        try:
+            cam_dir = Path(CAM_MODEL_DIR)
+            if not cam_dir.exists():
+                print(f"[ModelDaemon] ❌ CAM++模型目录不存在: {cam_dir}", file=sys.stderr, flush=True)
+                return
+            
+            model_file = cam_dir / "campplus_cn_en_common.pt"
+            if not model_file.exists():
+                print(f"[ModelDaemon] ❌ CAM++模型文件不存在: {model_file}", file=sys.stderr, flush=True)
+                return
+            
+            try:
+                import torch
+                TORCH_AVAILABLE = True
+            except ImportError:
+                TORCH_AVAILABLE = False
+                print("[ModelDaemon] ⚠️ PyTorch未安装，CAM++模型无法加载", file=sys.stderr, flush=True)
+                return
+            
+            try:
+                from funasr import AutoModel
+                FUNASR_AVAILABLE = True
+            except ImportError:
+                FUNASR_AVAILABLE = False
+                print("[ModelDaemon] ⚠️ FunASR未安装，CAM++模型无法加载", file=sys.stderr, flush=True)
+                return
+            
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            print(f"[ModelDaemon] 🎤 使用设备: {device}", file=sys.stderr, flush=True)
+            
+            self.cam_model = AutoModel(
+                model=str(cam_dir),
+                device=device,
+                disable_update=True,
+                disable_log=True
+            )
+            
+            self._load_speaker_data()
+            
+            self.models_loaded['cam'] = True
+            print(f"[ModelDaemon] ✅ CAM++ 声纹识别模型加载成功 (设备: {device}, 已注册说话人: {len(self.speaker_embeddings)})", file=sys.stderr, flush=True)
+            
+        except Exception as e:
+            print(f"[ModelDaemon] ❌ CAM++ 模型加载失败: {str(e)}", file=sys.stderr, flush=True)
+            traceback.print_exc(file=sys.stderr)
+    
+    def _load_speaker_data(self):
+        """加载已保存的声纹数据"""
+        if os.path.exists(SPEAKER_DATA_FILE):
+            try:
+                with open(SPEAKER_DATA_FILE, 'r') as f:
+                    data = json.load(f)
+                    for speaker_id, spk_data in data.items():
+                        if 'embedding' in spk_data:
+                            spk_data['embedding'] = np.array(spk_data['embedding'], dtype=np.float32)
+                    self.speaker_embeddings = data
+                    print(f"[ModelDaemon] ✅ 加载 {len(self.speaker_embeddings)} 个已注册说话人", file=sys.stderr, flush=True)
+            except Exception as e:
+                print(f"[ModelDaemon] ⚠️ 加载声纹数据失败: {e}", file=sys.stderr, flush=True)
+                self.speaker_embeddings = {}
+    
+    def _save_speaker_data(self):
+        """保存声纹数据到文件"""
+        try:
+            os.makedirs(os.path.dirname(SPEAKER_DATA_FILE), exist_ok=True)
+            data_to_save = {}
+            for speaker_id, spk_data in self.speaker_embeddings.items():
+                data_to_save[speaker_id] = {
+                    'name': spk_data.get('name', speaker_id),
+                    'embedding': spk_data['embedding'].tolist() if isinstance(spk_data['embedding'], np.ndarray) else spk_data['embedding'],
+                    'audio_path': spk_data.get('audio_path', ''),
+                    'registered_at': spk_data.get('registered_at', ''),
+                    'profile': spk_data.get('profile', {})
+                }
+            with open(SPEAKER_DATA_FILE, 'w') as f:
+                json.dump(data_to_save, f)
+        except Exception as e:
+            print(f"[ModelDaemon] ⚠️ 保存声纹数据失败: {e}", file=sys.stderr, flush=True)
+    
+    def extract_speaker_embedding(self, audio_path):
+        """提取说话人embedding"""
+        if not self.models_loaded['cam'] or self.cam_model is None:
+            return None
+        
+        try:
+            with self.cam_lock:
+                result = self.cam_model.generate(input=audio_path)
+                if result and len(result) > 0:
+                    emb = None
+                    if 'spk_embedding' in result[0]:
+                        emb = result[0]['spk_embedding']
+                    elif 'embedding' in result[0]:
+                        emb = result[0]['embedding']
+                    
+                    if emb is not None:
+                        if isinstance(emb, np.ndarray):
+                            return emb.flatten().astype(np.float32)
+                        elif hasattr(emb, 'detach'):
+                            try:
+                                return emb.detach().cpu().numpy().flatten().astype(np.float32)
+                            except RuntimeError:
+                                return np.array(emb.detach().cpu().tolist(), dtype=np.float32).flatten()
+            return None
+        except Exception as e:
+            print(f"[ModelDaemon] ⚠️ 提取embedding失败: {e}", file=sys.stderr, flush=True)
+            return None
+    
+    def cosine_similarity(self, a, b):
+        """计算余弦相似度"""
+        if a is None or b is None:
+            return 0.0
+        dot_product = np.dot(a, b)
+        norm_a = np.linalg.norm(a)
+        norm_b = np.linalg.norm(b)
+        if norm_a == 0 or norm_b == 0:
+            return 0.0
+        return float(dot_product / (norm_a * norm_b))
+    
+    def register_speaker(self, audio_path, speaker_id, name=None, profile=None):
+        """注册说话人声纹"""
+        if not self.models_loaded['cam']:
+            return {"success": False, "message": "CAM++模型未加载"}
+        
+        if not os.path.exists(audio_path):
+            return {"success": False, "message": f"音频文件不存在: {audio_path}"}
+        
+        embedding = self.extract_speaker_embedding(audio_path)
+        if embedding is None:
+            return {"success": False, "message": "无法提取声纹特征"}
+        
+        with self.cam_lock:
+            self.speaker_embeddings[speaker_id] = {
+                'embedding': embedding,
+                'name': name or speaker_id,
+                'audio_path': audio_path,
+                'registered_at': str(os.path.getmtime(audio_path)),
+                'profile': profile or {}
+            }
+            self._save_speaker_data()
+        
+        with self.stats_lock:
+            self.stats['speaker_registrations'] += 1
+        
+        print(f"[ModelDaemon] ✅ 说话人注册成功: {speaker_id} ({name or speaker_id})", file=sys.stderr, flush=True)
+        return {
+            "success": True,
+            "speaker_id": speaker_id,
+            "name": name or speaker_id,
+            "message": "说话人注册成功",
+            "embedding_dimension": len(embedding)
+        }
+    
+    def verify_speaker(self, audio_path, speaker_id=None, threshold=None):
+        """验证说话人身份"""
+        if not self.models_loaded['cam']:
+            return {"success": False, "verified": False, "message": "CAM++模型未加载"}
+        
+        if not os.path.exists(audio_path):
+            return {"success": False, "verified": False, "message": f"音频文件不存在: {audio_path}"}
+        
+        threshold = threshold or SPEAKER_THRESHOLD
+        test_embedding = self.extract_speaker_embedding(audio_path)
+        if test_embedding is None:
+            return {"success": False, "verified": False, "message": "无法提取声纹特征"}
+        
+        with self.cam_lock:
+            if speaker_id:
+                if speaker_id not in self.speaker_embeddings:
+                    return {"success": False, "verified": False, "message": f"说话人未注册: {speaker_id}"}
+                
+                stored_data = self.speaker_embeddings[speaker_id]
+                similarity = self.cosine_similarity(test_embedding, stored_data['embedding'])
+                verified = similarity >= threshold
+                
+                with self.stats_lock:
+                    self.stats['speaker_verifications'] += 1
+                
+                return {
+                    "success": True,
+                    "verified": verified,
+                    "speaker_id": speaker_id,
+                    "name": stored_data.get('name', speaker_id),
+                    "similarity": similarity,
+                    "threshold": threshold,
+                    "profile": stored_data.get('profile', {}),
+                    "message": "说话人验证通过" if verified else "说话人验证失败"
+                }
+            else:
+                if not self.speaker_embeddings:
+                    return {"success": True, "verified": False, "message": "无已注册说话人"}
+                
+                results = []
+                for sid, data in self.speaker_embeddings.items():
+                    similarity = self.cosine_similarity(test_embedding, data['embedding'])
+                    results.append({
+                        "speaker_id": sid,
+                        "name": data.get('name', sid),
+                        "similarity": similarity
+                    })
+                
+                results.sort(key=lambda x: x['similarity'], reverse=True)
+                best_match = results[0]
+                verified = best_match['similarity'] >= threshold
+                
+                with self.stats_lock:
+                    self.stats['speaker_verifications'] += 1
+                
+                if verified:
+                    stored_data = self.speaker_embeddings[best_match['speaker_id']]
+                    return {
+                        "success": True,
+                        "verified": True,
+                        "speaker_id": best_match['speaker_id'],
+                        "name": best_match['name'],
+                        "similarity": best_match['similarity'],
+                        "threshold": threshold,
+                        "profile": stored_data.get('profile', {}),
+                        "message": f"识别为: {best_match['name']}"
+                    }
+                else:
+                    return {
+                        "success": True,
+                        "verified": False,
+                        "similarity": best_match['similarity'],
+                        "threshold": threshold,
+                        "message": "未找到匹配的说话人"
+                    }
     
     def recognize_audio(self, audio_path):
         if not self.models_loaded['sherpa']:
@@ -1168,6 +1414,39 @@ class SessionManager:
                             output_path = request.get('output_path', '')
                             result = self.model_manager.synthesize_speech(text, language, speed, output_path)
                         
+                        elif service_type == 'speaker_register':
+                            audio_path = request.get('audio_path', '')
+                            speaker_id = request.get('speaker_id', '')
+                            name = request.get('name', '')
+                            profile = request.get('profile', {})
+                            result = self.model_manager.register_speaker(audio_path, speaker_id, name, profile)
+                        
+                        elif service_type == 'speaker_verify':
+                            audio_path = request.get('audio_path', '')
+                            speaker_id = request.get('speaker_id')
+                            threshold = request.get('threshold')
+                            result = self.model_manager.verify_speaker(audio_path, speaker_id, threshold)
+                        
+                        elif service_type == 'speaker_list':
+                            speakers = []
+                            for sid, data in self.model_manager.speaker_embeddings.items():
+                                speakers.append({
+                                    'speaker_id': sid,
+                                    'name': data.get('name', sid),
+                                    'registered_at': data.get('registered_at', ''),
+                                    'profile': data.get('profile', {})
+                                })
+                            result = {"success": True, "speakers": speakers, "count": len(speakers)}
+                        
+                        elif service_type == 'speaker_delete':
+                            speaker_id = request.get('speaker_id', '')
+                            if speaker_id in self.model_manager.speaker_embeddings:
+                                del self.model_manager.speaker_embeddings[speaker_id]
+                                self.model_manager._save_speaker_data()
+                                result = {"success": True, "message": f"说话人 {speaker_id} 已删除"}
+                            else:
+                                result = {"success": False, "message": f"说话人 {speaker_id} 不存在"}
+                        
                         elif service_type == 'status':
                             result = self.model_manager.get_status()
                             result["success"] = True
@@ -1217,11 +1496,190 @@ class SessionManager:
         print("[SessionManager] 已关闭", file=sys.stderr, flush=True)
 
 
+def start_speaker_http_server(model_manager, port=8391):
+    """启动声纹识别HTTP服务"""
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+    import urllib.parse
+    
+    class SpeakerHTTPHandler(BaseHTTPRequestHandler):
+        def log_message(self, format, *args):
+            pass
+        
+        def send_json_response(self, data, status=200):
+            self.send_response(status)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps(data, ensure_ascii=False).encode('utf-8'))
+        
+        def do_OPTIONS(self):
+            self.send_response(200)
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Access-Control-Allow-Methods', 'GET, POST, DELETE')
+            self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+            self.end_headers()
+        
+        def do_GET(self):
+            parsed = urllib.parse.urlparse(self.path)
+            path = parsed.path
+            
+            if path == '/health':
+                self.send_json_response({
+                    "status": "healthy",
+                    "cam_loaded": model_manager.models_loaded.get('cam', False),
+                    "speakers_registered": len(model_manager.speaker_embeddings)
+                })
+            elif path == '/speakers':
+                speakers = []
+                for sid, data in model_manager.speaker_embeddings.items():
+                    speakers.append({
+                        'speaker_id': sid,
+                        'name': data.get('name', sid),
+                        'registered_at': data.get('registered_at', ''),
+                        'profile': data.get('profile', {})
+                    })
+                self.send_json_response({"success": True, "speakers": speakers, "count": len(speakers)})
+            else:
+                self.send_json_response({"success": False, "message": "Not found"}, 404)
+        
+        def do_POST(self):
+            parsed = urllib.parse.urlparse(self.path)
+            path = parsed.path
+            
+            content_length = int(self.headers.get('Content-Length', 0))
+            content_type = self.headers.get('Content-Type', '')
+            
+            try:
+                if path == '/register':
+                    if 'multipart/form-data' in content_type:
+                        import cgi
+                        form = cgi.FieldStorage(
+                            fp=self.rfile,
+                            headers=self.headers,
+                            environ={'REQUEST_METHOD': 'POST'}
+                        )
+                        
+                        speaker_id = form.getvalue('speaker_id', '')
+                        name = form.getvalue('name', speaker_id)
+                        audio_file = form['audio']
+                        
+                        import tempfile
+                        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
+                            tmp.write(audio_file.file.read())
+                            tmp_path = tmp.name
+                        
+                        profile_str = form.getvalue('profile', '{}')
+                        try:
+                            profile = json.loads(profile_str) if isinstance(profile_str, str) else {}
+                        except:
+                            profile = {}
+                        
+                        result = model_manager.register_speaker(tmp_path, speaker_id, name, profile)
+                        os.unlink(tmp_path)
+                    else:
+                        body = self.rfile.read(content_length).decode('utf-8')
+                        data = json.loads(body)
+                        result = model_manager.register_speaker(
+                            data.get('audio_path', ''),
+                            data.get('speaker_id', ''),
+                            data.get('name'),
+                            data.get('profile')
+                        )
+                    self.send_json_response(result)
+                
+                elif path == '/verify':
+                    if 'multipart/form-data' in content_type:
+                        import cgi
+                        form = cgi.FieldStorage(
+                            fp=self.rfile,
+                            headers=self.headers,
+                            environ={'REQUEST_METHOD': 'POST'}
+                        )
+                        
+                        speaker_id = form.getvalue('speaker_id')
+                        threshold = form.getvalue('threshold')
+                        threshold = float(threshold) if threshold else None
+                        audio_file = form['audio']
+                        
+                        import tempfile
+                        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
+                            tmp.write(audio_file.file.read())
+                            tmp_path = tmp.name
+                        
+                        result = model_manager.verify_speaker(tmp_path, speaker_id, threshold)
+                        os.unlink(tmp_path)
+                    else:
+                        body = self.rfile.read(content_length).decode('utf-8')
+                        data = json.loads(body)
+                        result = model_manager.verify_speaker(
+                            data.get('audio_path', ''),
+                            data.get('speaker_id'),
+                            data.get('threshold')
+                        )
+                    self.send_json_response(result)
+                
+                elif path == '/identify':
+                    if 'multipart/form-data' in content_type:
+                        import cgi
+                        form = cgi.FieldStorage(
+                            fp=self.rfile,
+                            headers=self.headers,
+                            environ={'REQUEST_METHOD': 'POST'}
+                        )
+                        
+                        threshold = form.getvalue('threshold')
+                        threshold = float(threshold) if threshold else None
+                        audio_file = form['audio']
+                        
+                        import tempfile
+                        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
+                            tmp.write(audio_file.file.read())
+                            tmp_path = tmp.name
+                        
+                        result = model_manager.verify_speaker(tmp_path, None, threshold)
+                        os.unlink(tmp_path)
+                    else:
+                        body = self.rfile.read(content_length).decode('utf-8')
+                        data = json.loads(body)
+                        result = model_manager.verify_speaker(
+                            data.get('audio_path', ''),
+                            None,
+                            data.get('threshold')
+                        )
+                    self.send_json_response(result)
+                
+                else:
+                    self.send_json_response({"success": False, "message": "Not found"}, 404)
+            
+            except Exception as e:
+                self.send_json_response({"success": False, "message": str(e)}, 500)
+        
+        def do_DELETE(self):
+            parsed = urllib.parse.urlparse(self.path)
+            path = parsed.path
+            
+            if path.startswith('/speakers/'):
+                speaker_id = path[10:]
+                if speaker_id in model_manager.speaker_embeddings:
+                    del model_manager.speaker_embeddings[speaker_id]
+                    model_manager._save_speaker_data()
+                    self.send_json_response({"success": True, "message": f"说话人 {speaker_id} 已删除"})
+                else:
+                    self.send_json_response({"success": False, "message": f"说话人 {speaker_id} 不存在"}, 404)
+            else:
+                self.send_json_response({"success": False, "message": "Not found"}, 404)
+    
+    server = HTTPServer(('0.0.0.0', port), SpeakerHTTPHandler)
+    print(f"[ModelDaemon] 🎤 声纹识别HTTP服务启动于端口 {port}", file=sys.stderr, flush=True)
+    server.serve_forever()
+
+
 def main():
     print("[ModelDaemon] 🎯 Living Agent 模型守护进程启动 (双模型架构)", file=sys.stderr, flush=True)
     print("[ModelDaemon] 📋 架构说明:", file=sys.stderr, flush=True)
     print("[ModelDaemon]   - Qwen3-0.6B: 沟通、表达、高效回复 (Layer 2)", file=sys.stderr, flush=True)
     print("[ModelDaemon]   - Qwen3.5-2B: 任务转达、工具调用、部门引导 (Layer 3)", file=sys.stderr, flush=True)
+    print("[ModelDaemon]   - CAM++: 声纹识别、说话人验证 (Speaker)", file=sys.stderr, flush=True)
     
     manager = ModelManager()
     
@@ -1231,6 +1689,17 @@ def main():
     
     session_manager = SessionManager(manager, max_workers=10)
     manager.session_manager = session_manager
+    
+    # 启动声纹识别HTTP服务
+    speaker_http_port = int(os.environ.get('SPEAKER_HTTP_PORT', '8391'))
+    speaker_http_thread = threading.Thread(
+        target=start_speaker_http_server,
+        args=(manager, speaker_http_port),
+        name="SpeakerHTTPServer",
+        daemon=True
+    )
+    speaker_http_thread.start()
+    print(f"[ModelDaemon] 🎤 声纹识别HTTP服务启动于端口 {speaker_http_port}", file=sys.stderr, flush=True)
     
     print("[ModelDaemon] 🚀 守护进程就绪，等待请求...", file=sys.stderr, flush=True)
     

@@ -571,7 +571,9 @@ public class FixedEmployeeRegistry {
             null,
             List.of(def.channel()),
             List.of(),
-            List.of()
+            List.of(),
+            null,
+            null
         );
         
         Employee employee = employeeService.createEmployee(request);

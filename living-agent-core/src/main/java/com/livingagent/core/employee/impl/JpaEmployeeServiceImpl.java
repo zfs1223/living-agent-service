@@ -138,6 +138,8 @@ public class JpaEmployeeServiceImpl implements EmployeeService {
         entity.setStatus(EmployeeStatus.ACTIVE.name());
         entity.setPosition(request.title());
         entity.setHireDate(LocalDate.now());
+        entity.setEmail(request.email());
+        entity.setPhone(request.phone());
         return entity;
     }
 

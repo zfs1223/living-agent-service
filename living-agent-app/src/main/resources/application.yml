@@ -202,12 +202,15 @@ ai-models:
         languages: [zh, en, jp, kr, es, fr]
         python-script: ${PYTHON_SCRIPTS_PATH:/opt/python_scripts}/tts/run_melotts.py
   
-  # 声纹识别配置 - 本地CAM++
+  # 声纹识别配置 - 本地CAM++或远程服务
   speaker-verification:
     enabled: true
     model-path: ${AI_MODELS_PATH:/app/ai-models}/cam/campplus_cn_en_common.pt
     threshold: 0.33
-    python-script: ${PYTHON_SCRIPTS_PATH:/opt/python_scripts}/speaker_verifier.py
+    python-script: ${PYTHON_SCRIPTS_PATH:/opt/python_scripts}/speaker/speaker_verifier.py
+    # 远程服务配置 (可选，用于独立部署)
+    use-remote: ${SPEAKER_USE_REMOTE:false}
+    remote-service-url: ${SPEAKER_SERVICE_URL:http://speaker-verification:8390}
 
 # ===========================================
 # Agent配置

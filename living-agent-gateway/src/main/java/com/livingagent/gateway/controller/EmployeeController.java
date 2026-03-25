@@ -134,7 +134,9 @@ public class EmployeeController {
                 null,
                 List.of(),
                 List.of(),
-                List.of()
+                List.of(),
+                request.email(),
+                request.phone()
         );
 
         com.livingagent.core.employee.Employee employee = employeeService.createEmployee(creationRequest);

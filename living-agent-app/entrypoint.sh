@@ -8,6 +8,14 @@ echo "=========================================="
 echo "Living Agent Service - 启动中..."
 echo "=========================================="
 
+# 修复数据目录权限 (named volume可能以root创建)
+if [ -d "/app/data" ]; then
+    chmod 777 /app/data 2>/dev/null || true
+fi
+if [ -d "/app/logs" ]; then
+    chmod 777 /app/logs 2>/dev/null || true
+fi
+
 # 设置环境变量
 export PYTHONUNBUFFERED=1
 export PYTHONDONTWRITEBYTECODE=1

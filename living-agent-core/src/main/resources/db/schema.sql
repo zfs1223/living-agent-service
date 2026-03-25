@@ -36,7 +36,7 @@ CREATE INDEX idx_departments_name_trgm ON enterprise_departments USING gin(name 
 
 -- Employees Table
 CREATE TABLE IF NOT EXISTS enterprise_employees (
-    employee_id VARCHAR(64) PRIMARY KEY,
+    employee_id VARCHAR(100) PRIMARY KEY,
     name VARCHAR(64) NOT NULL,
     phone VARCHAR(20),
     email VARCHAR(128),

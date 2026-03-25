@@ -5,6 +5,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.*;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -39,7 +44,14 @@ public class SpeakerVerificationService {
     @Value("${ai-models.python-scripts.speaker:${PYTHON_SCRIPTS_PATH:/opt/python_scripts}/speaker/speaker_verifier.py}")
     private String pythonScript;
 
+    @Value("${ai-models.speaker-verification.remote-service-url:}")
+    private String remoteServiceUrl;
+
+    @Value("${ai-models.speaker-verification.use-remote:false}")
+    private boolean useRemote;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final RestTemplate restTemplate = new RestTemplate();
 
     @PostConstruct
     public void init() {
@@ -265,7 +277,8 @@ public class SpeakerVerificationService {
             pythonScript
         );
         
-        processBuilder.redirectErrorStream(true);
+        // Do not merge stderr to stdout to avoid log interference with JSON output
+        processBuilder.redirectErrorStream(false);
         Process process = processBuilder.start();
         
         String jsonInput = objectMapper.writeValueAsString(params);
@@ -283,12 +296,103 @@ public class SpeakerVerificationService {
             }
         }
         
+        // Read and log stderr for debugging
+        StringBuilder errorOutput = new StringBuilder();
+        try (BufferedReader errorReader = new BufferedReader(
+                new InputStreamReader(process.getErrorStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = errorReader.readLine()) != null) {
+                errorOutput.append(line).append("\n");
+            }
+        }
+        if (errorOutput.length() > 0) {
+            logger.debug("Python script stderr: {}", errorOutput.toString());
+        }
+        
         int exitCode = process.waitFor();
         
         if (exitCode != 0) {
-            throw new RuntimeException("Python script failed with exit code: " + exitCode);
+            throw new RuntimeException("Python script failed with exit code: " + exitCode + ", stderr: " + errorOutput.toString());
         }
         
         return output.toString();
+    }
+
+    private SpeakerVerificationResult callRemoteService(String endpoint, byte[] audioData, Map<String, String> params) {
+        if (remoteServiceUrl == null || remoteServiceUrl.isEmpty()) {
+            return SpeakerVerificationResult.failure("Remote service URL not configured");
+        }
+
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+
+            MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+            body.add("audio", new ByteArrayResource(audioData) {
+                @Override
+                public String getFilename() {
+                    return "audio.wav";
+                }
+            });
+
+            for (Map.Entry<String, String> entry : params.entrySet()) {
+                body.add(entry.getKey(), entry.getValue());
+            }
+
+            HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
+            
+            String url = remoteServiceUrl + endpoint;
+            logger.debug("Calling remote service: {}", url);
+
+            ResponseEntity<Map> response = restTemplate.exchange(
+                url,
+                HttpMethod.POST,
+                requestEntity,
+                Map.class
+            );
+
+            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                Map<String, Object> result = response.getBody();
+                
+                // Handle nested response structure: {"success": true, "data": {...}}
+                if (result.containsKey("data") && result.get("data") instanceof Map) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> data = (Map<String, Object>) result.get("data");
+                    data.put("success", result.get("success"));
+                    return parseVerificationResult(objectMapper.writeValueAsString(data));
+                }
+                
+                return parseVerificationResult(objectMapper.writeValueAsString(result));
+            } else {
+                return SpeakerVerificationResult.failure("Remote service returned: " + response.getStatusCode());
+            }
+        } catch (Exception e) {
+            logger.error("Failed to call remote service", e);
+            return SpeakerVerificationResult.failure("Failed to call remote service: " + e.getMessage());
+        }
+    }
+
+    public SpeakerVerificationResult verifySpeakerRemote(byte[] audioData, String speakerId) {
+        Map<String, String> params = new HashMap<>();
+        params.put("speaker_id", speakerId);
+        params.put("threshold", String.valueOf(threshold));
+        return callRemoteService("/verify", audioData, params);
+    }
+
+    public SpeakerVerificationResult registerSpeakerRemote(String speakerId, byte[] audioData, String name) {
+        Map<String, String> params = new HashMap<>();
+        params.put("speaker_id", speakerId);
+        params.put("name", name != null ? name : speakerId);
+        return callRemoteService("/register", audioData, params);
+    }
+
+    public SpeakerVerificationResult identifySpeakerRemote(byte[] audioData) {
+        Map<String, String> params = new HashMap<>();
+        params.put("threshold", String.valueOf(threshold));
+        return callRemoteService("/identify", audioData, params);
+    }
+
+    public boolean isUseRemote() {
+        return useRemote && remoteServiceUrl != null && !remoteServiceUrl.isEmpty();
     }
 }

@@ -11,7 +11,7 @@ import java.time.LocalDate;
 public abstract class EmployeeEntity {
 
     @Id
-    @Column(length = 36)
+    @Column(length = 100)
     private String id;
 
     @Column(nullable = false, length = 100)
