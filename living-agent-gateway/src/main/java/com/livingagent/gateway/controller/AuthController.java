@@ -1,6 +1,6 @@
 package com.livingagent.gateway.controller;
 
-import com.livingagent.core.security.Employee;
+import com.livingagent.core.security.AuthContext;
 import com.livingagent.core.security.auth.OAuthService;
 import com.livingagent.core.security.auth.UnifiedAuthService;
 import com.livingagent.core.security.auth.UnifiedAuthService.AuthResult;
@@ -73,13 +73,13 @@ public class AuthController {
                     .body(ApiResponse.error(result.error(), result.errorDescription()));
         }
 
-        Employee employee = result.employee();
+        AuthContext authContext = result.authContext();
         AuthSession session = result.session();
 
         LoginResponse response = new LoginResponse(
                 session.sessionId(),
                 null,
-                convertToUserInfo(employee)
+                convertToUserInfo(authContext)
         );
 
         return ResponseEntity.ok(ApiResponse.success(response));
@@ -102,7 +102,53 @@ public class AuthController {
                     .body(ApiResponse.error("session_expired", "Session has expired"));
         }
 
-        UserInfo userInfo = convertToUserInfo(sessionOpt.get().employee());
+        UserInfo userInfo = convertToUserInfo(sessionOpt.get().authContext());
+        return ResponseEntity.ok(ApiResponse.success(userInfo));
+    }
+
+    @GetMapping("/me")
+    public ResponseEntity<ApiResponse<UserInfo>> getCurrentUserAlias(
+            @RequestHeader(value = "Authorization", required = false) String authorization
+    ) {
+        return getCurrentUser(authorization);
+    }
+
+    @PatchMapping("/me")
+    public ResponseEntity<ApiResponse<UserInfo>> updateMe(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestBody UpdateUserRequest request
+    ) {
+        if (authorization == null || !authorization.startsWith("Bearer ")) {
+            return ResponseEntity.status(401)
+                    .body(ApiResponse.error("unauthorized", "No valid token provided"));
+        }
+
+        String sessionId = authorization.substring(7);
+        Optional<AuthSession> sessionOpt = unifiedAuthService.validateSession(sessionId);
+
+        if (sessionOpt.isEmpty()) {
+            return ResponseEntity.status(401)
+                    .body(ApiResponse.error("session_expired", "Session has expired"));
+        }
+
+        log.info("Updating user info for session: {}", sessionId);
+
+        AuthContext authContext = sessionOpt.get().authContext();
+        UserInfo userInfo = new UserInfo(
+                authContext.getEmployeeId(),
+                request.email() != null ? request.email() : authContext.getEmail(),
+                request.name() != null ? request.name() : authContext.getName(),
+                request.avatar(),
+                authContext.getDepartment(),
+                authContext.getIdentity().name(),
+                authContext.getAccessLevel().name(),
+                authContext.isFounder(),
+                "tenant_default",
+                new ArrayList<>(authContext.getAllowedBrains()),
+                new ArrayList<>(),
+                new ArrayList<>()
+        );
+
         return ResponseEntity.ok(ApiResponse.success(userInfo));
     }
 
@@ -158,17 +204,18 @@ public class AuthController {
         return ResponseEntity.ok(ApiResponse.success(providers));
     }
 
-    private UserInfo convertToUserInfo(Employee employee) {
+    private UserInfo convertToUserInfo(AuthContext authContext) {
         return new UserInfo(
-                employee.getEmployeeId(),
-                employee.getEmail(),
-                employee.getName(),
+                authContext.getEmployeeId(),
+                authContext.getEmail(),
+                authContext.getName(),
                 null,
-                employee.getDepartment(),
-                employee.getIdentity().name(),
-                employee.getAccessLevel().name(),
-                employee.isFounder(),
-                new ArrayList<>(employee.getAllowedBrains()),
+                authContext.getDepartment(),
+                authContext.getIdentity().name(),
+                authContext.getAccessLevel().name(),
+                authContext.isFounder(),
+                "tenant_default",
+                new ArrayList<>(authContext.getAllowedBrains()),
                 new ArrayList<>(),
                 new ArrayList<>()
         );
@@ -208,6 +255,7 @@ public class AuthController {
             String identity,
             String accessLevel,
             boolean founder,
+            String tenantId,
             List<String> allowedBrains,
             List<String> capabilities,
             List<String> skills
@@ -219,5 +267,11 @@ public class AuthController {
             String id,
             String name,
             boolean enabled
+    ) {}
+
+    public record UpdateUserRequest(
+            String name,
+            String email,
+            String avatar
     ) {}
 }

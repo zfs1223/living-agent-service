@@ -269,6 +269,33 @@ public class ProactiveController {
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
+    @GetMapping("/predictions")
+    public ResponseEntity<ApiResponse<List<PredictionInfo>>> getPredictions(
+            @RequestParam(required = false) String userId,
+            @RequestParam(defaultValue = "10") int limit
+    ) {
+        log.debug("Getting predictions for user: {}", userId);
+
+        List<PredictionInfo> predictions = List.of(
+                new PredictionInfo(
+                        "pred_001",
+                        "任务延迟风险",
+                        "根据历史数据分析，当前有3个任务可能延迟",
+                        0.75,
+                        Instant.now()
+                ),
+                new PredictionInfo(
+                        "pred_002",
+                        "系统负载预警",
+                        "预计下午2点系统负载将达到峰值",
+                        0.82,
+                        Instant.now()
+                )
+        );
+
+        return ResponseEntity.ok(ApiResponse.success(predictions.stream().limit(limit).toList()));
+    }
+
     private String mapSuggestionTypeToNotificationType(SuggestionType type) {
         return switch (type) {
             case WARNING -> "WARNING";
@@ -395,5 +422,13 @@ public class ProactiveController {
             Instant createdAt,
             boolean actionable,
             String action
+    ) {}
+
+    public record PredictionInfo(
+            String id,
+            String title,
+            String description,
+            double confidence,
+            Instant created_at
     ) {}
 }

@@ -1,6 +1,7 @@
 package com.livingagent.gateway.websocket;
 
 import java.io.IOException;
+import java.net.URI;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -23,25 +24,47 @@ public class AgentWebSocketHandler extends TextWebSocketHandler {
     private final ObjectMapper objectMapper;
     private final AgentService agentService;
     private final Map<String, WebSocketSession> sessions;
+    private final Map<String, String> sessionToAgent;
     
     public AgentWebSocketHandler(ObjectMapper objectMapper, AgentService agentService) {
         this.objectMapper = objectMapper;
         this.agentService = agentService;
         this.sessions = new ConcurrentHashMap<>();
+        this.sessionToAgent = new ConcurrentHashMap<>();
     }
     
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
         String sessionId = session.getId();
         sessions.put(sessionId, session);
-        log.info("WebSocket connection established: sessionId={}, remoteAddress={}", 
-            sessionId, session.getRemoteAddress());
+        
+        String agentId = extractAgentId(session.getUri());
+        if (agentId != null) {
+            sessionToAgent.put(sessionId, agentId);
+        }
+        
+        log.info("WebSocket connection established: sessionId={}, agentId={}, remoteAddress={}", 
+            sessionId, agentId, session.getRemoteAddress());
+        
+        agentService.startSession(sessionId);
         
         sendMessage(session, Map.of(
             "type", "connected",
             "sessionId", sessionId,
+            "agentId", agentId,
             "message", "Connection established"
         ));
+    }
+    
+    private String extractAgentId(URI uri) {
+        if (uri == null || uri.getQuery() == null) return null;
+        String query = uri.getQuery();
+        for (String param : query.split("&")) {
+            if (param.startsWith("agentId=")) {
+                return java.net.URLDecoder.decode(param.substring(8), java.nio.charset.StandardCharsets.UTF_8);
+            }
+        }
+        return null;
     }
     
     @Override

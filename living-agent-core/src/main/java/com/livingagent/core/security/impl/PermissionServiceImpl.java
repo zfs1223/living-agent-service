@@ -11,19 +11,19 @@ public class PermissionServiceImpl implements PermissionService {
 
     private static final Logger log = LoggerFactory.getLogger(PermissionServiceImpl.class);
 
-    private final EmployeeService employeeService;
+    private final EmployeeAuthService employeeAuthService;
     private final Map<String, List<AccessAuditLog>> auditLogs = new ConcurrentHashMap<>();
     private final Map<String, String> sessionEmployeeMap = new ConcurrentHashMap<>();
 
-    public PermissionServiceImpl(EmployeeService employeeService) {
-        this.employeeService = employeeService;
+    public PermissionServiceImpl(EmployeeAuthService employeeAuthService) {
+        this.employeeAuthService = employeeAuthService;
     }
 
     @Override
     public Optional<Employee> verifyByPhone(String phone, String verificationCode) {
         log.info("Verifying employee by phone: {}", phone);
         
-        Optional<Employee> employeeOpt = employeeService.findByPhone(phone);
+        Optional<Employee> employeeOpt = employeeAuthService.findByPhone(phone);
         if (employeeOpt.isEmpty()) {
             log.warn("Employee not found for phone: {}", phone);
             return Optional.empty();
@@ -45,7 +45,7 @@ public class PermissionServiceImpl implements PermissionService {
     public Optional<Employee> verifyByVoicePrint(String voicePrintId, float[] voiceVector) {
         log.info("Verifying employee by voice print: {}", voicePrintId);
         
-        Optional<Employee> employeeOpt = employeeService.findByVoicePrintId(voicePrintId);
+        Optional<Employee> employeeOpt = employeeAuthService.findByVoicePrintId(voicePrintId);
         if (employeeOpt.isEmpty()) {
             log.warn("Employee not found for voice print: {}", voicePrintId);
             return Optional.empty();
@@ -67,7 +67,7 @@ public class PermissionServiceImpl implements PermissionService {
     public Optional<Employee> verifyByOAuth(String provider, String oauthUserId, String accessToken) {
         log.info("Verifying employee by OAuth: {} - {}", provider, oauthUserId);
         
-        Optional<Employee> employeeOpt = employeeService.findByOAuth(provider, oauthUserId);
+        Optional<Employee> employeeOpt = employeeAuthService.findByOAuth(provider, oauthUserId);
         if (employeeOpt.isEmpty()) {
             log.warn("Employee not found for OAuth: {} - {}", provider, oauthUserId);
             return Optional.empty();
@@ -87,22 +87,22 @@ public class PermissionServiceImpl implements PermissionService {
 
     @Override
     public Optional<Employee> getEmployeeById(String employeeId) {
-        return employeeService.findById(employeeId);
+        return employeeAuthService.findById(employeeId);
     }
 
     @Override
     public Optional<Employee> getEmployeeByPhone(String phone) {
-        return employeeService.findByPhone(phone);
+        return employeeAuthService.findByPhone(phone);
     }
 
     @Override
     public Optional<Employee> getEmployeeByVoicePrintId(String voicePrintId) {
-        return employeeService.findByVoicePrintId(voicePrintId);
+        return employeeAuthService.findByVoicePrintId(voicePrintId);
     }
 
     @Override
     public boolean canAccessBrain(String employeeId, String brainName) {
-        Optional<Employee> employeeOpt = employeeService.findById(employeeId);
+        Optional<Employee> employeeOpt = employeeAuthService.findById(employeeId);
         if (employeeOpt.isEmpty()) {
             log.warn("Employee not found: {}", employeeId);
             return false;
@@ -122,7 +122,7 @@ public class PermissionServiceImpl implements PermissionService {
 
     @Override
     public boolean canUseModel(String employeeId, String modelName) {
-        Optional<Employee> employeeOpt = employeeService.findById(employeeId);
+        Optional<Employee> employeeOpt = employeeAuthService.findById(employeeId);
         if (employeeOpt.isEmpty()) {
             return false;
         }
@@ -137,7 +137,7 @@ public class PermissionServiceImpl implements PermissionService {
 
     @Override
     public boolean canExecuteTool(String employeeId, String toolName) {
-        Optional<Employee> employeeOpt = employeeService.findById(employeeId);
+        Optional<Employee> employeeOpt = employeeAuthService.findById(employeeId);
         if (employeeOpt.isEmpty()) {
             return false;
         }
@@ -158,7 +158,7 @@ public class PermissionServiceImpl implements PermissionService {
 
     @Override
     public Set<String> getAccessibleBrains(String employeeId) {
-        Optional<Employee> employeeOpt = employeeService.findById(employeeId);
+        Optional<Employee> employeeOpt = employeeAuthService.findById(employeeId);
         if (employeeOpt.isEmpty()) {
             return Collections.emptySet();
         }
@@ -175,7 +175,7 @@ public class PermissionServiceImpl implements PermissionService {
 
     @Override
     public Set<String> getAllowedModels(String employeeId) {
-        Optional<Employee> employeeOpt = employeeService.findById(employeeId);
+        Optional<Employee> employeeOpt = employeeAuthService.findById(employeeId);
         if (employeeOpt.isEmpty()) {
             return Collections.singleton("Qwen3-0.6B");
         }
@@ -185,7 +185,7 @@ public class PermissionServiceImpl implements PermissionService {
 
     @Override
     public AccessLevel getAccessLevel(String employeeId) {
-        Optional<Employee> employeeOpt = employeeService.findById(employeeId);
+        Optional<Employee> employeeOpt = employeeAuthService.findById(employeeId);
         if (employeeOpt.isEmpty()) {
             return AccessLevel.CHAT_ONLY;
         }
@@ -195,7 +195,7 @@ public class PermissionServiceImpl implements PermissionService {
 
     @Override
     public void updateAccessLevel(String employeeId, AccessLevel newLevel) {
-        Optional<Employee> employeeOpt = employeeService.findById(employeeId);
+        Optional<Employee> employeeOpt = employeeAuthService.findById(employeeId);
         if (employeeOpt.isEmpty()) {
             log.warn("Cannot update access level: employee not found: {}", employeeId);
             return;
@@ -204,7 +204,7 @@ public class PermissionServiceImpl implements PermissionService {
         Employee employee = employeeOpt.get();
         AccessLevel oldLevel = employee.getAccessLevel();
         employee.setAccessLevel(newLevel);
-        employeeService.updateEmployee(employee);
+        employeeAuthService.updateEmployee(employee);
         
         recordAccess(employeeId, "access_level", "update", true);
         log.info("Updated access level for {}: {} -> {}", employeeId, oldLevel, newLevel);
@@ -219,7 +219,7 @@ public class PermissionServiceImpl implements PermissionService {
         logEntry.setGranted(granted);
         logEntry.setReason(granted ? "Access granted" : "Access denied");
         
-        employeeService.findById(employeeId).ifPresent(e -> logEntry.setEmployeeName(e.getName()));
+        employeeAuthService.findById(employeeId).ifPresent(e -> logEntry.setEmployeeName(e.getName()));
         
         auditLogs.computeIfAbsent(employeeId, k -> new ArrayList<>()).add(logEntry);
         
@@ -238,7 +238,7 @@ public class PermissionServiceImpl implements PermissionService {
 
     @Override
     public boolean isChatOnlyUser(String employeeId) {
-        Optional<Employee> employeeOpt = employeeService.findById(employeeId);
+        Optional<Employee> employeeOpt = employeeAuthService.findById(employeeId);
         if (employeeOpt.isEmpty()) {
             return true;
         }
@@ -247,7 +247,7 @@ public class PermissionServiceImpl implements PermissionService {
 
     @Override
     public String getRouteTarget(String employeeId) {
-        Optional<Employee> employeeOpt = employeeService.findById(employeeId);
+        Optional<Employee> employeeOpt = employeeAuthService.findById(employeeId);
         if (employeeOpt.isEmpty()) {
             return "Qwen3Neuron";
         }

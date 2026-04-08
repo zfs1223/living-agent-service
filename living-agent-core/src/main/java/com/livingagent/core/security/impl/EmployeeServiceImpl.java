@@ -9,7 +9,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
-public class EmployeeServiceImpl implements EmployeeService {
+public class EmployeeServiceImpl implements EmployeeService, EmployeeAuthService {
 
     private static final Logger log = LoggerFactory.getLogger(EmployeeServiceImpl.class);
 
@@ -176,7 +176,7 @@ public class EmployeeServiceImpl implements EmployeeService {
     }
 
     @Override
-    public void handleAiDetectedChange(String employeeId, ChangeType changeType, String detectedFrom, String details) {
+    public void handleAiDetectedChange(String employeeId, EmployeeService.ChangeType changeType, String detectedFrom, String details) {
         findById(employeeId).ifPresent(employee -> {
             log.info("AI detected change for employee {}: {} from {}", employeeId, changeType, detectedFrom);
 

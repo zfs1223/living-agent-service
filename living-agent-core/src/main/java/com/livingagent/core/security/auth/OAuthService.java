@@ -1,6 +1,6 @@
 package com.livingagent.core.security.auth;
 
-import com.livingagent.core.security.Employee;
+import com.livingagent.core.security.AuthContext;
 
 import java.time.Instant;
 import java.util.Map;
@@ -16,58 +16,60 @@ public interface OAuthService {
     
     OAuthUserInfo getUserInfo(OAuthToken token);
     
-    Optional<Employee> findOrCreateEmployee(OAuthUserInfo userInfo);
+    Optional<AuthContext> findOrCreateEmployee(OAuthUserInfo userInfo);
     
     OAuthResult authenticate(String code, String redirectUri);
     
     boolean validateToken(String accessToken);
     
     void revokeToken(String accessToken);
+    
+    Optional<AuthContext> findByOAuthUserId(String oauthUserId);
 
     record OAuthToken(
             String accessToken,
             String refreshToken,
-            Long expiresIn,
-            String tokenType,
-            String scope,
-            Instant createdAt
+            Instant expiresAt,
+            String scope
     ) {
-        public boolean isExpired() {
-            if (expiresIn == null || createdAt == null) {
-                return true;
-            }
-            return Instant.now().isAfter(createdAt.plusSeconds(expiresIn));
-        }
-        
-        public static OAuthToken create(String accessToken, String refreshToken, Long expiresIn) {
-            return new OAuthToken(accessToken, refreshToken, expiresIn, "Bearer", null, Instant.now());
+        public static OAuthToken create(String accessToken, String refreshToken, Instant expiresAt, String scope) {
+            return new OAuthToken(accessToken, refreshToken, expiresAt, scope);
         }
     }
 
     record OAuthUserInfo(
-            String providerUserId,
+            String userId,
             String name,
             String email,
             String phone,
-            String avatar,
             String department,
-            String position,
-            Map<String, Object> rawInfo
+            String position
     ) {
-        public static OAuthUserInfo of(String providerUserId, String name, String email) {
-            return new OAuthUserInfo(providerUserId, name, email, null, null, null, null, Map.of());
+        public Map<String, Object> toMap() {
+            return Map.of(
+                "userId", userId != null ? userId : "",
+                "name", name != null ? name : "",
+                "email", email != null ? email : "",
+                "phone", phone != null ? phone : "",
+                "department", department != null ? department : "",
+                "position", position != null ? position : ""
+            );
+        }
+        
+        public String providerUserId() {
+            return userId;
         }
     }
 
     record OAuthResult(
             boolean success,
-            Employee employee,
+            AuthContext authContext,
             OAuthToken token,
             String error,
             String errorDescription
     ) {
-        public static OAuthResult success(Employee employee, OAuthToken token) {
-            return new OAuthResult(true, employee, token, null, null);
+        public static OAuthResult success(AuthContext authContext, OAuthToken token) {
+            return new OAuthResult(true, authContext, token, null, null);
         }
         
         public static OAuthResult failed(String error, String description) {

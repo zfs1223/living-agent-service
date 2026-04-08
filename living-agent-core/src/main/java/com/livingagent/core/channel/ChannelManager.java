@@ -22,6 +22,10 @@ public interface ChannelManager {
     void publish(String channelId, ChannelMessage message);
 
     void broadcast(String pattern, ChannelMessage message);
+    
+    void subscribe(String channelId, ChannelSubscriber subscriber);
+    
+    void unsubscribe(String channelId, String subscriberId);
 
     List<String> getChannelIds();
 

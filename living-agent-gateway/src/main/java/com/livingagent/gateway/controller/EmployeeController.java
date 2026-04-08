@@ -101,7 +101,7 @@ public class EmployeeController {
                     .body(ApiResponse.error("session_expired", "会话已过期"));
         }
 
-        com.livingagent.core.security.Employee currentUser = sessionOpt.get().employee();
+        com.livingagent.core.security.AuthContext currentUser = sessionOpt.get().authContext();
 
         if (!currentUser.isFounder() && currentUser.getIdentity() != UserIdentity.INTERNAL_CHAIRMAN) {
             return ResponseEntity.status(403)
@@ -170,7 +170,7 @@ public class EmployeeController {
                     .body(ApiResponse.error("session_expired", "会话已过期"));
         }
 
-        com.livingagent.core.security.Employee currentUser = sessionOpt.get().employee();
+        com.livingagent.core.security.AuthContext currentUser = sessionOpt.get().authContext();
 
         if (!currentUser.isFounder() && currentUser.getIdentity() != UserIdentity.INTERNAL_CHAIRMAN) {
             return ResponseEntity.status(403)
@@ -227,7 +227,7 @@ public class EmployeeController {
                     .body(ApiResponse.error("session_expired", "会话已过期"));
         }
 
-        com.livingagent.core.security.Employee currentUser = sessionOpt.get().employee();
+        com.livingagent.core.security.AuthContext currentUser = sessionOpt.get().authContext();
 
         if (!currentUser.isFounder() && currentUser.getIdentity() != UserIdentity.INTERNAL_CHAIRMAN) {
             return ResponseEntity.status(403)
@@ -331,7 +331,8 @@ public class EmployeeController {
         securityEmployee.setPosition(employee.getTitle());
         securityEmployee.setIdentity(employee.getIdentity());
         securityEmployee.setAccessLevel(employee.getAccessLevel());
-        securityEmployee.setJoinDate(employee.getCreatedAt());
+        securityEmployee.setFounder(false);
+        securityEmployee.setAllowedBrains(new java.util.HashSet<>());
         securityEmployee.setActive(employee.getStatus() == EmployeeStatus.ACTIVE);
         return securityEmployee;
     }

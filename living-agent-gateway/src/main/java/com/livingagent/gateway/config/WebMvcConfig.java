@@ -1,5 +1,6 @@
 package com.livingagent.gateway.config;
 
+import com.livingagent.gateway.interceptor.DepartmentPermissionInterceptor;
 import com.livingagent.gateway.interceptor.SystemInitInterceptor;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
@@ -9,9 +10,12 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 public class WebMvcConfig implements WebMvcConfigurer {
 
     private final SystemInitInterceptor systemInitInterceptor;
+    private final DepartmentPermissionInterceptor departmentPermissionInterceptor;
 
-    public WebMvcConfig(SystemInitInterceptor systemInitInterceptor) {
+    public WebMvcConfig(SystemInitInterceptor systemInitInterceptor, 
+                        DepartmentPermissionInterceptor departmentPermissionInterceptor) {
         this.systemInitInterceptor = systemInitInterceptor;
+        this.departmentPermissionInterceptor = departmentPermissionInterceptor;
     }
 
     @Override
@@ -32,6 +36,13 @@ public class WebMvcConfig implements WebMvcConfigurer {
                     "/**/*.jpg",
                     "/**/*.svg",
                     "/**/*.ico"
+                );
+        
+        registry.addInterceptor(departmentPermissionInterceptor)
+                .addPathPatterns("/api/dept/**", "/api/chairman/**")
+                .excludePathPatterns(
+                    "/api/dept/my",
+                    "/error"
                 );
     }
 }

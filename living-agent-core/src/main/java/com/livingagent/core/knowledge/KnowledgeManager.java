@@ -91,6 +91,22 @@ public interface KnowledgeManager {
         public boolean canAccessFrom(KnowledgeLayer accessorLayer) {
             return accessorLayer.level >= this.level;
         }
+        
+        public KnowledgeScope toScope() {
+            return switch (this) {
+                case PRIVATE -> KnowledgeScope.L1_PRIVATE;
+                case DOMAIN -> KnowledgeScope.L2_DEPARTMENT;
+                case SHARED -> KnowledgeScope.L3_SHARED;
+            };
+        }
+        
+        public static KnowledgeLayer fromScope(KnowledgeScope scope) {
+            return switch (scope) {
+                case L1_PRIVATE -> PRIVATE;
+                case L2_DEPARTMENT -> DOMAIN;
+                case L3_SHARED -> SHARED;
+            };
+        }
     }
 
     class KnowledgeQuery {

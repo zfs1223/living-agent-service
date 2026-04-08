@@ -1,7 +1,7 @@
 package com.livingagent.core.security.auth.impl;
 
 import com.livingagent.core.security.AccessLevel;
-import com.livingagent.core.security.Employee;
+import com.livingagent.core.security.AuthContext;
 import com.livingagent.core.security.UserIdentity;
 import com.livingagent.core.security.auth.FounderService;
 import com.livingagent.core.security.auth.OAuthService;
@@ -35,7 +35,7 @@ public class FeishuOAuthService implements OAuthService {
     private String tenantAccessToken;
     private long tokenExpireTime;
     
-    private final Map<String, Employee> employeeCache = new ConcurrentHashMap<>();
+    private final Map<String, AuthContext> employeeCache = new ConcurrentHashMap<>();
 
     public FeishuOAuthService(String appId, String appSecret, FounderService founderService) {
         this.appId = appId;
@@ -93,15 +93,16 @@ public class FeishuOAuthService implements OAuthService {
             Map<String, Object> result = parseJson(response.body());
 
             if (result.containsKey("data")) {
+                @SuppressWarnings("unchecked")
                 Map<String, Object> data = (Map<String, Object>) result.get("data");
                 if (data.containsKey("access_token")) {
+                    long expiresIn = getLong(data, "expires_in", 7200L);
+                    Instant expiresAt = Instant.now().plusSeconds(expiresIn);
                     return new OAuthToken(
                             (String) data.get("access_token"),
                             (String) data.get("refresh_token"),
-                            getLong(data, "expires_in"),
-                            "Bearer",
-                            (String) data.get("token_type"),
-                            Instant.now()
+                            expiresAt,
+                            (String) data.get("token_type")
                     );
                 }
             }
@@ -131,16 +132,15 @@ public class FeishuOAuthService implements OAuthService {
             Map<String, Object> result = parseJson(response.body());
 
             if (result.containsKey("data")) {
+                @SuppressWarnings("unchecked")
                 Map<String, Object> data = (Map<String, Object>) result.get("data");
                 return new OAuthUserInfo(
                         (String) data.get("open_id"),
                         (String) data.get("name"),
                         (String) data.get("email"),
                         (String) data.get("mobile"),
-                        (String) data.get("avatar_url"),
                         (String) data.get("department_id"),
-                        (String) data.get("job_title"),
-                        data
+                        (String) data.get("job_title")
                 );
             }
             
@@ -154,41 +154,41 @@ public class FeishuOAuthService implements OAuthService {
     }
 
     @Override
-    public Optional<Employee> findOrCreateEmployee(OAuthUserInfo userInfo) {
+    public Optional<AuthContext> findOrCreateEmployee(OAuthUserInfo userInfo) {
         if (userInfo == null) {
             return Optional.empty();
         }
 
         String cacheKey = "feishu_" + userInfo.providerUserId();
         
-        Employee cached = employeeCache.get(cacheKey);
+        AuthContext cached = employeeCache.get(cacheKey);
         if (cached != null) {
             return Optional.of(cached);
         }
 
-        Employee employee = new Employee();
-        employee.setEmployeeId(cacheKey);
-        employee.setName(userInfo.name());
-        employee.setEmail(userInfo.email());
-        employee.setPhone(userInfo.phone());
-        employee.setDepartment(userInfo.department());
-        employee.setPosition(userInfo.position());
-        employee.setOauthProvider("feishu");
-        employee.setOauthUserId(userInfo.providerUserId());
-        employee.setLastSyncTime(Instant.now());
-        employee.setSyncSource("feishu_oauth");
+        AuthContext authContext = new AuthContext();
+        authContext.setEmployeeId(cacheKey);
+        authContext.setName(userInfo.name());
+        authContext.setEmail(userInfo.email());
+        authContext.setPhone(userInfo.phone());
+        authContext.setDepartment(userInfo.department());
+        authContext.setPosition(userInfo.position());
+        authContext.setOauthProvider("feishu");
+        authContext.setOauthUserId(userInfo.providerUserId());
+        authContext.setLastSyncTime(Instant.now());
+        authContext.setSyncSource("feishu_oauth");
 
         if (founderService != null && founderService.isFirstUser()) {
-            founderService.assignFounderRole(employee);
-            log.info("First user detected, assigned Chairman role: {}", employee.getName());
+            founderService.assignFounderRole(authContext);
+            log.info("First user detected, assigned Chairman role: {}", authContext.getName());
         } else {
-            employee.setIdentity(UserIdentity.INTERNAL_ACTIVE);
+            authContext.setIdentity(UserIdentity.INTERNAL_ACTIVE);
         }
 
-        employeeCache.put(cacheKey, employee);
+        employeeCache.put(cacheKey, authContext);
 
-        log.info("Created employee from Feishu OAuth: {}", employee.getName());
-        return Optional.of(employee);
+        log.info("Created auth context from Feishu OAuth: {}", authContext.getName());
+        return Optional.of(authContext);
     }
 
     @Override
@@ -205,13 +205,13 @@ public class FeishuOAuthService implements OAuthService {
             return OAuthResult.failed("user_info_error", "Failed to get user info");
         }
 
-        Optional<Employee> employeeOpt = findOrCreateEmployee(userInfo);
-        if (employeeOpt.isEmpty()) {
+        Optional<AuthContext> authContextOpt = findOrCreateEmployee(userInfo);
+        if (authContextOpt.isEmpty()) {
             return OAuthResult.failed("employee_error", "Failed to create employee");
         }
 
         log.info("Feishu OAuth authentication successful: {}", userInfo.name());
-        return OAuthResult.success(employeeOpt.get(), token);
+        return OAuthResult.success(authContextOpt.get(), token);
     }
 
     @Override
@@ -238,6 +238,12 @@ public class FeishuOAuthService implements OAuthService {
         log.info("Token revocation requested (Feishu does not support token revocation via API)");
     }
 
+    @Override
+    public Optional<AuthContext> findByOAuthUserId(String oauthUserId) {
+        String cacheKey = "feishu_" + oauthUserId;
+        return Optional.ofNullable(employeeCache.get(cacheKey));
+    }
+
     private synchronized String getTenantAccessToken() {
         if (tenantAccessToken != null && System.currentTimeMillis() < tokenExpireTime) {
             return tenantAccessToken;
@@ -262,8 +268,12 @@ public class FeishuOAuthService implements OAuthService {
 
             if (result.containsKey("tenant_access_token")) {
                 tenantAccessToken = (String) result.get("tenant_access_token");
-                Integer expire = (Integer) result.get("expire");
-                tokenExpireTime = System.currentTimeMillis() + (expire != null ? expire * 1000L : 7200000L);
+                Object expireObj = result.get("expire");
+                long expire = 7200L;
+                if (expireObj instanceof Number) {
+                    expire = ((Number) expireObj).longValue();
+                }
+                tokenExpireTime = System.currentTimeMillis() + expire * 1000L;
                 return tenantAccessToken;
             }
 
@@ -279,12 +289,12 @@ public class FeishuOAuthService implements OAuthService {
         return java.net.URLEncoder.encode(value, java.nio.charset.StandardCharsets.UTF_8);
     }
 
-    private Long getLong(Map<String, Object> map, String key) {
+    private Long getLong(Map<String, Object> map, String key, long defaultValue) {
         Object value = map.get(key);
         if (value instanceof Number) {
             return ((Number) value).longValue();
         }
-        return null;
+        return defaultValue;
     }
 
     private String toJson(Map<String, Object> map) {

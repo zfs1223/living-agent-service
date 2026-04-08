@@ -19,9 +19,14 @@ import org.springframework.stereotype.Service;
 import com.livingagent.core.model.ModelManager;
 import com.livingagent.core.model.ModelResponse;
 import com.livingagent.core.model.ModelStatus;
+import com.livingagent.core.neuron.Neuron;
 import com.livingagent.core.neuron.NeuronRegistry;
 import com.livingagent.core.channel.ChannelManager;
+import com.livingagent.core.channel.ChannelMessage;
 import com.livingagent.core.nativelib.AudioNative;
+import com.livingagent.core.neuron.chat.ChatNeuronRouter;
+import com.livingagent.core.neuron.chat.ChatNeuronRouter.RoutingResult;
+import com.livingagent.core.security.AccessLevel;
 
 @Service
 public class AgentService {
@@ -31,20 +36,30 @@ public class AgentService {
     private final ModelManager modelManager;
     private final NeuronRegistry neuronRegistry;
     private final ChannelManager channelManager;
+    private final ChatNeuronRouter chatNeuronRouter;
     private final ConcurrentHashMap<String, SessionContext> activeSessions;
     private final ConcurrentHashMap<String, AudioNative.Processor> audioProcessors;
     
     public AgentService(ModelManager modelManager, NeuronRegistry neuronRegistry, 
-                        ChannelManager channelManager) {
+                        ChannelManager channelManager, ChatNeuronRouter chatNeuronRouter) {
         this.modelManager = modelManager;
         this.neuronRegistry = neuronRegistry;
         this.channelManager = channelManager;
+        this.chatNeuronRouter = chatNeuronRouter;
         this.activeSessions = new ConcurrentHashMap<>();
         this.audioProcessors = new ConcurrentHashMap<>();
     }
     
     public void startSession(String sessionId) {
-        SessionContext context = new SessionContext(sessionId);
+        startSession(sessionId, null);
+    }
+    
+    public void startSession(String sessionId, AccessLevel accessLevel) {
+        startSession(sessionId, accessLevel, null);
+    }
+    
+    public void startSession(String sessionId, AccessLevel accessLevel, String departmentId) {
+        SessionContext context = new SessionContext(sessionId, accessLevel, departmentId);
         activeSessions.put(sessionId, context);
         
         AudioNative.Processor audioProcessor = new AudioNative.Processor(16000, 1, 960, true);
@@ -53,7 +68,8 @@ public class AgentService {
         modelManager.createSession(sessionId)
             .thenAccept(session -> {
                 context.setModelSession(session);
-                log.info("Session started: {}", sessionId);
+                log.info("Session started: {}, accessLevel={}, departmentId={}", 
+                    sessionId, accessLevel, departmentId);
             })
             .exceptionally(e -> {
                 log.error("Failed to start session: {}", sessionId, e);
@@ -85,22 +101,180 @@ public class AgentService {
         
         context.incrementMessageCount();
         
-        return modelManager.generateText(sessionId, text, null)
-            .thenApply(response -> {
+        AccessLevel accessLevel = context.getAccessLevel();
+        String departmentId = context.getDepartmentId();
+        
+        Map<String, Object> routingContext = new HashMap<>();
+        routingContext.put("channel", channel);
+        routingContext.put("accessLevel", accessLevel);
+        routingContext.put("departmentId", departmentId);
+        routingContext.put("userId", context.getUserId());
+        
+        RoutingResult routing = chatNeuronRouter.route(sessionId, text, routingContext);
+        
+        if (!routing.isPermissionGranted()) {
+            return CompletableFuture.completedFuture(Map.of(
+                "type", "permission_denied",
+                "sessionId", sessionId,
+                "message", routing.getPermissionDeniedReason(),
+                "requiredLevel", getRequiredLevelForIntent(routing.getIntent()),
+                "currentLevel", accessLevel.name()
+            ));
+        }
+        
+        Neuron targetNeuron = routing.getNeuron();
+        if (targetNeuron == null) {
+            return CompletableFuture.completedFuture(Map.of(
+                "type", "error",
+                "message", "No available neuron for routing"
+            ));
+        }
+        
+        return processWithNeuron(sessionId, text, channel, routing, targetNeuron, context);
+    }
+    
+    private CompletableFuture<Map<String, Object>> processWithNeuron(String sessionId, String text, 
+            String channel, RoutingResult routing, Neuron neuron, SessionContext context) {
+        
+        List<String> inputChannels = neuron.getSubscribedChannels();
+        String targetChannelId = inputChannels.isEmpty() 
+            ? channel
+            : inputChannels.get(0);
+        
+        ChannelMessage message = ChannelMessage.text(
+            "channel://input/user",
+            "user",
+            targetChannelId,
+            sessionId,
+            text
+        );
+        
+        message.addMetadata("intent", routing.getIntent());
+        message.addMetadata("accessLevel", routing.getAccessLevel().name());
+        message.addMetadata("originalInput", routing.getOriginalInput());
+        
+        channelManager.publish(targetChannelId, message);
+        
+        log.info("Published message to channel: {} for session: {}", targetChannelId, sessionId);
+        
+        return waitForResponse(sessionId, routing, neuron);
+    }
+    
+    private CompletableFuture<Map<String, Object>> waitForResponse(String sessionId, RoutingResult routing, Neuron neuron) {
+        SessionContext context = activeSessions.get(sessionId);
+        
+        String responseChannelId = "channel://response/" + sessionId;
+        final java.util.concurrent.atomic.AtomicReference<ChannelMessage> responseRef = 
+            new java.util.concurrent.atomic.AtomicReference<>();
+        final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+        
+        channelManager.subscribe(responseChannelId, new com.livingagent.core.channel.ChannelSubscriber() {
+            @Override
+            public void onMessage(ChannelMessage message) {
+                if ("brain_response".equals(message.getMetadata().get("type"))) {
+                    responseRef.set(message);
+                    latch.countDown();
+                }
+            }
+            
+            @Override
+            public String getSubscriberId() {
+                return "response_waiter_" + sessionId;
+            }
+        });
+        
+        List<String> outputChannels = neuron.getPublishChannels();
+        if (!outputChannels.isEmpty()) {
+            for (String outputChannel : outputChannels) {
+                channelManager.subscribe(outputChannel, new com.livingagent.core.channel.ChannelSubscriber() {
+                    @Override
+                    public void onMessage(ChannelMessage message) {
+                        responseRef.set(message);
+                        latch.countDown();
+                    }
+                    
+                    @Override
+                    public String getSubscriberId() {
+                        return "output_watcher_" + sessionId;
+                    }
+                });
+            }
+        }
+        
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                boolean received = latch.await(30, java.util.concurrent.TimeUnit.SECONDS);
+                
+                channelManager.unsubscribe(responseChannelId, "response_waiter_" + sessionId);
+                for (String outputChannel : neuron.getPublishChannels()) {
+                    channelManager.unsubscribe(outputChannel, "output_watcher_" + sessionId);
+                }
+                
                 Map<String, Object> result = new HashMap<>();
                 result.put("type", "response");
                 result.put("sessionId", sessionId);
-                result.put("channel", channel);
+                result.put("intent", routing.getIntent());
+                result.put("neuron", routing.getTargetNeuron());
+                result.put("accessLevel", routing.getAccessLevel().name());
                 
-                if (response.isSuccess()) {
-                    result.put("text", response.getText());
-                    result.put("model", response.getModel());
+                if (received && responseRef.get() != null) {
+                    ChannelMessage response = responseRef.get();
+                    String responseText = response.getContent();
+                    
+                    result.put("text", responseText);
+                    result.put("model", response.getMetadata().getOrDefault("model", "unknown"));
+                    result.put("processedBy", response.getSourceNeuronId());
+                    
+                    context.addHistory("user", routing.getOriginalInput());
+                    context.addHistory("assistant", responseText);
+                    
+                    log.info("Session {} received response from {} via channel", sessionId, response.getSourceNeuronId());
                 } else {
-                    result.put("error", response.getError());
+                    log.warn("Session {} timeout waiting for neuron response, falling back to ModelManager", sessionId);
+                    
+                    ModelResponse fallbackResponse = modelManager.processChatWithIntent(
+                        sessionId, 
+                        routing.getOriginalInput(), 
+                        context.getHistory()
+                    ).join();
+                    
+                    if (fallbackResponse.isSuccess()) {
+                        result.put("text", fallbackResponse.getText());
+                        result.put("model", fallbackResponse.getModel());
+                        result.put("fallback", true);
+                        
+                        context.addHistory("user", routing.getOriginalInput());
+                        context.addHistory("assistant", fallbackResponse.getText());
+                    } else {
+                        result.put("error", fallbackResponse.getError());
+                    }
                 }
                 
                 return result;
-            });
+                
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.error("Interrupted while waiting for response: {}", sessionId, e);
+                return Map.of(
+                    "type", "error",
+                    "message", "Processing interrupted"
+                );
+            } catch (Exception e) {
+                log.error("Error waiting for response: {}", sessionId, e);
+                return Map.of(
+                    "type", "error",
+                    "message", "Error processing message: " + e.getMessage()
+                );
+            }
+        });
+    }
+    
+    private String getRequiredLevelForIntent(String intent) {
+        return switch (intent) {
+            case "TOOL_CALL" -> "DEPARTMENT";
+            case "COMPLEX_TASK" -> "FULL";
+            default -> "CHAT_ONLY";
+        };
     }
     
     public CompletableFuture<Map<String, Object>> processAudioAsync(String sessionId, String audioData, String format) {
@@ -351,13 +525,22 @@ public class AgentService {
     private static class SessionContext {
         private final String sessionId;
         private final long createdAt;
+        private final AccessLevel accessLevel;
+        private final String departmentId;
+        private volatile String userId;
         private volatile Object modelSession;
         private volatile int messageCount;
         private final List<Map<String, String>> history;
         
         public SessionContext(String sessionId) {
+            this(sessionId, AccessLevel.CHAT_ONLY, null);
+        }
+        
+        public SessionContext(String sessionId, AccessLevel accessLevel, String departmentId) {
             this.sessionId = sessionId;
             this.createdAt = System.currentTimeMillis();
+            this.accessLevel = accessLevel != null ? accessLevel : AccessLevel.CHAT_ONLY;
+            this.departmentId = departmentId;
             this.messageCount = 0;
             this.history = new ArrayList<>();
         }
@@ -376,6 +559,22 @@ public class AgentService {
         
         public int getMessageCount() {
             return messageCount;
+        }
+        
+        public AccessLevel getAccessLevel() {
+            return accessLevel;
+        }
+        
+        public String getDepartmentId() {
+            return departmentId;
+        }
+        
+        public String getUserId() {
+            return userId;
+        }
+        
+        public void setUserId(String userId) {
+            this.userId = userId;
         }
         
         public List<Map<String, String>> getHistory() {

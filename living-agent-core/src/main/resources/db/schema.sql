@@ -843,3 +843,279 @@ VALUES
     ('ind_communication', '沟通指数', '沟通任务满意度', 'COMMUNICATION', 0.05, 90.0, 'avg(satisfaction_score)'),
     ('ind_reliability', '可靠性指数', '按时完成任务比例', 'RELIABILITY', 0.05, 95.0, 'on_time_tasks / total_tasks * 100')
 ON CONFLICT (indicator_id) DO NOTHING;
+
+-- ============================================
+-- Speaker Profile Tables (Voice Print)
+-- ============================================
+
+-- Speaker Profiles Table
+CREATE TABLE IF NOT EXISTS speaker_profiles (
+    speaker_id VARCHAR(100) PRIMARY KEY,
+    name VARCHAR(100),
+    embedding BYTEA,
+    embedding_dimension INTEGER DEFAULT 192,
+    employee_id VARCHAR(100),
+    active BOOLEAN DEFAULT TRUE,
+    match_count INTEGER DEFAULT 0,
+    last_matched_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    metadata VARCHAR(2000)
+);
+
+CREATE INDEX idx_speaker_name ON speaker_profiles(name);
+CREATE INDEX idx_speaker_employee ON speaker_profiles(employee_id);
+CREATE INDEX idx_speaker_active ON speaker_profiles(active);
+
+-- Voice Print Registration Log Table
+CREATE TABLE IF NOT EXISTS voiceprint_registration_log (
+    id BIGSERIAL PRIMARY KEY,
+    registration_id VARCHAR(64) UNIQUE NOT NULL,
+    speaker_id VARCHAR(100) NOT NULL,
+    employee_id VARCHAR(100),
+    name VARCHAR(100),
+    audio_duration_ms INTEGER,
+    embedding_dimension INTEGER,
+    success BOOLEAN NOT NULL,
+    error_message TEXT,
+    ip_address VARCHAR(45),
+    user_agent VARCHAR(512),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_voiceprint_reg_speaker ON voiceprint_registration_log(speaker_id);
+CREATE INDEX idx_voiceprint_reg_employee ON voiceprint_registration_log(employee_id);
+CREATE INDEX idx_voiceprint_reg_created ON voiceprint_registration_log(created_at);
+
+-- Voice Print Verification Log Table
+CREATE TABLE IF NOT EXISTS voiceprint_verification_log (
+    id BIGSERIAL PRIMARY KEY,
+    verification_id VARCHAR(64) UNIQUE NOT NULL,
+    speaker_id VARCHAR(100),
+    employee_id VARCHAR(100),
+    verified BOOLEAN NOT NULL,
+    similarity DECIMAL(5,4),
+    threshold DECIMAL(5,4),
+    audio_duration_ms INTEGER,
+    challenge_text VARCHAR(256),
+    asr_matched BOOLEAN,
+    ip_address VARCHAR(45),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_voiceprint_verif_speaker ON voiceprint_verification_log(speaker_id);
+CREATE INDEX idx_voiceprint_verif_employee ON voiceprint_verification_log(employee_id);
+CREATE INDEX idx_voiceprint_verif_created ON voiceprint_verification_log(created_at);
+CREATE INDEX idx_voiceprint_verif_verified ON voiceprint_verification_log(verified);
+
+-- Trigger for speaker_profiles
+CREATE TRIGGER update_speaker_profiles_updated_at BEFORE UPDATE ON speaker_profiles
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================
+-- User Profile Tables
+-- ============================================
+
+-- User Profiles Table (关联表，扩展信息)
+-- 基础员工信息在 enterprise_employees 表中
+CREATE TABLE IF NOT EXISTS user_profiles (
+    profile_id VARCHAR(64) PRIMARY KEY,
+    employee_id VARCHAR(100) UNIQUE,
+    speaker_id VARCHAR(100) UNIQUE,
+    digital_id VARCHAR(200) UNIQUE,
+    personality_config JSONB,
+    behavior_preferences JSONB,
+    knowledge_association JSONB,
+    usage_statistics JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    last_active_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE INDEX idx_user_profile_employee ON user_profiles(employee_id);
+CREATE INDEX idx_user_profile_speaker ON user_profiles(speaker_id);
+CREATE INDEX idx_user_profile_digital ON user_profiles(digital_id);
+
+-- Trigger for user_profiles
+CREATE TRIGGER update_user_profiles_updated_at BEFORE UPDATE ON user_profiles
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================
+-- Payout Account Tables
+-- ============================================
+
+-- Payout Accounts Table (Chairman Configurable)
+CREATE TABLE IF NOT EXISTS payout_accounts (
+    account_id VARCHAR(64) PRIMARY KEY,
+    account_name VARCHAR(100),
+    account_type VARCHAR(32) NOT NULL,
+    provider VARCHAR(32) NOT NULL,
+    account_identifier VARCHAR(256) NOT NULL,
+    owner_id VARCHAR(100),
+    owner_type VARCHAR(32) DEFAULT 'CHAIRMAN',
+    is_default BOOLEAN DEFAULT FALSE,
+    is_active BOOLEAN DEFAULT TRUE,
+    verified BOOLEAN DEFAULT FALSE,
+    verified_at TIMESTAMP WITH TIME ZONE,
+    metadata JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_payout_owner ON payout_accounts(owner_id);
+CREATE INDEX idx_payout_type ON payout_accounts(account_type);
+CREATE INDEX idx_payout_provider ON payout_accounts(provider);
+CREATE INDEX idx_payout_active ON payout_accounts(is_active);
+CREATE INDEX idx_payout_default ON payout_accounts(is_default);
+
+-- Trigger for payout_accounts
+CREATE TRIGGER update_payout_accounts_updated_at BEFORE UPDATE ON payout_accounts
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================
+-- Heartbeat Tables
+-- ============================================
+
+-- Heartbeat Runs Table
+CREATE TABLE IF NOT EXISTS heartbeat_runs (
+    run_id VARCHAR(64) PRIMARY KEY,
+    employee_id VARCHAR(100) NOT NULL,
+    wake_source VARCHAR(32) NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+    priority VARCHAR(16) DEFAULT 'NORMAL',
+    context TEXT,
+    max_duration_seconds INTEGER,
+    allowed_actions TEXT[],
+    require_success BOOLEAN DEFAULT FALSE,
+    actions_taken TEXT[],
+    actual_duration_seconds INTEGER,
+    result_message TEXT,
+    error_message TEXT,
+    scheduled_at TIMESTAMP WITH TIME ZONE,
+    started_at TIMESTAMP WITH TIME ZONE,
+    completed_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_heartbeat_employee ON heartbeat_runs(employee_id);
+CREATE INDEX idx_heartbeat_status ON heartbeat_runs(status);
+CREATE INDEX idx_heartbeat_source ON heartbeat_runs(wake_source);
+CREATE INDEX idx_heartbeat_scheduled ON heartbeat_runs(scheduled_at);
+CREATE INDEX idx_heartbeat_created ON heartbeat_runs(created_at);
+
+-- ============================================
+-- Session Management Tables
+-- ============================================
+
+-- User Sessions Table
+CREATE TABLE IF NOT EXISTS user_sessions (
+    session_id VARCHAR(64) PRIMARY KEY,
+    employee_id VARCHAR(100),
+    speaker_id VARCHAR(100),
+    identity VARCHAR(32) NOT NULL,
+    access_level VARCHAR(16) NOT NULL,
+    auth_method VARCHAR(32),
+    ip_address VARCHAR(45),
+    user_agent VARCHAR(512),
+    device_info JSONB,
+    location_info JSONB,
+    started_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    last_activity_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP WITH TIME ZONE,
+    ended_at TIMESTAMP WITH TIME ZONE,
+    end_reason VARCHAR(32),
+    active BOOLEAN DEFAULT TRUE
+);
+
+CREATE INDEX idx_session_employee ON user_sessions(employee_id);
+CREATE INDEX idx_session_speaker ON user_sessions(speaker_id);
+CREATE INDEX idx_session_active ON user_sessions(active);
+CREATE INDEX idx_session_expires ON user_sessions(expires_at);
+CREATE INDEX idx_session_started ON user_sessions(started_at);
+
+-- ============================================
+-- Configuration Version Control Tables
+-- ============================================
+
+-- Config Versions Table
+CREATE TABLE IF NOT EXISTS config_versions (
+    version_id VARCHAR(64) PRIMARY KEY,
+    config_type VARCHAR(32) NOT NULL,
+    config_key VARCHAR(128) NOT NULL,
+    version_number INTEGER NOT NULL,
+    config_value JSONB NOT NULL,
+    previous_value JSONB,
+    change_reason TEXT,
+    changed_by VARCHAR(100),
+    changed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    is_active BOOLEAN DEFAULT TRUE,
+    
+    CONSTRAINT uk_config_version UNIQUE (config_type, config_key, version_number)
+);
+
+CREATE INDEX idx_config_type ON config_versions(config_type);
+CREATE INDEX idx_config_key ON config_versions(config_key);
+CREATE INDEX idx_config_active ON config_versions(is_active);
+CREATE INDEX idx_config_changed ON config_versions(changed_at);
+
+-- ============================================
+-- Budget Control Tables
+-- ============================================
+
+-- Budget Allocations Table
+CREATE TABLE IF NOT EXISTS budget_allocations (
+    allocation_id VARCHAR(64) PRIMARY KEY,
+    budget_type VARCHAR(32) NOT NULL,
+    owner_id VARCHAR(100),
+    owner_type VARCHAR(32) DEFAULT 'DEPARTMENT',
+    period VARCHAR(16) NOT NULL,
+    period_start DATE NOT NULL,
+    period_end DATE NOT NULL,
+    allocated_amount_cents BIGINT NOT NULL,
+    used_amount_cents BIGINT DEFAULT 0,
+    reserved_amount_cents BIGINT DEFAULT 0,
+    alert_threshold DECIMAL(5,4) DEFAULT 0.8,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    
+    CONSTRAINT uk_budget_allocation UNIQUE (budget_type, owner_id, period, period_start)
+);
+
+CREATE INDEX idx_budget_owner ON budget_allocations(owner_id);
+CREATE INDEX idx_budget_type ON budget_allocations(budget_type);
+CREATE INDEX idx_budget_period ON budget_allocations(period_start, period_end);
+CREATE INDEX idx_budget_active ON budget_allocations(is_active);
+
+-- Budget Transactions Table
+CREATE TABLE IF NOT EXISTS budget_transactions (
+    id BIGSERIAL PRIMARY KEY,
+    transaction_id VARCHAR(64) UNIQUE NOT NULL,
+    allocation_id VARCHAR(64) NOT NULL,
+    transaction_type VARCHAR(20) NOT NULL,
+    amount_cents BIGINT NOT NULL,
+    description TEXT,
+    related_entity_type VARCHAR(32),
+    related_entity_id VARCHAR(100),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    
+    CONSTRAINT fk_budget_allocation FOREIGN KEY (allocation_id) 
+        REFERENCES budget_allocations(allocation_id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_budget_trans_allocation ON budget_transactions(allocation_id);
+CREATE INDEX idx_budget_trans_type ON budget_transactions(transaction_type);
+CREATE INDEX idx_budget_trans_created ON budget_transactions(created_at);
+
+-- Trigger for budget_allocations
+CREATE TRIGGER update_budget_allocations_updated_at BEFORE UPDATE ON budget_allocations
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================
+-- Initial Payout Accounts (Chairman Default)
+-- ============================================
+
+INSERT INTO payout_accounts (account_id, account_name, account_type, provider, account_identifier, owner_type, is_default, is_active, verified)
+VALUES 
+    ('payout_chairman_default', '董事长默认收款账户', 'BANK_ACCOUNT', 'BANK', '', 'CHAIRMAN', TRUE, TRUE, FALSE)
+ON CONFLICT (account_id) DO NOTHING;

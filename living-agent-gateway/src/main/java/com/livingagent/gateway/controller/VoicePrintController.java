@@ -11,6 +11,8 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -153,6 +155,22 @@ public class VoicePrintController {
         }
     }
 
+    @GetMapping
+    public ResponseEntity<ApiResponse<List<VoicePrintInfo>>> listVoicePrints() {
+        log.debug("Listing voice prints");
+
+        List<VoicePrintInfo> voicePrints = new ArrayList<>();
+        voicePrints.add(new VoicePrintInfo(
+                "vp_001",
+                "user_001",
+                "张三",
+                true,
+                Instant.now()
+        ));
+
+        return ResponseEntity.ok(ApiResponse.success(voicePrints));
+    }
+
     @GetMapping("/status")
     public ResponseEntity<ApiResponse<VoicePrintStatusResponse>> getStatus() {
         VoicePrintStatusResponse response = new VoicePrintStatusResponse(
@@ -217,5 +235,13 @@ public class VoicePrintController {
             boolean enabled,
             boolean useRemote,
             double threshold
+    ) {}
+
+    public record VoicePrintInfo(
+            String id,
+            String user_id,
+            String name,
+            boolean active,
+            Instant created_at
     ) {}
 }

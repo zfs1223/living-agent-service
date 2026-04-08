@@ -42,4 +42,12 @@ public interface EnterpriseEmployeeRepository extends JpaRepository<EnterpriseEm
 
     @Query("SELECT CASE WHEN COUNT(e) > 0 THEN true ELSE false END FROM EnterpriseEmployeeEntity e WHERE e.founder = true")
     boolean hasFounder();
+
+    Optional<EnterpriseEmployeeEntity> findByVoicePrintId(String voicePrintId);
+
+    @Query("SELECT e FROM EnterpriseEmployeeEntity e WHERE e.founder = true")
+    Optional<EnterpriseEmployeeEntity> findFounder();
+
+    @Query("SELECT e FROM EnterpriseEmployeeEntity e WHERE e.identity = :identity AND e.active = true")
+    List<EnterpriseEmployeeEntity> findActiveByIdentity(@Param("identity") String identity);
 }

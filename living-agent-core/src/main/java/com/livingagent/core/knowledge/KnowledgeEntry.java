@@ -25,7 +25,12 @@ public class KnowledgeEntry {
     private Instant updatedAt;
     private int accessCount;
     private double relevanceScore;
+    private double relevance;
     private String source;
+    private KnowledgeScope scope;
+    private String scopeIdentifier;
+    private Instant lastAccessedAt;
+    private String promotedFrom;
     
     public KnowledgeEntry() {
         this.entryId = java.util.UUID.randomUUID().toString();
@@ -134,6 +139,15 @@ public class KnowledgeEntry {
     public KnowledgeMetadata getMetadata() { return metadata; }
     public void setMetadata(KnowledgeMetadata metadata) { this.metadata = metadata; }
     
+    public void setMetadata(Map<String, String> metadata) {
+        if (metadata instanceof KnowledgeMetadata) {
+            this.metadata = (KnowledgeMetadata) metadata;
+        } else if (metadata != null) {
+            this.metadata = new KnowledgeMetadata();
+            this.metadata.putAll(metadata);
+        }
+    }
+    
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
     
@@ -153,6 +167,21 @@ public class KnowledgeEntry {
     
     public String getSource() { return source; }
     public void setSource(String source) { this.source = source; }
+    
+    public double getRelevance() { return relevance; }
+    public void setRelevance(double relevance) { this.relevance = relevance; }
+    
+    public KnowledgeScope getScope() { return scope; }
+    public void setScope(KnowledgeScope scope) { this.scope = scope; }
+    
+    public String getScopeIdentifier() { return scopeIdentifier; }
+    public void setScopeIdentifier(String scopeIdentifier) { this.scopeIdentifier = scopeIdentifier; }
+    
+    public Instant getLastAccessedAt() { return lastAccessedAt; }
+    public void setLastAccessedAt(Instant lastAccessedAt) { this.lastAccessedAt = lastAccessedAt; }
+    
+    public String getPromotedFrom() { return promotedFrom; }
+    public void setPromotedFrom(String promotedFrom) { this.promotedFrom = promotedFrom; }
     
     @Override
     public String toString() {

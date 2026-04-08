@@ -7,9 +7,12 @@ import java.util.List;
 public class BestPractice {
     
     private String practiceId;
+    private String id;
     private String title;
     private String domain;
     private String description;
+    private String content;
+    private double effectiveness;
     private List<String> steps;
     private List<String> prerequisites;
     private List<String> expectedOutcomes;
@@ -39,6 +42,25 @@ public class BestPractice {
         this.domain = domain;
         this.description = description;
     }
+    
+    public BestPractice(String id, String domain, String content, double effectiveness) {
+        this();
+        this.id = id;
+        this.practiceId = id;
+        this.domain = domain;
+        this.content = content;
+        this.description = content;
+        this.effectiveness = effectiveness;
+    }
+    
+    public String getId() { return id != null ? id : practiceId; }
+    public void setId(String id) { this.id = id; }
+    
+    public String getContent() { return content != null ? content : description; }
+    public void setContent(String content) { this.content = content; }
+    
+    public double getEffectiveness() { return effectiveness; }
+    public void setEffectiveness(double effectiveness) { this.effectiveness = effectiveness; }
     
     public void addStep(String step) {
         this.steps.add(step);

@@ -8,11 +8,13 @@ import com.livingagent.core.evolution.personality.BrainPersonality;
 import com.livingagent.core.evolution.signal.EvolutionSignal;
 import com.livingagent.core.knowledge.KnowledgeBase;
 import com.livingagent.core.knowledge.KnowledgeEntry;
+import com.livingagent.core.model.selector.MainBrainModelSelector;
 import com.livingagent.core.provider.Provider;
 import com.livingagent.core.security.*;
 import com.livingagent.core.tool.Tool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -50,6 +52,7 @@ public class MainBrain extends AbstractBrain {
     private final PermissionService permissionService;
     private final Map<String, CoordinationSession> activeSessions = new ConcurrentHashMap<>();
     private final Map<String, Integer> departmentRequestCounts = new ConcurrentHashMap<>();
+    private MainBrainModelSelector modelSelector;
 
     public MainBrain(List<Tool> tools, BrainRegistryImpl brainRegistry, PermissionService permissionService) {
         super(
@@ -62,6 +65,15 @@ public class MainBrain extends AbstractBrain {
         );
         this.brainRegistry = brainRegistry;
         this.permissionService = permissionService;
+    }
+
+    @Autowired(required = false)
+    public void setModelSelector(MainBrainModelSelector modelSelector) {
+        this.modelSelector = modelSelector;
+        if (modelSelector != null) {
+            log.info("MainBrain: Model selector enabled, current model: {}", 
+                modelSelector.getCurrentModel().getDisplayName());
+        }
     }
 
     @Override
@@ -322,12 +334,21 @@ public class MainBrain extends AbstractBrain {
         history.add(Provider.ChatMessage.system(systemPrompt));
         history.add(Provider.ChatMessage.user(extractText(message)));
 
+        String modelId = "qwen3.5-27b";
+        int contextLength = 4096;
+        
+        if (modelSelector != null) {
+            modelId = modelSelector.getEffectiveModelId();
+            contextLength = modelSelector.getCurrentModel().getContextLength();
+            log.debug("Using model from selector: {} (context: {})", modelId, contextLength);
+        }
+
         Provider.ChatRequest request = new Provider.ChatRequest(
             history,
             List.of(),
-            "qwen3.5-27b",
+            modelId,
             0.7,
-            4096
+            contextLength
         );
 
         try {

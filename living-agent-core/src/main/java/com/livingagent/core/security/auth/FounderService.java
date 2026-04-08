@@ -1,8 +1,9 @@
 package com.livingagent.core.security.auth;
 
 import com.livingagent.core.security.AccessLevel;
-import com.livingagent.core.security.Employee;
+import com.livingagent.core.security.AuthContext;
 import com.livingagent.core.security.UserIdentity;
+import com.livingagent.core.security.service.EnterpriseEmployeeService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -38,26 +39,27 @@ public class FounderService {
         return !hasAny;
     }
 
-    public void assignFounderRole(Employee employee) {
-        if (founderExists.get()) {
-            log.warn("Founder already exists, cannot assign founder role to {}", employee.getName());
-            return;
-        }
-
-        employee.setIdentity(UserIdentity.INTERNAL_CHAIRMAN);
-        employee.setAccessLevel(AccessLevel.FULL);
-        employee.setFounder(true);
-        employee.setPosition("董事长");
-
+    public void markFounderRegistered() {
         founderExists.set(true);
-
-        log.info("Assigned founder (Chairman) role to employee: {} ({})", 
-                employee.getName(), employee.getEmployeeId());
+        log.info("Founder marked as registered in memory cache");
     }
 
     public boolean hasFounder() {
         initialize();
         return founderExists.get();
+    }
+
+    public void refreshFromDatabase() {
+        founderExists.set(checkStrategy.hasFounder());
+        log.info("Founder status refreshed from database: {}", founderExists.get());
+    }
+
+    public void assignFounderRole(AuthContext authContext) {
+        authContext.setIdentity(UserIdentity.INTERNAL_CHAIRMAN);
+        authContext.setAccessLevel(AccessLevel.FULL);
+        authContext.setFounder(true);
+        founderExists.set(true);
+        log.info("Founder role assigned to: {}", authContext.getName());
     }
 
     public interface FounderCheckStrategy {

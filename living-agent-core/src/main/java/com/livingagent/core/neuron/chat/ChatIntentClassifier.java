@@ -14,7 +14,7 @@ public class ChatIntentClassifier {
     private static final Set<String> CASUAL_PATTERNS = Set.of(
         "怎么样", "如何", "什么意思", "为什么", "怎么", "干嘛",
         "是不是", "对不对", "好不好", "行不行", "可以吗", "能吗",
-        "觉得", "认为", "感觉", "想", "希望", "觉得"
+        "觉得", "认为", "感觉", "想", "希望", "知道", "了解"
     );
     
     private static final Set<String> TOOL_KEYWORDS = Set.of(
@@ -47,16 +47,26 @@ public class ChatIntentClassifier {
         private final ChatIntent intent;
         private final double confidence;
         private final String reason;
+        private final String originalInput;
         
         public ClassificationResult(ChatIntent intent, double confidence, String reason) {
             this.intent = intent;
             this.confidence = confidence;
             this.reason = reason;
+            this.originalInput = null;
+        }
+        
+        public ClassificationResult(ChatIntent intent, double confidence, String reason, String originalInput) {
+            this.intent = intent;
+            this.confidence = confidence;
+            this.reason = reason;
+            this.originalInput = originalInput;
         }
         
         public ChatIntent getIntent() { return intent; }
         public double getConfidence() { return confidence; }
         public String getReason() { return reason; }
+        public String getOriginalInput() { return originalInput; }
         
         public boolean shouldUseChatNeuron() {
             return intent == ChatIntent.GREETING || 

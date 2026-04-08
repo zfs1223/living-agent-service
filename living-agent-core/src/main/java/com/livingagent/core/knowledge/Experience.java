@@ -9,6 +9,7 @@ import java.util.Map;
 public class Experience {
     
     private String experienceId;
+    private String profileId;
     private String title;
     private String description;
     private String context;
@@ -39,6 +40,14 @@ public class Experience {
         this.title = title;
         this.description = description;
     }
+    
+    public Experience(String profileId, String context, Object content, Instant createdAt) {
+        this();
+        this.profileId = profileId;
+        this.context = context;
+        this.description = content != null ? content.toString() : null;
+        this.occurredAt = createdAt;
+    }
 
     /**
      * 兼容旧代码中对 experience.getContent() 的调用，
@@ -62,6 +71,9 @@ public class Experience {
     
     public String getExperienceId() { return experienceId; }
     public void setExperienceId(String experienceId) { this.experienceId = experienceId; }
+    
+    public String getProfileId() { return profileId; }
+    public void setProfileId(String profileId) { this.profileId = profileId; }
     
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }

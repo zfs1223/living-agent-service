@@ -20,6 +20,8 @@ import com.livingagent.core.model.ModelManager;
 import com.livingagent.core.model.impl.ModelManagerImpl;
 import com.livingagent.core.neuron.NeuronRegistry;
 import com.livingagent.core.neuron.impl.NeuronRegistryImpl;
+import com.livingagent.core.neuron.chat.ChatNeuronRouter;
+import com.livingagent.core.neuron.chat.ChatNeuronConfig;
 import com.livingagent.core.provider.Provider;
 import com.livingagent.core.provider.ProviderRegistry;
 import com.livingagent.core.provider.impl.AsrProvider;
@@ -33,6 +35,8 @@ import com.livingagent.core.employee.impl.JpaEmployeeServiceImpl;
 import com.livingagent.core.employee.repository.EmployeeRepository;
 import com.livingagent.core.security.PermissionService;
 import com.livingagent.core.security.impl.PermissionServiceImpl;
+import com.livingagent.core.security.service.EnterpriseEmployeeService;
+import com.livingagent.core.database.repository.EnterpriseEmployeeRepository;
 import com.livingagent.core.tool.Tool;
 import com.livingagent.core.tool.ToolRegistry;
 import com.livingagent.core.tool.impl.BrowserAutomationTool;
@@ -335,13 +339,19 @@ public class LivingAgentCoreConfig {
     }
 
     @Bean
-    public com.livingagent.core.security.EmployeeService securityEmployeeService() {
+    public EnterpriseEmployeeService enterpriseEmployeeService(EnterpriseEmployeeRepository enterpriseEmployeeRepository) {
+        log.info("Initializing EnterpriseEmployeeService with database persistence");
+        return new EnterpriseEmployeeService(enterpriseEmployeeRepository);
+    }
+
+    @Bean
+    public com.livingagent.core.security.EmployeeAuthService securityEmployeeService() {
         log.info("Initializing SecurityEmployeeService");
         return new com.livingagent.core.security.impl.EmployeeServiceImpl();
     }
 
     @Bean
-    public PermissionService permissionService(com.livingagent.core.security.EmployeeService securityEmployeeService) {
+    public PermissionService permissionService(com.livingagent.core.security.EmployeeAuthService securityEmployeeService) {
         log.info("Initializing PermissionService");
         return new PermissionServiceImpl(securityEmployeeService);
     }
@@ -400,7 +410,7 @@ public class LivingAgentCoreConfig {
     public CsBrain csBrain(ToolRegistry toolRegistry) {
         log.info("Initializing CsBrain");
         List<Tool> tools = new ArrayList<>(toolRegistry.getAll());
-        return new CsBrain("cs-brain", tools);
+        return new CsBrain(tools);
     }
 
     @Bean
@@ -471,5 +481,13 @@ public class LivingAgentCoreConfig {
             brainRegistry.stopAll();
             initLog.info("LivingAgent shutdown completed");
         }
+    }
+
+    
+    @Bean
+    public ChatNeuronRouter chatNeuronRouter(NeuronRegistry neuronRegistry) {
+        log.info("Initializing ChatNeuronRouter");
+        ChatNeuronConfig config = ChatNeuronConfig.defaultConfig();
+        return new ChatNeuronRouter(neuronRegistry, config);
     }
 }

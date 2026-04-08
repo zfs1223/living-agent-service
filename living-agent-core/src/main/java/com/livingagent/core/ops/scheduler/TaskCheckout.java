@@ -393,6 +393,10 @@ public class TaskCheckout {
             .toList();
     }
 
+    public List<Task> getAllCheckedOutTasks() {
+        return new ArrayList<>(checkedOutTasks.values());
+    }
+
     public List<Task> getCompletedTasks(int limit) {
         return completedTasks.values().stream()
             .sorted(Comparator.comparing(Task::completedAt).reversed())

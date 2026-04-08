@@ -1,7 +1,7 @@
 package com.livingagent.core.security.auth.impl;
 
 import com.livingagent.core.security.AccessLevel;
-import com.livingagent.core.security.Employee;
+import com.livingagent.core.security.AuthContext;
 import com.livingagent.core.security.UserIdentity;
 import com.livingagent.core.security.auth.FounderService;
 import com.livingagent.core.security.auth.OAuthService;
@@ -35,7 +35,7 @@ public class WeComOAuthService implements OAuthService {
     private String accessToken;
     private long tokenExpireTime;
     
-    private final Map<String, Employee> employeeCache = new ConcurrentHashMap<>();
+    private final Map<String, AuthContext> employeeCache = new ConcurrentHashMap<>();
 
     public WeComOAuthService(String corpId, String agentId, String corpSecret, FounderService founderService) {
         this.corpId = corpId;
@@ -94,13 +94,12 @@ public class WeComOAuthService implements OAuthService {
             Map<String, Object> result = parseJson(response.body());
 
             if (result.containsKey("UserId")) {
+                Instant expiresAt = Instant.now().plusSeconds(7200L);
                 return new OAuthToken(
                         (String) result.get("UserId"),
                         null,
-                        7200L,
-                        "Bearer",
-                        null,
-                        Instant.now()
+                        expiresAt,
+                        null
                 );
             } else {
                 log.error("Failed to get user info: {}", result);
@@ -145,10 +144,8 @@ public class WeComOAuthService implements OAuthService {
                         (String) result.get("name"),
                         (String) result.get("email"),
                         (String) result.get("mobile"),
-                        (String) result.get("avatar"),
                         (String) result.get("department"),
-                        (String) result.get("position"),
-                        result
+                        (String) result.get("position")
                 );
             }
             
@@ -158,9 +155,7 @@ public class WeComOAuthService implements OAuthService {
                     null,
                     null,
                     null,
-                    null,
-                    null,
-                    result
+                    null
             );
 
         } catch (Exception e) {
@@ -170,41 +165,41 @@ public class WeComOAuthService implements OAuthService {
     }
 
     @Override
-    public Optional<Employee> findOrCreateEmployee(OAuthUserInfo userInfo) {
+    public Optional<AuthContext> findOrCreateEmployee(OAuthUserInfo userInfo) {
         if (userInfo == null) {
             return Optional.empty();
         }
 
-        String cacheKey = "wecom_" + userInfo.providerUserId();
+        String cacheKey = "wecom_" + userInfo.userId();
         
-        Employee cached = employeeCache.get(cacheKey);
+        AuthContext cached = employeeCache.get(cacheKey);
         if (cached != null) {
             return Optional.of(cached);
         }
 
-        Employee employee = new Employee();
-        employee.setEmployeeId(cacheKey);
-        employee.setName(userInfo.name());
-        employee.setEmail(userInfo.email());
-        employee.setPhone(userInfo.phone());
-        employee.setDepartment(userInfo.department());
-        employee.setPosition(userInfo.position());
-        employee.setOauthProvider("wecom");
-        employee.setOauthUserId(userInfo.providerUserId());
-        employee.setLastSyncTime(Instant.now());
-        employee.setSyncSource("wecom_oauth");
+        AuthContext authContext = new AuthContext();
+        authContext.setEmployeeId(cacheKey);
+        authContext.setName(userInfo.name());
+        authContext.setEmail(userInfo.email());
+        authContext.setPhone(userInfo.phone());
+        authContext.setDepartment(userInfo.department());
+        authContext.setPosition(userInfo.position());
+        authContext.setOauthProvider("wecom");
+        authContext.setOauthUserId(userInfo.userId());
+        authContext.setLastSyncTime(Instant.now());
+        authContext.setSyncSource("wecom_oauth");
 
         if (founderService != null && founderService.isFirstUser()) {
-            founderService.assignFounderRole(employee);
-            log.info("First user detected, assigned Chairman role: {}", employee.getName());
+            founderService.assignFounderRole(authContext);
+            log.info("First user detected, assigned Chairman role: {}", authContext.getName());
         } else {
-            employee.setIdentity(UserIdentity.INTERNAL_ACTIVE);
+            authContext.setIdentity(UserIdentity.INTERNAL_ACTIVE);
         }
 
-        employeeCache.put(cacheKey, employee);
+        employeeCache.put(cacheKey, authContext);
 
-        log.info("Created employee from WeCom OAuth: {}", employee.getName());
-        return Optional.of(employee);
+        log.info("Created auth context from WeCom OAuth: {}", authContext.getName());
+        return Optional.of(authContext);
     }
 
     @Override
@@ -221,13 +216,13 @@ public class WeComOAuthService implements OAuthService {
             return OAuthResult.failed("user_info_error", "Failed to get user info");
         }
 
-        Optional<Employee> employeeOpt = findOrCreateEmployee(userInfo);
-        if (employeeOpt.isEmpty()) {
+        Optional<AuthContext> authContextOpt = findOrCreateEmployee(userInfo);
+        if (authContextOpt.isEmpty()) {
             return OAuthResult.failed("employee_error", "Failed to create employee");
         }
 
         log.info("WeCom OAuth authentication successful: {}", userInfo.name());
-        return OAuthResult.success(employeeOpt.get(), token);
+        return OAuthResult.success(authContextOpt.get(), token);
     }
 
     @Override
@@ -238,6 +233,12 @@ public class WeComOAuthService implements OAuthService {
     @Override
     public void revokeToken(String accessToken) {
         log.info("Token revocation requested (WeCom does not support token revocation)");
+    }
+
+    @Override
+    public Optional<AuthContext> findByOAuthUserId(String oauthUserId) {
+        String cacheKey = "wecom_" + oauthUserId;
+        return Optional.ofNullable(employeeCache.get(cacheKey));
     }
 
     private synchronized String getAccessToken() {

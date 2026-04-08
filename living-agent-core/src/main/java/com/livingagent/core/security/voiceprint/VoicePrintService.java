@@ -61,4 +61,19 @@ public interface VoicePrintService {
             long updatedAt,
             int enrollmentCount
     ) {}
+
+    record VerificationResult(
+            boolean verified,
+            String speakerId,
+            String speakerName,
+            String message
+    ) {
+        public static VerificationResult success(String speakerId, String speakerName) {
+            return new VerificationResult(true, speakerId, speakerName, "Verification successful");
+        }
+        
+        public static VerificationResult failed(String message) {
+            return new VerificationResult(false, null, null, message);
+        }
+    }
 }

@@ -386,3 +386,16 @@ lifecycle:
   health-check-interval: 300000
   max-idle-time: 3600000
   auto-terminate: true
+
+feishu:
+  enabled: ${FEISHU_ENABLED:true}
+  webhook-key: ${FEISHU_WEBHOOK_KEY:}
+  chairman:
+    app-id: ${FEISHU_CHAIRMAN_APP_ID:cli_a920321f3b7a5cc1}
+    app-secret: ${FEISHU_CHAIRMAN_APP_SECRET:gmU0opRuS3Aps30BWR84ghkv7ELrkncG}
+  hr:
+    app-id: ${FEISHU_HR_APP_ID:}
+    app-secret: ${FEISHU_HR_APP_SECRET:}
+  employee:
+    app-id: ${FEISHU_EMPLOYEE_APP_ID:}
+    app-secret: ${FEISHU_EMPLOYEE_APP_SECRET:}

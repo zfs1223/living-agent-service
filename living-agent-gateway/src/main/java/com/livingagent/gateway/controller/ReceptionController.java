@@ -5,6 +5,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -64,6 +66,33 @@ public class ReceptionController {
         return chat(request, visitorId);
     }
 
+    @GetMapping("/visitors")
+    public ResponseEntity<ApiResponse<List<VisitorInfo>>> getVisitors() {
+        log.debug("Getting visitor list");
+        
+        List<VisitorInfo> visitors = List.of(
+                new VisitorInfo("vst_001", "张三", "拜访技术部", Instant.now(), "checked_in"),
+                new VisitorInfo("vst_002", "李四", "商务洽谈", Instant.now(), "waiting")
+        );
+        
+        return ResponseEntity.ok(ApiResponse.success(visitors));
+    }
+
+    @PostMapping("/check-in")
+    public ResponseEntity<ApiResponse<VisitorInfo>> checkIn(@RequestBody CheckInRequest request) {
+        log.info("Visitor check-in: {}", request.name());
+        
+        VisitorInfo visitor = new VisitorInfo(
+                "vst_" + System.currentTimeMillis(),
+                request.name(),
+                request.purpose(),
+                Instant.now(),
+                "checked_in"
+        );
+        
+        return ResponseEntity.ok(ApiResponse.success(visitor));
+    }
+
     private String processReceptionChat(String sessionId, String message) {
         return "您好！我是前台小助手，很高兴为您服务。您有什么问题可以问我，我会尽力帮助您。";
     }
@@ -98,5 +127,19 @@ public class ReceptionController {
             String sessionId,
             String response,
             long timestamp
+    ) {}
+
+    public record VisitorInfo(
+            String id,
+            String name,
+            String purpose,
+            Instant checkInTime,
+            String status
+    ) {}
+
+    public record CheckInRequest(
+            String name,
+            String purpose,
+            String contact
     ) {}
 }

@@ -4,6 +4,7 @@ import com.livingagent.core.channel.Channel;
 import com.livingagent.core.channel.Channel.ChannelType;
 import com.livingagent.core.channel.ChannelManager;
 import com.livingagent.core.channel.ChannelMessage;
+import com.livingagent.core.channel.ChannelSubscriber;
 import com.livingagent.core.neuron.Neuron;
 import com.livingagent.core.neuron.NeuronRegistry;
 import com.livingagent.core.neuron.NeuronState;
@@ -14,12 +15,14 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 public class ChannelManagerImpl implements ChannelManager {
 
     private static final Logger log = LoggerFactory.getLogger(ChannelManagerImpl.class);
 
     private final ConcurrentMap<String, Channel> channels = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, List<ChannelSubscriber>> externalSubscribers = new ConcurrentHashMap<>();
     private NeuronRegistry neuronRegistry;
 
     public void setNeuronRegistry(NeuronRegistry neuronRegistry) {
@@ -67,6 +70,7 @@ public class ChannelManagerImpl implements ChannelManager {
     @Override
     public void destroy(String channelId) {
         Channel channel = channels.remove(channelId);
+        externalSubscribers.remove(channelId);
         if (channel != null) {
             channel.close();
             log.info("Destroyed channel: {}", channelId);
@@ -94,8 +98,14 @@ public class ChannelManagerImpl implements ChannelManager {
         if (channel != null) {
             channel.publish(message);
             deliverToSubscribers(channel, message);
+            deliverToExternalSubscribers(channelId, message);
         } else {
-            log.warn("Channel not found: {}", channelId);
+            List<ChannelSubscriber> subscribers = externalSubscribers.get(channelId);
+            if (subscribers != null && !subscribers.isEmpty()) {
+                deliverToExternalSubscribers(channelId, message);
+            } else {
+                log.warn("Channel not found and no external subscribers: {}", channelId);
+            }
         }
     }
 
@@ -124,12 +134,44 @@ public class ChannelManagerImpl implements ChannelManager {
         
         log.debug("Delivered message {} to {} subscribers", message.getId(), subscribers.size());
     }
+    
+    private void deliverToExternalSubscribers(String channelId, ChannelMessage message) {
+        List<ChannelSubscriber> subscribers = externalSubscribers.get(channelId);
+        if (subscribers != null) {
+            for (ChannelSubscriber subscriber : subscribers) {
+                try {
+                    subscriber.onMessage(message);
+                } catch (Exception e) {
+                    log.error("Error delivering message to external subscriber {} on channel {}: {}", 
+                        subscriber.getSubscriberId(), channelId, e.getMessage());
+                }
+            }
+            log.debug("Delivered message {} to {} external subscribers on channel {}", 
+                message.getId(), subscribers.size(), channelId);
+        }
+    }
 
     @Override
     public void broadcast(String pattern, ChannelMessage message) {
         channels.keySet().stream()
             .filter(id -> id.matches(pattern.replace("*", ".*")))
             .forEach(id -> publish(id, message));
+    }
+    
+    @Override
+    public void subscribe(String channelId, ChannelSubscriber subscriber) {
+        externalSubscribers.computeIfAbsent(channelId, k -> new CopyOnWriteArrayList<>())
+            .add(subscriber);
+        log.info("External subscriber {} subscribed to channel {}", subscriber.getSubscriberId(), channelId);
+    }
+    
+    @Override
+    public void unsubscribe(String channelId, String subscriberId) {
+        List<ChannelSubscriber> subscribers = externalSubscribers.get(channelId);
+        if (subscribers != null) {
+            subscribers.removeIf(s -> s.getSubscriberId().equals(subscriberId));
+            log.info("External subscriber {} unsubscribed from channel {}", subscriberId, channelId);
+        }
     }
 
     @Override

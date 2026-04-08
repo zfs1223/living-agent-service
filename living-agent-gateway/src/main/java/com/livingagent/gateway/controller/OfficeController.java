@@ -33,6 +33,33 @@ public class OfficeController {
         this.brainRegistry = brainRegistry;
     }
 
+    @GetMapping
+    public ResponseEntity<ApiResponse<List<OfficeInfo>>> listOffices() {
+        log.debug("Listing offices");
+        
+        List<OfficeInfo> offices = List.of(
+                new OfficeInfo("office_001", "总部办公室", "tech", 50, "active"),
+                new OfficeInfo("office_002", "分部办公室", "sales", 30, "active")
+        );
+        
+        return ResponseEntity.ok(ApiResponse.success(offices));
+    }
+
+    @PostMapping
+    public ResponseEntity<ApiResponse<OfficeInfo>> createOffice(@RequestBody CreateOfficeRequest request) {
+        log.info("Creating office: {}", request.name());
+        
+        OfficeInfo office = new OfficeInfo(
+                "office_" + System.currentTimeMillis(),
+                request.name(),
+                request.department(),
+                request.capacity(),
+                "active"
+        );
+        
+        return ResponseEntity.ok(ApiResponse.success(office));
+    }
+
     @GetMapping("/status")
     public ResponseEntity<ApiResponse<OfficeStatusResponse>> getOfficeStatus() {
         log.debug("Getting office status");
@@ -333,5 +360,19 @@ public class OfficeController {
             List<String> pendingTasks,
             List<String> notes,
             String summary
+    ) {}
+
+    public record OfficeInfo(
+            String id,
+            String name,
+            String department,
+            int capacity,
+            String status
+    ) {}
+
+    public record CreateOfficeRequest(
+            String name,
+            String department,
+            int capacity
     ) {}
 }

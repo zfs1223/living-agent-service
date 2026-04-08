@@ -1,9 +1,10 @@
 package com.livingagent.gateway.controller;
 
-import com.livingagent.core.security.Employee;
+import com.livingagent.core.security.AuthContext;
 import com.livingagent.core.security.UserIdentity;
 import com.livingagent.core.security.AccessLevel;
 import com.livingagent.core.security.auth.FounderService;
+import com.livingagent.core.security.service.EnterpriseEmployeeService;
 import com.livingagent.gateway.service.SystemConfigService;
 import com.livingagent.gateway.service.SystemConfigService.*;
 import com.livingagent.core.security.auth.UnifiedAuthService;
@@ -27,11 +28,20 @@ public class SystemController {
     private final FounderService founderService;
     private final SystemConfigService configService;
     private final UnifiedAuthService authService;
+    private final EnterpriseEmployeeService employeeService;
+    private final PhoneAuthController phoneAuthController;
 
-    public SystemController(FounderService founderService, SystemConfigService configService, UnifiedAuthService authService) {
+    public SystemController(
+            FounderService founderService,
+            SystemConfigService configService,
+            UnifiedAuthService authService,
+            EnterpriseEmployeeService employeeService,
+            PhoneAuthController phoneAuthController) {
         this.founderService = founderService;
         this.configService = configService;
         this.authService = authService;
+        this.employeeService = employeeService;
+        this.phoneAuthController = phoneAuthController;
     }
 
     @GetMapping("/status")
@@ -59,10 +69,13 @@ public class SystemController {
                     .body(ApiResponse.error("invalid_name", "姓名不能为空"));
         }
 
-        Employee founder = new Employee();
-        founder.setEmployeeId("founder_" + UUID.randomUUID().toString().substring(0, 8));
+        String employeeId = "founder_" + UUID.randomUUID().toString().substring(0, 8);
+
+        AuthContext founder = new AuthContext();
+        founder.setEmployeeId(employeeId);
         founder.setName(request.name());
         founder.setEmail(request.email());
+        founder.setPhone(request.phone());
         founder.setIdentity(UserIdentity.INTERNAL_CHAIRMAN);
         founder.setAccessLevel(AccessLevel.FULL);
         founder.setFounder(true);
@@ -70,7 +83,14 @@ public class SystemController {
         founder.setJoinDate(Instant.now());
         founder.setActive(true);
 
-        founderService.assignFounderRole(founder);
+        AuthContext savedFounder = employeeService.createAuthContext(founder);
+
+        // 注册手机号到手机认证控制器
+        if (request.phone() != null && !request.phone().isBlank()) {
+            phoneAuthController.registerEmployeePhone(savedFounder, request.phone());
+        }
+
+        founderService.markFounderRegistered();
 
         if (request.companyName() != null && !request.companyName().isBlank()) {
             configService.updateSystemConfig(new SystemConfigUpdateRequest(
@@ -78,16 +98,16 @@ public class SystemController {
             ));
         }
 
-        log.info("Registered founder: {} ({})", founder.getName(), founder.getEmail());
+        log.info("Registered founder in database: {} ({})", savedFounder.getName(), savedFounder.getEmail());
 
-        AuthResult authResult = authService.createInternalSession(founder);
+        AuthResult authResult = authService.createInternalSession(savedFounder);
         AuthSession session = authResult.session();
 
         RegistrationResult result = new RegistrationResult(
-                founder.getEmployeeId(),
-                founder.getName(),
-                founder.getIdentity().name(),
-                founder.getAccessLevel().name(),
+                savedFounder.getEmployeeId(),
+                savedFounder.getName(),
+                savedFounder.getIdentity().name(),
+                savedFounder.getAccessLevel().name(),
                 session.sessionId()
         );
 
@@ -164,6 +184,7 @@ public class SystemController {
 
     public record RegistrationRequest(
             String name,
+            String phone,
             String email,
             String companyName
     ) {}

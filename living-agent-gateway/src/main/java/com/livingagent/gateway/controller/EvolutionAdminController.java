@@ -292,6 +292,19 @@ public class EvolutionAdminController {
         return ResponseEntity.ok(response);
     }
     
+    @GetMapping("/evolution/status")
+    public ResponseEntity<Map<String, Object>> getEvolutionStatus() {
+        Map<String, Object> status = new HashMap<>();
+        Map<String, Object> stats = evolutionExecutor.getStatistics();
+        status.put("enabled", true);
+        status.put("running", stats.getOrDefault("isRunning", false));
+        status.put("totalExecutions", stats.get("totalExecutions"));
+        status.put("successRate", stats.get("successRate"));
+        status.put("lastExecutionTime", stats.get("lastExecutionTime"));
+        status.put("message", "Evolution system is operational");
+        return ResponseEntity.ok(status);
+    }
+
     @GetMapping("/evolution/results")
     public ResponseEntity<Map<String, Object>> getEvolutionResults(
             @RequestParam(defaultValue = "10") int limit) {

@@ -1,5 +1,6 @@
 package com.livingagent.gateway.controller;
 
+import com.livingagent.core.security.AuthContext;
 import com.livingagent.core.security.Employee;
 import com.livingagent.core.security.UserIdentity;
 import com.livingagent.core.security.AccessLevel;
@@ -8,6 +9,7 @@ import com.livingagent.core.security.auth.UnifiedAuthService;
 import com.livingagent.core.security.auth.UnifiedAuthService.AuthResult;
 import com.livingagent.core.security.auth.UnifiedAuthService.AuthSession;
 import com.livingagent.core.security.auth.PhoneVerificationService;
+import com.livingagent.core.security.service.EnterpriseEmployeeService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -26,16 +28,19 @@ public class PhoneAuthController {
     private final PhoneVerificationService phoneVerificationService;
     private final UnifiedAuthService authService;
     private final FounderService founderService;
+    private final EnterpriseEmployeeService employeeService;
     private final Map<String, Employee> phoneEmployeeMap = new ConcurrentHashMap<>();
 
     public PhoneAuthController(
             PhoneVerificationService phoneVerificationService,
             UnifiedAuthService authService,
-            FounderService founderService
+            FounderService founderService,
+            EnterpriseEmployeeService employeeService
     ) {
         this.phoneVerificationService = phoneVerificationService;
         this.authService = authService;
         this.founderService = founderService;
+        this.employeeService = employeeService;
     }
 
     @PostMapping("/sms/send")
@@ -52,7 +57,7 @@ public class PhoneAuthController {
         String normalizedPhone = phoneVerificationService.normalizePhone(request.phone());
 
         if ("login".equals(request.type()) || "bind".equals(request.type())) {
-            Employee employee = phoneEmployeeMap.get(normalizedPhone);
+            Employee employee = findEmployeeByPhone(normalizedPhone);
             if (employee == null) {
                 return ResponseEntity.badRequest()
                         .body(ApiResponse.error("phone_not_registered", "该手机号未绑定企业员工，请联系管理员添加"));
@@ -80,7 +85,7 @@ public class PhoneAuthController {
 
         String normalizedPhone = phoneVerificationService.normalizePhone(request.phone());
 
-        Employee employee = phoneEmployeeMap.get(normalizedPhone);
+        Employee employee = findEmployeeByPhone(normalizedPhone);
         if (employee == null) {
             return ResponseEntity.status(401)
                     .body(ApiResponse.error("phone_not_registered", "该手机号未绑定企业员工，请联系管理员添加"));
@@ -123,7 +128,7 @@ public class PhoneAuthController {
                     .body(ApiResponse.error("session_expired", "会话已过期"));
         }
 
-        Employee employee = sessionOpt.get().employee();
+        com.livingagent.core.security.AuthContext employee = sessionOpt.get().authContext();
 
         if (!employee.isFounder() && employee.getIdentity() != UserIdentity.INTERNAL_CHAIRMAN) {
             return ResponseEntity.status(403)
@@ -169,9 +174,52 @@ public class PhoneAuthController {
         log.info("Registered employee phone: {} -> {}", maskPhone(normalizedPhone), employee.getName());
     }
 
+    public void registerEmployeePhone(AuthContext authContext, String phone) {
+        String normalizedPhone = phoneVerificationService.normalizePhone(phone);
+        Employee employee = new Employee();
+        employee.setEmployeeId(authContext.getEmployeeId());
+        employee.setName(authContext.getName());
+        employee.setPhone(normalizedPhone);
+        employee.setEmail(authContext.getEmail());
+        employee.setIdentity(authContext.getIdentity());
+        employee.setAccessLevel(authContext.getAccessLevel());
+        employee.setFounder(authContext.isFounder());
+        employee.setPosition(authContext.getPosition());
+        employee.setActive(authContext.isActive());
+        phoneEmployeeMap.put(normalizedPhone, employee);
+        log.info("Registered employee phone from AuthContext: {} -> {}", maskPhone(normalizedPhone), authContext.getName());
+    }
+
     public Optional<Employee> getEmployeeByPhone(String phone) {
         String normalizedPhone = phoneVerificationService.normalizePhone(phone);
         return Optional.ofNullable(phoneEmployeeMap.get(normalizedPhone));
+    }
+
+    private Employee findEmployeeByPhone(String normalizedPhone) {
+        Employee employee = phoneEmployeeMap.get(normalizedPhone);
+        if (employee != null) {
+            return employee;
+        }
+        
+        Optional<AuthContext> authContextOpt = employeeService.findByPhone(normalizedPhone);
+        if (authContextOpt.isPresent()) {
+            AuthContext ctx = authContextOpt.get();
+            employee = new Employee();
+            employee.setEmployeeId(ctx.getEmployeeId());
+            employee.setName(ctx.getName());
+            employee.setPhone(normalizedPhone);
+            employee.setEmail(ctx.getEmail());
+            employee.setIdentity(ctx.getIdentity());
+            employee.setAccessLevel(ctx.getAccessLevel());
+            employee.setFounder(ctx.isFounder());
+            employee.setPosition(ctx.getPosition());
+            employee.setActive(ctx.isActive());
+            phoneEmployeeMap.put(normalizedPhone, employee);
+            log.info("Loaded employee from database: {} -> {}", normalizedPhone, ctx.getName());
+            return employee;
+        }
+        
+        return null;
     }
 
     private UserInfo convertToUserInfo(Employee employee) {
@@ -184,6 +232,7 @@ public class PhoneAuthController {
                 employee.getIdentity().name(),
                 employee.getAccessLevel().name(),
                 employee.isFounder(),
+                "tenant_default",
                 new ArrayList<>(employee.getAllowedBrains()),
                 new ArrayList<>(),
                 new ArrayList<>()
@@ -226,6 +275,7 @@ public class PhoneAuthController {
             String identity,
             String accessLevel,
             boolean founder,
+            String tenantId,
             List<String> allowedBrains,
             List<String> capabilities,
             List<String> skills

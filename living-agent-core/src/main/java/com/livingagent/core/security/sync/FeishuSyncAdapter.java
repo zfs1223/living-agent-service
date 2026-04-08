@@ -254,8 +254,12 @@ public class FeishuSyncAdapter implements HrSyncAdapter {
             
             if (result != null && result.containsKey("tenant_access_token")) {
                 tenantAccessToken = (String) result.get("tenant_access_token");
-                Integer expiresIn = (Integer) result.get("expire");
-                tokenExpireTime = System.currentTimeMillis() + (expiresIn != null ? expiresIn * 1000L : 7200000L);
+                Object expireObj = result.get("expire");
+                long expiresIn = 7200L;
+                if (expireObj instanceof Number) {
+                    expiresIn = ((Number) expireObj).longValue();
+                }
+                tokenExpireTime = System.currentTimeMillis() + expiresIn * 1000L;
                 return tenantAccessToken;
             }
             
@@ -371,10 +375,14 @@ public class FeishuSyncAdapter implements HrSyncAdapter {
         employee.setSyncSource("feishu");
         employee.setLastSyncTime(Instant.now());
         
-        Integer status = (Integer) user.get("status");
-        if (status != null && status == 0) {
+        Object statusObj = user.get("status");
+        int status = -1;
+        if (statusObj instanceof Number) {
+            status = ((Number) statusObj).intValue();
+        }
+        if (status == 0) {
             employee.setActive(true);
-        } else if (status != null && status == 1) {
+        } else if (status == 1) {
             employee.setActive(false);
             employee.setIdentity(UserIdentity.INTERNAL_DEPARTED);
         }
@@ -503,6 +511,14 @@ public class FeishuSyncAdapter implements HrSyncAdapter {
             return null;
         }
         
+        if (value.startsWith("{") && value.endsWith("}")) {
+            return parseJson(value);
+        }
+        
+        if (value.startsWith("[") && value.endsWith("]")) {
+            return parseJsonArray(value);
+        }
+        
         if (value.startsWith("\"") && value.endsWith("\"")) {
             return value.substring(1, value.length() - 1);
         }
@@ -519,5 +535,69 @@ public class FeishuSyncAdapter implements HrSyncAdapter {
         } catch (NumberFormatException e) {
             return value;
         }
+    }
+    
+    private List<Object> parseJsonArray(String json) {
+        List<Object> result = new ArrayList<>();
+        if (json == null || json.isEmpty()) return result;
+        
+        json = json.trim();
+        if (!json.startsWith("[") || !json.endsWith("]")) return result;
+        
+        json = json.substring(1, json.length() - 1);
+        
+        int depth = 0;
+        StringBuilder current = new StringBuilder();
+        boolean inString = false;
+        boolean escaped = false;
+        
+        for (int i = 0; i < json.length(); i++) {
+            char c = json.charAt(i);
+            
+            if (escaped) {
+                current.append(c);
+                escaped = false;
+                continue;
+            }
+            
+            if (c == '\\') {
+                escaped = true;
+                current.append(c);
+                continue;
+            }
+            
+            if (c == '"') {
+                inString = !inString;
+                current.append(c);
+                continue;
+            }
+            
+            if (!inString) {
+                if (c == '{' || c == '[') {
+                    depth++;
+                    current.append(c);
+                } else if (c == '}' || c == ']') {
+                    depth--;
+                    current.append(c);
+                } else if (c == ',' && depth == 0) {
+                    String item = current.toString().trim();
+                    if (!item.isEmpty()) {
+                        result.add(parseValue(item));
+                    }
+                    current = new StringBuilder();
+                } else {
+                    current.append(c);
+                }
+            } else {
+                current.append(c);
+            }
+        }
+        
+        String lastItem = current.toString().trim();
+        if (!lastItem.isEmpty()) {
+            result.add(parseValue(lastItem));
+        }
+        
+        return result;
     }
 }

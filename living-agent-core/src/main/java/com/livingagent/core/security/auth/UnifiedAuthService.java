@@ -1,6 +1,6 @@
 package com.livingagent.core.security.auth;
 
-import com.livingagent.core.security.Employee;
+import com.livingagent.core.security.AuthContext;
 import com.livingagent.core.security.UserIdentity;
 import com.livingagent.core.security.voiceprint.VoicePrintService;
 import org.slf4j.Logger;
@@ -49,150 +49,132 @@ public class UnifiedAuthService {
             return AuthResult.failed(oauthResult.error(), oauthResult.errorDescription());
         }
 
-        Employee employee = oauthResult.employee();
-        AuthSession session = createSession(employee, "oauth_" + provider);
+        AuthContext authContext = oauthResult.authContext();
+        AuthSession session = createSession(authContext, "oauth_" + provider);
 
-        log.info("OAuth authentication successful: {} ({})", employee.getName(), provider);
-        return AuthResult.success(employee, session);
+        log.info("OAuth authentication successful: {} ({})", authContext.getName(), provider);
+        return AuthResult.success(authContext, session);
     }
 
-    public AuthResult authenticateByVoicePrint(byte[] audioData) {
+    public AuthResult authenticateByVoicePrint(String userId, byte[] audioData) {
         log.info("Authenticating via voice print");
 
         if (voicePrintService == null) {
-            return AuthResult.failed("service_unavailable", "Voice print service not available");
+            return AuthResult.failed("voice_print_unavailable", "Voice print service not available");
         }
 
-        Optional<VoicePrintService.VoicePrintMatch> match = voicePrintService.identify(audioData);
-        if (match.isEmpty() || !match.get().isMatch()) {
-            log.warn("Voice print authentication failed: no match found");
-            return AuthResult.failed("voice_not_recognized", "Voice not recognized");
+        boolean verified = voicePrintService.verify(userId, audioData);
+        if (!verified) {
+            return AuthResult.failed("voice_print_failed", "Voice verification failed");
         }
 
-        VoicePrintService.VoicePrintMatch voiceMatch = match.get();
-        
-        Employee employee = createEmployeeFromVoiceMatch(voiceMatch);
-        AuthSession session = createSession(employee, "voice_print");
+        AuthContext authContext = createAuthContextFromVoicePrint(userId);
+        AuthSession session = createSession(authContext, "voice_print");
 
-        log.info("Voice print authentication successful: {}", employee.getName());
-        return AuthResult.success(employee, session);
+        log.info("Voice print authentication successful: {}", authContext.getName());
+        return AuthResult.success(authContext, session);
     }
 
     public AuthResult authenticateByPhone(String phone, String code) {
-        log.info("Authenticating via phone verification: {}", maskPhone(phone));
+        log.info("Authenticating via phone: {}", maskPhone(phone));
 
         if (phoneVerificationService == null) {
-            return AuthResult.failed("service_unavailable", "Phone verification service not available");
+            return AuthResult.failed("phone_verification_unavailable", "Phone verification service not available");
         }
 
         PhoneVerificationService.VerifyResult result = phoneVerificationService.verifyCode(phone, code);
         if (!result.isSuccess()) {
-            log.warn("Phone verification failed: {}", result.error());
-            return AuthResult.failed("verification_failed", result.error());
+            return AuthResult.failed("invalid_code", result.error());
         }
 
-        Employee employee = createEmployeeFromPhone(phone);
-        AuthSession session = createSession(employee, "phone_verification");
+        AuthContext authContext = createAuthContextFromPhone(phone);
+        AuthSession session = createSession(authContext, "phone");
 
         log.info("Phone authentication successful: {}", maskPhone(phone));
-        return AuthResult.success(employee, session);
+        return AuthResult.success(authContext, session);
     }
 
-    public Optional<Employee> identifyUser(String method, Map<String, Object> credentials) {
-        return switch (method.toLowerCase()) {
-            case "oauth" -> {
-                String provider = (String) credentials.get("provider");
-                String code = (String) credentials.get("code");
-                String redirectUri = (String) credentials.get("redirect_uri");
-                AuthResult result = authenticateByOAuth(provider, code, redirectUri);
-                yield result.success() ? Optional.of(result.employee()) : Optional.empty();
-            }
-            case "voice" -> {
-                byte[] audioData = (byte[]) credentials.get("audio_data");
-                AuthResult result = authenticateByVoicePrint(audioData);
-                yield result.success() ? Optional.of(result.employee()) : Optional.empty();
-            }
-            case "phone" -> {
-                String phone = (String) credentials.get("phone");
-                String code = (String) credentials.get("code");
-                AuthResult result = authenticateByPhone(phone, code);
-                yield result.success() ? Optional.of(result.employee()) : Optional.empty();
-            }
-            default -> Optional.empty();
-        };
+    public AuthResult createInternalSession(AuthContext authContext) {
+        AuthSession session = createSession(authContext, "internal");
+        log.info("Created internal session for: {}", authContext.getName());
+        return AuthResult.success(authContext, session);
     }
 
     public Optional<AuthSession> validateSession(String sessionId) {
-        if (sessionId == null || sessionId.isEmpty()) {
+        if (sessionId == null) {
             return Optional.empty();
         }
 
         AuthSession session = activeSessions.get(sessionId);
-        if (session == null || session.isExpired()) {
-            activeSessions.remove(sessionId);
+        if (session == null) {
             return Optional.empty();
         }
 
-        session.touch();
-        return Optional.of(session);
+        if (session.isExpired()) {
+            activeSessions.remove(sessionId);
+            log.info("Session expired: {}", sessionId);
+            return Optional.empty();
+        }
+
+        AuthSession touchedSession = session.touch();
+        activeSessions.put(sessionId, touchedSession);
+        return Optional.of(touchedSession);
     }
 
     public void invalidateSession(String sessionId) {
-        AuthSession session = activeSessions.remove(sessionId);
-        if (session != null) {
-            log.info("Session invalidated: {} for user: {}", sessionId, session.employee().getName());
+        AuthSession removed = activeSessions.remove(sessionId);
+        if (removed != null) {
+            log.info("Session invalidated: {} for user: {}", sessionId, removed.authContext().getName());
         }
     }
 
-    public void cleanupExpiredSessions() {
-        activeSessions.entrySet().removeIf(entry -> entry.getValue().isExpired());
-        log.debug("Cleaned up expired sessions");
+    public void invalidateAllSessionsForUser(String employeeId) {
+        activeSessions.entrySet().removeIf(entry -> {
+            if (entry.getValue().authContext().getEmployeeId().equals(employeeId)) {
+                log.info("Invalidated session {} for user: {}", entry.getKey(), employeeId);
+                return true;
+            }
+            return false;
+        });
     }
 
-    /**
-     * Create internal session for system-registered users (e.g., founder registration)
-     */
-    public AuthResult createInternalSession(Employee employee) {
-        log.info("Creating internal session for user: {} ({})", employee.getName(), employee.getEmployeeId());
-        
-        AuthSession session = createSession(employee, "internal");
-        return AuthResult.success(employee, session);
-    }
+    private AuthSession createSession(AuthContext authContext, String authMethod) {
+        String sessionId = "sess_" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+        Instant now = Instant.now();
+        Instant expiresAt = now.plusSeconds(3600);
 
-    private AuthSession createSession(Employee employee, String authMethod) {
-        String sessionId = "sess_" + System.currentTimeMillis() + "_" + employee.getEmployeeId().hashCode();
         AuthSession session = new AuthSession(
-                sessionId,
-                employee,
-                authMethod,
-                Instant.now(),
-                Instant.now().plusSeconds(3600),
-                Map.of()
+            sessionId,
+            authContext,
+            authMethod,
+            now,
+            expiresAt,
+            new ConcurrentHashMap<>()
         );
 
         activeSessions.put(sessionId, session);
         return session;
     }
 
-    private Employee createEmployeeFromVoiceMatch(VoicePrintService.VoicePrintMatch match) {
-        Employee employee = new Employee();
-        employee.setEmployeeId("voice_" + match.userId());
-        employee.setName(match.userName() != null ? match.userName() : match.userId());
-        employee.setIdentity(UserIdentity.INTERNAL_ACTIVE);
-        employee.setLastSyncTime(Instant.now());
-        employee.setSyncSource("voice_print");
-        return employee;
+    private AuthContext createAuthContextFromVoicePrint(String userId) {
+        AuthContext authContext = new AuthContext();
+        authContext.setEmployeeId(userId);
+        authContext.setName("用户" + userId.substring(0, Math.min(4, userId.length())));
+        authContext.setIdentity(UserIdentity.INTERNAL_ACTIVE);
+        authContext.setLastSyncTime(Instant.now());
+        authContext.setSyncSource("voice_print");
+        return authContext;
     }
 
-    private Employee createEmployeeFromPhone(String phone) {
-        Employee employee = new Employee();
-        employee.setEmployeeId("phone_" + phone.hashCode());
-        employee.setPhone(phone);
-        employee.setName("用户" + phone.substring(phone.length() - 4));
-        employee.setIdentity(UserIdentity.EXTERNAL_VISITOR);
-        employee.setLastSyncTime(Instant.now());
-        employee.setSyncSource("phone_verification");
-        return employee;
+    private AuthContext createAuthContextFromPhone(String phone) {
+        AuthContext authContext = new AuthContext();
+        authContext.setEmployeeId("phone_" + phone.hashCode());
+        authContext.setPhone(phone);
+        authContext.setName("用户" + phone.substring(phone.length() - 4));
+        authContext.setIdentity(UserIdentity.EXTERNAL_VISITOR);
+        authContext.setLastSyncTime(Instant.now());
+        authContext.setSyncSource("phone_verification");
+        return authContext;
     }
 
     private String maskPhone(String phone) {
@@ -212,13 +194,13 @@ public class UnifiedAuthService {
 
     public record AuthResult(
             boolean success,
-            Employee employee,
+            AuthContext authContext,
             AuthSession session,
             String error,
             String errorDescription
     ) {
-        public static AuthResult success(Employee employee, AuthSession session) {
-            return new AuthResult(true, employee, session, null, null);
+        public static AuthResult success(AuthContext authContext, AuthSession session) {
+            return new AuthResult(true, authContext, session, null, null);
         }
         
         public static AuthResult failed(String error, String description) {
@@ -228,7 +210,7 @@ public class UnifiedAuthService {
 
     public record AuthSession(
             String sessionId,
-            Employee employee,
+            AuthContext authContext,
             String authMethod,
             Instant createdAt,
             Instant expiresAt,
@@ -239,7 +221,7 @@ public class UnifiedAuthService {
         }
         
         public AuthSession touch() {
-            return new AuthSession(sessionId, employee, authMethod, createdAt, 
+            return new AuthSession(sessionId, authContext, authMethod, createdAt, 
                     Instant.now().plusSeconds(3600), metadata);
         }
     }

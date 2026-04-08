@@ -3,6 +3,10 @@ package com.livingagent.core.security.impl;
 import com.livingagent.core.security.EmployeeChangeDetector;
 import com.livingagent.core.security.EmployeeService;
 import com.livingagent.core.security.EmployeeService.ChangeType;
+import com.livingagent.core.security.DetectedChange;
+import com.livingagent.core.security.ChangeStatus;
+import com.livingagent.core.security.Employee;
+import com.livingagent.core.security.UserIdentity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -89,8 +93,8 @@ public class EmployeeChangeDetectorImpl implements EmployeeChangeDetector {
     }
 
     private DetectedChange detectByName(String name, String action, String message, String source) {
-        List<com.livingagent.core.security.Employee> employees = employeeService.findAll();
-        com.livingagent.core.security.Employee employee = employees.stream()
+        List<Employee> employees = employeeService.findAll();
+        Employee employee = employees.stream()
                 .filter(e -> name.equals(e.getName()))
                 .findFirst()
                 .orElse(null);
@@ -246,22 +250,21 @@ public class EmployeeChangeDetectorImpl implements EmployeeChangeDetector {
 
     private void handleResign(DetectedChange change) {
         employeeService.updateEmployeeStatus(change.getEmployeeId(), 
-                com.livingagent.core.security.UserIdentity.INTERNAL_DEPARTED);
+                UserIdentity.INTERNAL_DEPARTED);
         log.info("Processed resignation for employee: {}", change.getEmployeeId());
     }
 
     private void handleJoin(DetectedChange change) {
         employeeService.findById(change.getEmployeeId()).ifPresentOrElse(
                 employee -> {
-                    employee.setIdentity(com.livingagent.core.security.UserIdentity.INTERNAL_PROBATION);
+                    employee.setIdentity(UserIdentity.INTERNAL_PROBATION);
                     employeeService.updateEmployee(employee);
                     log.info("Processed join for existing employee: {}", change.getEmployeeId());
                 },
                 () -> {
-                    com.livingagent.core.security.Employee newEmployee = 
-                            new com.livingagent.core.security.Employee();
+                    Employee newEmployee = new Employee();
                     newEmployee.setName(change.getEmployeeName());
-                    newEmployee.setIdentity(com.livingagent.core.security.UserIdentity.INTERNAL_PROBATION);
+                    newEmployee.setIdentity(UserIdentity.INTERNAL_PROBATION);
                     employeeService.createEmployee(newEmployee);
                     log.info("Created new employee from join detection: {}", change.getEmployeeName());
                 }

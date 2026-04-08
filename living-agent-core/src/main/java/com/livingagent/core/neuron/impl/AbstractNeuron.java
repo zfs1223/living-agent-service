@@ -10,15 +10,18 @@ import com.livingagent.core.neuron.evolution.EvolutionSignalTrigger;
 import com.livingagent.core.skill.Skill;
 import com.livingagent.core.tool.Tool;
 import com.livingagent.core.util.IdUtils;
+import com.livingagent.core.workflow.HeartbeatProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
-public abstract class AbstractNeuron implements Neuron {
+public abstract class AbstractNeuron implements Neuron, HeartbeatProvider {
 
     protected final Logger log = LoggerFactory.getLogger(getClass());
 
@@ -42,6 +45,10 @@ public abstract class AbstractNeuron implements Neuron {
     protected final List<Channel> publishingChannelObjects = new ArrayList<>();
     
     protected EvolutionSignalTrigger evolutionTrigger;
+    
+    private ScheduledExecutorService heartbeatScheduler;
+    private HeartbeatCallback heartbeatCallback;
+    private static final long HEARTBEAT_INTERVAL_SECONDS = 60;
 
     private static final Set<String> CORE_SKILLS = Set.of(
             "tavily-search",
@@ -344,4 +351,49 @@ public abstract class AbstractNeuron implements Neuron {
     protected abstract void doStop();
 
     protected abstract void doProcessMessage(ChannelMessage message);
+
+    @Override
+    public String getProviderId() {
+        return id;
+    }
+
+    @Override
+    public void startHeartbeat(HeartbeatCallback callback) {
+        this.heartbeatCallback = callback;
+        if (heartbeatScheduler == null || heartbeatScheduler.isShutdown()) {
+            heartbeatScheduler = Executors.newSingleThreadScheduledExecutor();
+            heartbeatScheduler.scheduleAtFixedRate(() -> {
+                if (running && heartbeatCallback != null) {
+                    try {
+                        heartbeatCallback.onHeartbeat(id);
+                    } catch (Exception e) {
+                        log.warn("Heartbeat callback failed for neuron {}: {}", id, e.getMessage());
+                    }
+                }
+            }, HEARTBEAT_INTERVAL_SECONDS, HEARTBEAT_INTERVAL_SECONDS, TimeUnit.SECONDS);
+            log.debug("Neuron {} started heartbeat with interval {}s", id, HEARTBEAT_INTERVAL_SECONDS);
+        }
+    }
+
+    @Override
+    public void stopHeartbeat() {
+        if (heartbeatScheduler != null && !heartbeatScheduler.isShutdown()) {
+            heartbeatScheduler.shutdown();
+            try {
+                if (!heartbeatScheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                    heartbeatScheduler.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                heartbeatScheduler.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+            log.debug("Neuron {} stopped heartbeat", id);
+        }
+    }
+
+    protected void sendHeartbeat() {
+        if (heartbeatCallback != null) {
+            heartbeatCallback.onHeartbeat(id);
+        }
+    }
 }

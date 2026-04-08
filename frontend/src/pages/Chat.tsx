@@ -1,0 +1,685 @@
+import { useQuery } from '@tanstack/react-query';
+import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
+import MarkdownRenderer from '../components/MarkdownRenderer';
+import AgentBayLivePanel, { LivePreviewState } from '../components/AgentBayLivePanel';
+import { agentApi, enterpriseApi } from '../services/api';
+import { useAuthStore } from '../stores';
+
+/* ── Inline SVG Icons ── */
+const Icons = {
+    bot: (
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="5" width="12" height="10" rx="2" />
+            <circle cx="7" cy="10" r="1" fill="currentColor" stroke="none" />
+            <circle cx="11" cy="10" r="1" fill="currentColor" stroke="none" />
+            <path d="M9 2v3M6 2h6" />
+        </svg>
+    ),
+    user: (
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="8" cy="5.5" r="2.5" />
+            <path d="M3 14v-1a4 4 0 018 0v1" />
+        </svg>
+    ),
+    chat: (
+        <svg width="28" height="28" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M2 3a1 1 0 011-1h10a1 1 0 011 1v7a1 1 0 01-1 1H5l-3 3V3z" />
+            <path d="M5 5.5h6M5 8h4" />
+        </svg>
+    ),
+    clip: (
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M13.5 7l-5.8 5.8a3 3 0 01-4.2-4.2L9.3 2.8a2 2 0 012.8 2.8L6.3 11.4a1 1 0 01-1.4-1.4L10.7 4.2" />
+        </svg>
+    ),
+    loader: (
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+            <path d="M8 2v3M8 11v3M3.8 3.8l2.1 2.1M10.1 10.1l2.1 2.1M2 8h3M11 8h3M3.8 12.2l2.1-2.1M10.1 5.9l2.1-2.1" />
+        </svg>
+    ),
+    tool: (
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M10.5 10.5L14 14M4.5 2a2.5 2.5 0 00-1.8 4.2l5.1 5.1A2.5 2.5 0 1012 7.2L6.8 2.2A2.5 2.5 0 004.5 2z" />
+        </svg>
+    ),
+};
+
+interface ToolCall {
+    name: string;
+    args: any;
+    result?: string;
+}
+
+interface Message {
+    role: 'user' | 'assistant';
+    content: string;
+    fileName?: string;
+    toolCalls?: ToolCall[];
+    thinking?: string;
+    imageUrl?: string;
+    timestamp?: string;
+}
+
+export default function Chat() {
+    const { t } = useTranslation();
+    const { id: routeId } = useParams<{ id: string }>();
+    const [searchParams] = useSearchParams();
+    const navigate = useNavigate();
+    const token = useAuthStore((s) => s.token);
+    const user = useAuthStore((s) => s.user);
+
+    // 支持两种路由方式: /agents/:id/chat 或 /chat?id=xxx&brain=xxx
+    const queryId = searchParams.get('id');
+    const brainDept = searchParams.get('brain');
+    const deptName = searchParams.get('dept');
+    const id = routeId || queryId || undefined;
+
+    const [messages, setMessages] = useState<Message[]>([]);
+    const [input, setInput] = useState('');
+    const [connected, setConnected] = useState(false);
+    const [uploading, setUploading] = useState(false);
+    const [streaming, setStreaming] = useState(false);
+    const [isWaiting, setIsWaiting] = useState(false);
+    const [attachedFile, setAttachedFile] = useState<{ name: string; text: string; path?: string; imageUrl?: string } | null>(null);
+    const [liveState, setLiveState] = useState<LivePreviewState>({});
+    const [livePanelVisible, setLivePanelVisible] = useState(false);
+    const wsRef = useRef<WebSocket | null>(null);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    // Ref to the chat textarea for direct DOM height manipulation
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const pendingToolCalls = useRef<ToolCall[]>([]);
+    const streamContent = useRef('');
+    const thinkingContent = useRef('');
+
+    const { data: agent } = useQuery({
+        queryKey: ['agent', id],
+        queryFn: () => agentApi.get(id!),
+        enabled: !!id,
+    });
+
+    const { data: llmModels = [] } = useQuery({
+        queryKey: ['llm-models'],
+        queryFn: () => enterpriseApi.llmModels(),
+        enabled: !!agent?.primary_model_id,
+    });
+
+    const supportsVision = !!agent?.primary_model_id && llmModels.some(
+        (m: any) => m.id === agent.primary_model_id && m.supports_vision
+    );
+
+    const parseMessage = (msg: Message): Message => {
+        if (msg.role !== 'user') return msg;
+        // Standard web chat format: [file:name.pdf]\ncontent
+        const newFmt = msg.content.match(/^\[file:([^\]]+)\]\n?/);
+        if (newFmt) return { ...msg, fileName: newFmt[1], content: msg.content.slice(newFmt[0].length).trim() };
+        // Feishu/Slack channel format: [\u6587\u4ef6\u5df2\u4e0a\u4f20: workspace/uploads/name]
+        const chanFmt = msg.content.match(/^\[\u6587\u4ef6\u5df2\u4e0a\u4f20: (?:workspace\/uploads\/)?([^\]\n]+)\]/);
+        if (chanFmt) {
+            const raw = chanFmt[1]; const fileName = raw.split('/').pop() || raw;
+            return { ...msg, fileName, content: msg.content.slice(chanFmt[0].length).trim() };
+        }
+        // Old format: [File: name.pdf]\nFile location:...\nQuestion: user_msg
+        const oldFmt = msg.content.match(/^\[File: ([^\]]+)\]/);
+        if (oldFmt) {
+            const fileName = oldFmt[1];
+            const qMatch = msg.content.match(/\nQuestion: ([\s\S]+)$/);
+            return { ...msg, fileName, content: qMatch ? qMatch[1].trim() : '' };
+        }
+        return msg;
+    };
+
+    // Load chat history on mount
+    useEffect(() => {
+        if (!id || !token) return;
+        fetch(`/api/chat/${id}/history`, {
+            headers: { Authorization: `Bearer ${token}` },
+        })
+            .then(r => r.json())
+            .then((history: any[]) => {
+                if (history.length > 0) setMessages(history.map(h => {
+                    const msg = parseMessage({ role: h.role, content: h.content, fileName: h.fileName, toolCalls: h.toolCalls, thinking: h.thinking, imageUrl: h.imageUrl });
+                    msg.timestamp = h.created_at || undefined;
+                    return msg;
+                }));
+            })
+            .catch(() => { /* ignore */ });
+    }, [id, token]);
+
+    useEffect(() => {
+        if ((!id && !brainDept) || !token) return;
+
+        let cancelled = false;
+
+        const connect = () => {
+            if (cancelled) return;
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            // 使用统一的 /ws/agent 端点，参数通过 query string 传递
+            // 根据权限区分对话通道：所有对话都通过 Qwen3Neuron (闲聊神经元)
+            let wsUrl: string;
+            if (id) {
+                // 与特定数字员工对话
+                wsUrl = `${protocol}//${window.location.host}/ws/agent?token=${token}&agentId=${encodeURIComponent(id)}`;
+            } else if (brainDept) {
+                // 与部门大脑对话
+                wsUrl = `${protocol}//${window.location.host}/ws/agent?token=${token}&department=${encodeURIComponent(brainDept)}`;
+            } else {
+                return;
+            }
+            const ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                if (cancelled) {
+                    ws.close();
+                    return;
+                }
+                setConnected(true);
+                wsRef.current = ws;
+            };
+            ws.onclose = () => {
+                if (!cancelled) {
+                    setConnected(false);
+                    setTimeout(() => connect(), 2000);
+                }
+            };
+            ws.onerror = () => {
+                if (!cancelled) setConnected(false);
+            };
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (['thinking', 'chunk', 'tool_call', 'done', 'error', 'quota_exceeded'].includes(data.type)) {
+                    setIsWaiting(false);
+                }
+                if (['error', 'quota_exceeded'].includes(data.type)) {
+                    setStreaming(false);
+                }
+
+                // ── AgentBay live preview events ──
+                if (data.type === 'agentbay_live') {
+                    console.log('[LivePreview] Received:', data.env, 'url:', data.screenshot_url?.substring(0, 60));
+                    setLiveState(prev => {
+                        const next = { ...prev };
+                        if ((data.env === 'desktop' || data.env === 'browser') && data.screenshot_url) {
+                            // Use URL-based approach: append cache-busting timestamp
+                            const imgUrl = data.screenshot_url + '&_t=' + Date.now();
+                            if (data.env === 'desktop') next.desktop = { screenshotUrl: imgUrl };
+                            else next.browser = { screenshotUrl: imgUrl };
+                        } else if (data.env === 'code' && data.output) {
+                            // Append code output
+                            const existing = prev.code?.output || '';
+                            next.code = { output: existing + (existing ? '\n---\n' : '') + data.output };
+                        }
+                        return next;
+                    });
+                    // Auto-expand the live panel on first data
+                    setLivePanelVisible(true);
+                    return;
+                }
+
+                if (data.type === 'thinking') {
+                    // Accumulate thinking content
+                    thinkingContent.current += data.content;
+                    setMessages(prev => {
+                        const last = prev[prev.length - 1];
+                        if (last && last.role === 'assistant') {
+                            const updated = [...prev];
+                            updated[updated.length - 1] = { ...last, thinking: thinkingContent.current };
+                            return updated;
+                        }
+                        return [...prev, { role: 'assistant', content: '', thinking: thinkingContent.current, timestamp: new Date().toISOString() }];
+                    });
+                } else if (data.type === 'chunk') {
+                    // Streaming text chunk — accumulate and update live preview
+                    streamContent.current += data.content;
+                    setMessages(prev => {
+                        const last = prev[prev.length - 1];
+                        if (last && last.role === 'assistant') {
+                            // Update the streaming message in-place
+                            const updated = [...prev];
+                            updated[updated.length - 1] = { ...last, content: streamContent.current };
+                            return updated;
+                        }
+                        return [...prev, { role: 'assistant', content: streamContent.current, timestamp: new Date().toISOString() }];
+                    });
+                } else if (data.type === 'tool_call') {
+                    // Debug: log all tool_call events to verify frontend code is current
+                    console.log('[ToolCall]', data.name, data.status, 'keys:', Object.keys(data).join(','));
+                    if (data.status === 'done') {
+                        pendingToolCalls.current.push({ name: data.name, args: data.args, result: data.result });
+
+                        // ── AgentBay live preview (embedded in tool_call) ──
+                        if (data.live_preview) {
+                            const lp = data.live_preview;
+                            console.log('[LivePreview] Got from tool_call:', lp.env, lp.screenshot_url?.substring(0, 60));
+                            setLiveState(prev => {
+                                const next = { ...prev };
+                                if ((lp.env === 'desktop' || lp.env === 'browser') && lp.screenshot_url) {
+                                    const imgUrl = lp.screenshot_url + '&_t=' + Date.now();
+                                    if (lp.env === 'desktop') next.desktop = { screenshotUrl: imgUrl };
+                                    else next.browser = { screenshotUrl: imgUrl };
+                                } else if (lp.env === 'code' && lp.output) {
+                                    const existing = prev.code?.output || '';
+                                    next.code = { output: existing + (existing ? '\n---\n' : '') + lp.output };
+                                }
+                                return next;
+                            });
+                            setLivePanelVisible(true);
+                        }
+                    }
+                } else if (data.type === 'done') {
+                    // Final response — replace streaming message with final + tool calls
+                    const toolCalls = pendingToolCalls.current.length > 0 ? [...pendingToolCalls.current] : undefined;
+                    const thinking = thinkingContent.current || undefined;
+                    pendingToolCalls.current = [];
+                    streamContent.current = '';
+                    thinkingContent.current = '';
+                    setStreaming(false);
+                    setMessages(prev => {
+                        const updated = [...prev];
+                        // Replace the last streaming assistant message
+                        if (updated.length > 0 && updated[updated.length - 1].role === 'assistant') {
+                            updated[updated.length - 1] = { role: 'assistant', content: data.content, toolCalls, thinking };
+                        } else {
+                            updated.push({ role: 'assistant', content: data.content, toolCalls, thinking });
+                        }
+                        return updated;
+                    });
+                } else {
+                    // Legacy format: {role, content}
+                    setMessages(prev => [...prev, { role: data.role, content: data.content }]);
+                }
+            };
+        };
+
+        connect();
+
+        return () => {
+            cancelled = true;
+            if (wsRef.current) {
+                wsRef.current.close();
+                wsRef.current = null;
+            }
+        };
+    }, [id, brainDept, token]);
+
+    // Auto-focus input when connection is established
+    useEffect(() => {
+        if (connected) {
+            setTimeout(() => textareaRef.current?.focus(), 50);
+        }
+    }, [connected]);
+
+    useEffect(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [messages]);
+
+    const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setUploading(true);
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            if (id) formData.append('agent_id', id);
+
+            const resp = await fetch('/api/chat/upload', {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}` },
+                body: formData,
+            });
+
+            if (!resp.ok) {
+                const err = await resp.json();
+                alert(err.detail || t('agent.upload.failed'));
+                return;
+            }
+
+            const data = await resp.json();
+            setAttachedFile({ name: data.filename, text: data.extracted_text, path: data.workspace_path, imageUrl: data.image_data_url || undefined });
+        } catch (err) {
+            alert(t('agent.upload.failed') + ': ' + (err as Error).message);
+        } finally {
+            setUploading(false);
+            if (fileInputRef.current) fileInputRef.current.value = '';
+        }
+    };
+
+    const sendMessage = () => {
+        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+        if (!input.trim() && !attachedFile) return;
+
+        // Reset streaming state for new response
+        pendingToolCalls.current = [];
+        streamContent.current = '';
+        thinkingContent.current = '';
+        setIsWaiting(true);
+        setStreaming(true);
+
+        let userMsg = input.trim();
+        let contentForLLM = userMsg;
+
+        if (attachedFile) {
+            if (attachedFile.imageUrl && supportsVision) {
+                // Vision model — embed image data marker for direct analysis
+                const imageMarker = `[image_data:${attachedFile.imageUrl}]`;
+                contentForLLM = userMsg
+                    ? `${imageMarker}\n${userMsg}`
+                    : `${imageMarker}\n请分析这张图片`;
+                userMsg = userMsg || `[图片] ${attachedFile.name}`;
+            } else if (attachedFile.imageUrl) {
+                // Non-vision model — just reference the file path
+                const wsPath = attachedFile.path || '';
+                contentForLLM = userMsg
+                    ? `[图片文件已上传: ${attachedFile.name}，保存在 ${wsPath}]\n\n${userMsg}`
+                    : `[图片文件已上传: ${attachedFile.name}，保存在 ${wsPath}]\n请描述或处理这个图片文件。你可以使用 read_document 工具读取它。`;
+                userMsg = userMsg || `[图片] ${attachedFile.name}`;
+            } else {
+                const wsPath = attachedFile.path || '';
+                const codePath = wsPath.replace(/^workspace\//, '');
+                const fileLoc = wsPath ? `\nFile location: ${wsPath} (for read_file/read_document tools)\nIn execute_code, use relative path: "${codePath}" (working directory is workspace/)` : '';
+                const fileContext = `[文件: ${attachedFile.name}]${fileLoc}\n\n${attachedFile.text}`;
+                contentForLLM = userMsg
+                    ? `${fileContext}\n\n用户问题: ${userMsg}`
+                    : `请阅读并分析以下文件内容:\n\n${fileContext}`;
+                userMsg = userMsg || `[${t('agent.chat.attachment')}] ${attachedFile.name}`;
+            }
+        }
+
+        setMessages((prev) => [...prev, {
+            role: 'user',
+            content: userMsg,
+            fileName: attachedFile?.name,
+            imageUrl: attachedFile?.imageUrl,
+            timestamp: new Date().toISOString(),
+        }]);
+        wsRef.current.send(JSON.stringify({ content: contentForLLM, display_content: userMsg, file_name: attachedFile?.name || '' }));
+        setInput('');
+        setAttachedFile(null);
+        // Reset textarea height back to single-line after sending
+        requestAnimationFrame(() => {
+            if (textareaRef.current) {
+                textareaRef.current.style.height = 'auto';
+            }
+        });
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        // Ctrl+Enter (or Cmd+Enter on Mac) triggers send; plain Enter inserts a newline
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.nativeEvent.isComposing && !isWaiting && !streaming) {
+            e.preventDefault();
+            sendMessage();
+        }
+    };
+
+    /**
+     * Resize the textarea to fit its content, capping at ~5 lines (130 px).
+     * Must be called AFTER React has committed the new value to the DOM,
+     * so we use the ref rather than the event target for reliability.
+     */
+    const MAX_TEXTAREA_HEIGHT = 130;
+    const resizeTextarea = () => {
+        const el = textareaRef.current;
+        if (!el) return;
+        // Reset to 'auto' so the element can shrink when text is deleted
+        el.style.height = 'auto';
+        const natural = el.scrollHeight;
+        el.style.height = Math.min(natural, MAX_TEXTAREA_HEIGHT) + 'px';
+        // When content exceeds the cap, enable scrolling; otherwise hide scrollbar
+        el.style.overflowY = natural > MAX_TEXTAREA_HEIGHT ? 'auto' : 'hidden';
+    };
+
+    const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        setInput(e.target.value);
+        // Resize after state update; requestAnimationFrame ensures the DOM reflects
+        // the new value before we measure scrollHeight.
+        requestAnimationFrame(resizeTextarea);
+    };
+
+    const hasLiveData = !!(liveState.desktop || liveState.browser || liveState.code);
+
+    return (
+        <div>
+            <div className="page-header">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ width: '36px', height: '36px', borderRadius: 'var(--radius-md)', background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-tertiary)' }}>
+                        {Icons.bot}
+                    </div>
+                    <div>
+                        <h1 className="page-title" style={{ fontSize: '18px' }}>
+                            {brainDept
+                                ? (deptName || brainDept) + (t('department.brain.suffix') || ' 大脑')
+                                : agent?.name || '...'}
+                        </h1>
+                        <div style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span className={`status-dot ${connected ? 'running' : 'stopped'}`} />
+                            <span style={{ color: 'var(--text-tertiary)' }}>{connected ? t('agent.chat.connected') : t('agent.chat.disconnected')}</span>
+                            {brainDept && (
+                                <span style={{ color: 'var(--accent-text)', marginLeft: '8px', fontSize: '11px' }}>
+                                    {t('chat.departmentBrainMode') || '部门大脑模式'}
+                                </span>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div className={`chat-container ${hasLiveData ? 'chat-with-live-panel' : ''}`}>
+                {/* Wrap chat area in a column so it coexists with the live panel in flex-row */}
+                <div className="chat-main">
+                <div className="chat-messages">
+                    {messages.length === 0 && (
+                        <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-tertiary)' }}>
+                            <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'center' }}>{Icons.chat}</div>
+                            <div>{t('agent.chat.startConversation', { name: agent?.name || t('nav.newAgent') })}</div>
+                            <div style={{ fontSize: '12px', marginTop: '8px', opacity: 0.7 }}>{t('agent.chat.fileSupport')}</div>
+                        </div>
+                    )}
+                    {messages.map((msg, i) => (
+                        <div key={i} className={`chat-message ${msg.role}`}>
+                            <div className="chat-avatar" style={{ color: 'var(--text-tertiary)' }}>
+                                {msg.role === 'user' ? Icons.user : Icons.bot}
+                            </div>
+                            <div className="chat-bubble">
+                                {msg.fileName && (() => {
+                                    const fe = msg.fileName!.split('.').pop()?.toLowerCase() ?? '';
+                                    const isImage = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'].includes(fe);
+                                    if (isImage && msg.imageUrl) {
+                                        return (<div style={{ marginBottom: '4px' }}>
+                                            <img src={msg.imageUrl} alt={msg.fileName} style={{ maxWidth: '240px', maxHeight: '180px', borderRadius: '8px', border: '1px solid var(--border-subtle)' }} />
+                                        </div>);
+                                    }
+                                    const fi = fe === 'pdf' ? '\uD83D\uDCC4' : (fe === 'csv' || fe === 'xlsx' || fe === 'xls') ? '\uD83D\uDCCA' : (fe === 'docx' || fe === 'doc') ? '\uD83D\uDCDD' : '\uD83D\uDCCE';
+                                    return (<div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: 'rgba(0,0,0,0.08)', borderRadius: '6px', padding: '4px 8px', marginBottom: msg.content ? '4px' : '0', fontSize: '11px', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)' }}><span>{fi}</span><span style={{ fontWeight: 500, color: 'var(--text-primary)', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msg.fileName}</span></div>);
+                                })()}
+                                {msg.thinking && (
+                                    <details style={{
+                                        marginBottom: '8px', fontSize: '12px',
+                                        background: 'rgba(147, 130, 220, 0.08)', borderRadius: '6px',
+                                        border: '1px solid rgba(147, 130, 220, 0.15)',
+                                    }}>
+                                        <summary style={{
+                                            padding: '6px 10px', cursor: 'pointer',
+                                            color: 'rgba(147, 130, 220, 0.9)', fontWeight: 500,
+                                            userSelect: 'none', display: 'flex', alignItems: 'center', gap: '4px',
+                                        }}>
+                                            Thinking
+                                        </summary>
+                                        <div style={{
+                                            padding: '4px 10px 8px',
+                                            fontSize: '12px', lineHeight: '1.6',
+                                            color: 'var(--text-secondary)',
+                                            whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                                            maxHeight: '300px', overflow: 'auto',
+                                        }}>
+                                            {msg.thinking}
+                                        </div>
+                                    </details>
+                                )}
+                                {msg.toolCalls && msg.toolCalls.length > 0 && (
+                                    <details style={{
+                                        marginBottom: '8px', fontSize: '12px',
+                                        background: 'var(--accent-subtle)', borderRadius: '6px',
+                                        padding: '0',
+                                    }}>
+                                        <summary style={{
+                                            padding: '6px 10px', cursor: 'pointer',
+                                            color: 'var(--accent-text)', fontWeight: 500,
+                                            userSelect: 'none',
+                                        }}>
+                                            {Icons.tool} {msg.toolCalls.length} tool call{msg.toolCalls.length > 1 ? 's' : ''}
+                                        </summary>
+                                        <div style={{ padding: '4px 10px 8px' }}>
+                                            {msg.toolCalls.map((tc, j) => (
+                                                <div key={j} style={{
+                                                    marginBottom: j < msg.toolCalls!.length - 1 ? '6px' : 0,
+                                                    borderBottom: j < msg.toolCalls!.length - 1 ? '1px solid var(--border-subtle)' : 'none',
+                                                    paddingBottom: j < msg.toolCalls!.length - 1 ? '6px' : 0,
+                                                }}>
+                                                    <div style={{ fontWeight: 600, color: 'var(--accent-text)', marginBottom: '2px' }}>
+                                                        {tc.name}
+                                                    </div>
+                                                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-tertiary)', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                                                        {JSON.stringify(tc.args)}
+                                                    </div>
+                                                    {tc.result && (
+                                                        <div style={{
+                                                            marginTop: '4px', fontSize: '11px', color: 'var(--text-secondary)',
+                                                            fontFamily: 'var(--font-mono)', whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+                                                            maxHeight: '120px', overflow: 'auto',
+                                                        }}>
+                                                            {tc.result}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </details>
+                                )}
+                                {msg.role === 'assistant' ? (
+                                    streaming && !msg.content && i === messages.length - 1 ? (
+                                        <div className="thinking-indicator">
+                                            <div className="thinking-dots">
+                                                <span /><span /><span />
+                                            </div>
+                                            <span style={{ color: 'var(--text-tertiary)', fontSize: '13px' }}>{t('agent.chat.thinking', 'Thinking...')}</span>
+                                        </div>
+                                    ) : (
+                                        <MarkdownRenderer content={msg.content} />
+                                    )
+                                ) : (
+                                    <div style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div>
+                                )}
+                                {msg.timestamp && (
+                                    <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '4px', opacity: 0.7 }}>
+                                        {new Date(msg.timestamp).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    ))}
+                    {(isWaiting || (streaming && (messages.length === 0 || messages[messages.length - 1].role === 'user'))) && (
+                        <div className="chat-message assistant">
+                            <div className="chat-avatar" style={{ color: 'var(--text-tertiary)' }}>
+                                {Icons.bot}
+                            </div>
+                            <div className="chat-bubble">
+                                <div className="thinking-indicator">
+                                    <div className="thinking-dots">
+                                        <span /><span /><span />
+                                    </div>
+                                    <span style={{ color: 'var(--text-tertiary)', fontSize: '13px' }}>{t('agent.chat.thinking', 'Thinking...')}</span>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    <div ref={messagesEndRef} />
+                </div>
+
+                {attachedFile && (
+                    <div style={{
+                        padding: '6px 12px',
+                        background: 'var(--bg-elevated)',
+                        borderTop: '1px solid var(--border-subtle)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        fontSize: '12px',
+                    }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            {attachedFile.imageUrl ? (
+                                <img src={attachedFile.imageUrl} alt={attachedFile.name} style={{ width: '32px', height: '32px', borderRadius: '4px', objectFit: 'cover' }} />
+                            ) : (
+                                <span style={{ display: 'flex' }}>{Icons.clip}</span>
+                            )}
+                            {attachedFile.name}
+                        </span>
+                        <button
+                            onClick={() => setAttachedFile(null)}
+                            style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: '14px' }}
+                        >x</button>
+                    </div>
+                )}
+
+                <div className="chat-input-area">
+                    <input
+                        type="file"
+                        ref={fileInputRef}
+                        onChange={handleFileSelect}
+                        style={{ display: 'none' }}
+
+                    />
+                    <button
+                        className="btn btn-secondary"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={!connected || uploading || isWaiting || streaming}
+                        style={{ padding: '8px 12px', fontSize: '16px', minWidth: 'auto' }}
+                        title={t('agent.workspace.uploadFile')}
+                    >
+                        {uploading ? Icons.loader : Icons.clip}
+                    </button>
+                    <textarea
+                        ref={textareaRef}
+                        className="chat-input"
+                        value={input}
+                        onChange={handleInputChange}
+                        onKeyDown={handleKeyDown}
+                        placeholder={attachedFile ? t('agent.chat.askAboutFile', { name: attachedFile.name }) : t('chat.placeholder')}
+                        disabled={!connected}
+                        rows={1}
+                        style={{
+                            // Disable manual resize handle; height is controlled by JS
+                            resize: 'none',
+                            // overflow-y is dynamically toggled by resizeTextarea()
+                            overflowY: 'hidden',
+                            lineHeight: '22px',
+                            paddingTop: '8px',
+                            paddingBottom: '8px',
+                        }}
+                    />
+                    {(streaming || isWaiting) ? (
+                        <button className="btn btn-stop-generation" onClick={() => { if (wsRef.current?.readyState === WebSocket.OPEN) { wsRef.current.send(JSON.stringify({ type: 'abort' })); setStreaming(false); setIsWaiting(false); } }} title={t('chat.stop', 'Stop')}>
+                            <span className="stop-icon" />
+                        </button>
+                    ) : (
+                        <button className="btn btn-primary" onClick={sendMessage} disabled={!connected || (!input.trim() && !attachedFile)}>
+                            {t('chat.send')}
+                        </button>
+                    )}
+                </div>
+                </div>
+
+                {/* AgentBay Live Preview Panel */}
+                {hasLiveData && (
+                    <AgentBayLivePanel
+                        liveState={liveState}
+                        visible={livePanelVisible}
+                        onToggle={() => setLivePanelVisible(v => !v)}
+                    />
+                )}
+            </div>
+        </div>
+    );
+}
