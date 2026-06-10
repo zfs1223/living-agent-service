@@ -1,61 +1,18 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { enterpriseApi, skillApi } from '../services/api';
+import { enterpriseApi, skillApi, fetchJson } from '../services/api';
 import PromptModal from '../components/PromptModal';
+import ModelPoolProviders from './ModelPoolProviders';
+import BrainConfig from './BrainConfig';
 import FileBrowser from '../components/FileBrowser';
 import type { FileBrowserApi } from '../components/FileBrowser';
 import { saveAccentColor, getSavedAccentColor, resetAccentColor, PRESET_COLORS } from '../utils/theme';
 import UserManagement from './UserManagement';
 import InvitationCodes from './InvitationCodes';
 import { copyToClipboard } from '../utils/clipboard';
-
-// API helpers for enterprise endpoints
-async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
-    const token = localStorage.getItem('token');
-    const res = await fetch(`/api${url}`, {
-        ...options,
-        headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-    });
-    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'Error');
-    if (res.status === 204) return undefined as T;
-    return res.json();
-}
-
-interface LLMModel {
-    id: string; provider: string; model: string; label: string;
-    base_url?: string; api_key_masked?: string; max_tokens_per_day?: number; enabled: boolean; supports_vision?: boolean; max_output_tokens?: number; temperature?: number; created_at: string;
-}
-
-interface LLMProviderSpec {
-    provider: string;
-    display_name: string;
-    protocol: string;
-    default_base_url?: string | null;
-    supports_tool_choice: boolean;
-    default_max_tokens: number;
-}
-
-const FALLBACK_LLM_PROVIDERS: LLMProviderSpec[] = [
-    { provider: 'anthropic', display_name: 'Anthropic', protocol: 'anthropic', default_base_url: 'https://api.anthropic.com', supports_tool_choice: false, default_max_tokens: 8192 },
-    { provider: 'openai', display_name: 'OpenAI', protocol: 'openai_compatible', default_base_url: 'https://api.openai.com/v1', supports_tool_choice: true, default_max_tokens: 16384 },
-    { provider: 'azure', display_name: 'Azure OpenAI', protocol: 'openai_compatible', default_base_url: '', supports_tool_choice: true, default_max_tokens: 16384 },
-    { provider: 'deepseek', display_name: 'DeepSeek', protocol: 'openai_compatible', default_base_url: 'https://api.deepseek.com/v1', supports_tool_choice: true, default_max_tokens: 8192 },
-    { provider: 'minimax', display_name: 'MiniMax', protocol: 'openai_compatible', default_base_url: 'https://api.minimaxi.com/v1', supports_tool_choice: true, default_max_tokens: 16384 },
-    { provider: 'qwen', display_name: 'Qwen (DashScope)', protocol: 'openai_compatible', default_base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', supports_tool_choice: true, default_max_tokens: 8192 },
-    { provider: 'zhipu', display_name: 'Zhipu', protocol: 'openai_compatible', default_base_url: 'https://open.bigmodel.cn/api/paas/v4', supports_tool_choice: true, default_max_tokens: 8192 },
-    { provider: 'baidu', display_name: 'Baidu (Qianfan)', protocol: 'openai_compatible', default_base_url: 'https://qianfan.baidubce.com/v2', supports_tool_choice: false, default_max_tokens: 4096 },
-    { provider: 'gemini', display_name: 'Gemini', protocol: 'gemini', default_base_url: 'https://generativelanguage.googleapis.com/v1beta', supports_tool_choice: true, default_max_tokens: 8192 },
-    { provider: 'openrouter', display_name: 'OpenRouter', protocol: 'openai_compatible', default_base_url: 'https://openrouter.ai/api/v1', supports_tool_choice: true, default_max_tokens: 4096 },
-    { provider: 'kimi', display_name: 'Kimi (Moonshot)', protocol: 'openai_compatible', default_base_url: 'https://api.moonshot.cn/v1', supports_tool_choice: true, default_max_tokens: 8192 },
-    { provider: 'vllm', display_name: 'vLLM', protocol: 'openai_compatible', default_base_url: 'http://localhost:8000/v1', supports_tool_choice: true, default_max_tokens: 4096 },
-    { provider: 'ollama', display_name: 'Ollama', protocol: 'openai_compatible', default_base_url: 'http://localhost:11434/v1', supports_tool_choice: true, default_max_tokens: 4096 },
-    { provider: 'sglang', display_name: 'SGLang', protocol: 'openai_compatible', default_base_url: 'http://localhost:30000/v1', supports_tool_choice: true, default_max_tokens: 4096 },
-    { provider: 'custom', display_name: 'Custom', protocol: 'openai_compatible', default_base_url: '', supports_tool_choice: true, default_max_tokens: 4096 },
-];
+import { useToastStore } from '../stores/toastStore';
+import { getToken } from '../stores';
 
 const FEISHU_SYNC_PERM_JSON = `{
   "scopes": {
@@ -170,10 +127,10 @@ function OrgTab({ tenant }: { tenant: any }) {
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px' }}>
                     <div>
                         <div style={{ fontWeight: 600, fontSize: '14px', marginBottom: '4px' }}>
-                            {t('enterprise.identity.ssoTitle', 'Enterprise SSO')}
+                            {t('enterprise.identity.ssoTitle', '企业单点登录')}
                         </div>
                         <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                            {t('enterprise.identity.ssoDisabledHint', 'Seamless enterprise login via Single Sign-On.')}
+                            {t('enterprise.identity.ssoDisabledHint', '通过单点登录实现企业无缝登录。')}
                         </div>
                     </div>
                     <div>
@@ -205,17 +162,17 @@ function OrgTab({ tenant }: { tenant: any }) {
                     <div style={{ padding: '0 16px 16px', borderTop: '1px solid var(--border-subtle)', paddingTop: '16px' }}>
                         <div style={{ marginBottom: '16px' }}>
                             <label className="form-label" style={{ fontSize: '12px', marginBottom: '8px' }}>
-                                {t('enterprise.identity.ssoDomain', 'Custom Access Domain')}
+                                {t('enterprise.identity.ssoDomain', '自定义访问域名')}
                             </label>
                             <input
                                 className="form-input"
                                 value={ssoDomain}
                                 onChange={e => setSsoDomain(e.target.value)}
-                                placeholder={t('enterprise.identity.ssoDomainPlaceholder', 'e.g. acme.clawith.com')}
+                                placeholder={t('enterprise.identity.ssoDomainPlaceholder', 'e.g. acme.living-agent.com')}
                                 style={{ fontSize: '13px', width: '100%', maxWidth: '400px' }}
                             />
                             <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '6px' }}>
-                                {t('enterprise.identity.ssoDomainDesc', 'The custom domain users will use to log in via SSO.')}
+                                {t('enterprise.identity.ssoDomainDesc', '用户通过 SSO 登录时使用的自定义域名。')}
                             </div>
                         </div>
 
@@ -223,7 +180,7 @@ function OrgTab({ tenant }: { tenant: any }) {
 
                         <div style={{ display: 'flex', gap: '8px' }}>
                             <button className="btn btn-primary btn-sm" onClick={() => handleSave()} disabled={saving || !ssoDomain.trim()}>
-                                {saving ? t('common.loading') : t('common.save', 'Save Configuration')}
+                                {saving ? t('common.loading') : t('common.save', '保存配置')}
                             </button>
                         </div>
                     </div>
@@ -412,7 +369,7 @@ function OrgTab({ tenant }: { tenant: any }) {
                 {['feishu', 'dingtalk', 'wecom'].includes(type) && (
                     <div style={{ background: 'var(--bg-primary)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-subtle)', marginBottom: '20px', fontSize: '12px' }}>
                         <div style={{ fontWeight: 600, fontSize: '13px', marginBottom: '8px', color: 'var(--text-primary)' }}>
-                            👉 {t('enterprise.org.syncSetupGuide', 'Setup Guide & Required Permissions')}
+                            👉 {t('enterprise.org.syncSetupGuide', '设置指南与所需权限')}
                         </div>
                         <div style={{ color: 'var(--text-secondary)', lineHeight: 1.6 }}>
                             {type === 'feishu' && (
@@ -423,7 +380,7 @@ function OrgTab({ tenant }: { tenant: any }) {
                                         </div>
                                     ))}
                                     <div style={{ marginTop: '16px', marginBottom: '8px' }}>
-                                        {t('enterprise.org.feishuGuideText', 'Permission JSON (bulk import)')}
+                                        {t('enterprise.org.feishuGuideText', '权限 JSON（批量导入）')}
                                     </div>
                                     <div style={{ position: 'relative', background: '#282c34', borderRadius: '6px', padding: '12px', paddingRight: '40px', color: '#abb2bf', fontFamily: 'monospace', fontSize: '11px', whiteSpace: 'pre-wrap', overflowX: 'auto' }}>
                                         <button 
@@ -436,7 +393,7 @@ function OrgTab({ tenant }: { tenant: any }) {
                                         {FEISHU_SYNC_PERM_JSON}
                                     </div>
                                     <div style={{ marginTop: '8px', color: 'var(--text-secondary)' }}>
-                                        {t('enterprise.org.feishuGuideWarning', 'Note: You must re-publish the app each time you add new permissions.')}
+                                        {t('enterprise.org.feishuGuideWarning', '注意：每次添加新权限后需要重新发布应用。')}
                                     </div>
                                 </>
                             )}
@@ -548,14 +505,14 @@ function OrgTab({ tenant }: { tenant: any }) {
 
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '16px' }}>
                     <button className="btn btn-primary btn-sm" onClick={save} disabled={savingProvider}>
-                        {savingProvider ? t('common.loading') : t('common.save', 'Save')}
+                        {savingProvider ? t('common.loading') : t('common.save', '保存')}
                     </button>
                     {saveProviderOk && (
                         <span style={{ fontSize: '12px', color: 'var(--success)' }}>Saved</span>
                     )}
                     {existingProvider && (
                         <button className="btn btn-ghost btn-sm" style={{ color: 'var(--error)' }} onClick={() => confirm('Are you sure you want to delete this configuration?') && deleteProvider.mutate(existingProvider.id)}>
-                            {t('common.delete', 'Delete')}
+                            {t('common.delete', '删除')}
                         </button>
                     )}
                 </div>
@@ -567,7 +524,7 @@ function OrgTab({ tenant }: { tenant: any }) {
         return (
             <div style={{ marginTop: '24px', paddingTop: '24px', borderTop: '1px dashed var(--border-subtle)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
-                    <div style={{ fontWeight: 500, fontSize: '14px' }}>{t('enterprise.org.orgBrowser', 'Organization Browser')}</div>
+                    <div style={{ fontWeight: 500, fontSize: '14px' }}>{t('enterprise.org.orgBrowser', '组织目录')}</div>
                     
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
                         {['feishu', 'dingtalk', 'wecom'].includes(p.provider_type) && (
@@ -624,7 +581,7 @@ function OrgTab({ tenant }: { tenant: any }) {
             <div className="card" style={{ padding: '0', overflow: 'hidden' }}>
                 <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)' }}>
                     <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600 }}>
-                        {t('enterprise.identity.title', 'Organization & Directory Sync')}
+                        {t('enterprise.identity.title', '组织与目录同步')}
                     </h3>
                     <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
                         Configure enterprise directory synchronization and Identity Provider settings.
@@ -676,12 +633,12 @@ function OrgTab({ tenant }: { tenant: any }) {
                                         {['feishu', 'dingtalk', 'wecom', 'oauth2'].includes(idp.type) && (() => {
                                             const ssoEnabled = existingProvider ? !!existingProvider.sso_login_enabled : false;
                                             const slug = tenant?.slug || '';
-                                            const domain = tenant?.sso_domain || (slug ? `${slug}.clawith.ai` : '');
+                                            const domain = tenant?.sso_domain || (slug ? `${slug}.living-agent.ai` : '');
                                             const callbackUrl = domain ? `https://${domain}/api/auth/${idp.type}/callback` : '';
 
                                             const handleSsoToggle = async () => {
                                                 if (!existingProvider) {
-                                                    alert(t('enterprise.identity.saveFirst', 'Please save the configuration first to enable SSO.'));
+                                                    useToastStore.getState().showToast(t('enterprise.identity.saveFirst', '请先保存配置以启用 SSO。'), 'info');
                                                     return;
                                                 }
                                                 const newVal = !ssoEnabled;
@@ -703,9 +660,9 @@ function OrgTab({ tenant }: { tenant: any }) {
                                                     {/* SSO Toggle */}
                                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
                                                         <div>
-                                                            <div style={{ fontWeight: 500, fontSize: '13px' }}>{t('enterprise.identity.ssoLoginToggle', 'SSO Login')}</div>
+                                                            <div style={{ fontWeight: 500, fontSize: '13px' }}>{t('enterprise.identity.ssoLoginToggle', 'SSO 登录')}</div>
                                                             <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px' }}>
-                                                                {t('enterprise.identity.ssoLoginToggleHint', 'Allow users to log in via this identity provider.')}
+                                                                {t('enterprise.identity.ssoLoginToggleHint', '允许用户通过此身份提供者登录。')}
                                                             </div>
                                                         </div>
                                                         <label style={{ position: 'relative', display: 'inline-block', width: '36px', height: '20px', flexShrink: 0 }}>
@@ -737,7 +694,7 @@ function OrgTab({ tenant }: { tenant: any }) {
                                                             {/* Company subdomain */}
                                                             <div>
                                                                 <label className="form-label" style={{ fontSize: '11px', marginBottom: '4px', color: 'var(--text-secondary)' }}>
-                                                                    {t('enterprise.identity.ssoSubdomain', 'SSO Login URL')}
+                                                                    {t('enterprise.identity.ssoSubdomain', 'SSO 登录 URL')}
                                                                 </label>
                                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                                     <input
@@ -758,18 +715,18 @@ function OrgTab({ tenant }: { tenant: any }) {
                                                                             setTimeout(() => { el.textContent = old; }, 2000);
                                                                         }}
                                                                     >
-                                                                        {t('common.copy', 'Copy')}
+                                                                        {t('common.copy', '复制')}
                                                                     </button>
                                                                 </div>
                                                                 <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-                                                                    {t('enterprise.identity.ssoSubdomainHint', 'Share this URL with your team. SSO login buttons will appear when they visit this address.')}
+                                                                    {t('enterprise.identity.ssoSubdomainHint', '将此 URL 分享给您的团队。访问此地址时会显示 SSO 登录按钮。')}
                                                                 </div>
                                                             </div>
 
                                                             {/* Callback URL */}
                                                             <div>
                                                                 <label className="form-label" style={{ fontSize: '11px', marginBottom: '4px', color: 'var(--text-secondary)' }}>
-                                                                    {t('enterprise.identity.callbackUrl', 'Redirect URL (paste this in your app settings)')}
+                                                                    {t('enterprise.identity.callbackUrl', '回调 URL（粘贴到应用设置中）')}
                                                                 </label>
                                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                                     <input
@@ -790,11 +747,11 @@ function OrgTab({ tenant }: { tenant: any }) {
                                                                             setTimeout(() => { el.textContent = old; }, 2000);
                                                                         }}
                                                                     >
-                                                                        {t('common.copy', 'Copy')}
+                                                                        {t('common.copy', '复制')}
                                                                     </button>
                                                                 </div>
                                                                 <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-                                                                    {t('enterprise.identity.callbackUrlHint', 'Add this URL as the OAuth redirect URI in your identity provider\'s app configuration.')}
+                                                                    {t('enterprise.identity.callbackUrlHint', '将此 URL 添加为身份提供者应用配置中的 OAuth 回调地址。')}
                                                                 </div>
                                                             </div>
                                                         </div>
@@ -904,6 +861,99 @@ function EnterpriseKBBrowser({ onRefresh }: { onRefresh: () => void; refreshKey:
         upload: (file, path) => enterpriseApi.kbUpload(file, path),
     };
     return <FileBrowser api={kbAdapter} features={{ upload: true, newFolder: true, edit: true, delete: true, directoryNavigation: true }} onRefresh={onRefresh} />;
+}
+
+// ─── Windows Automation Nodes ──────────────────────
+function WindowsAutomationNodes() {
+    const { t } = useTranslation();
+    const [nodes, setNodes] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    const loadNodes = async () => {
+        try {
+            const data = await fetchJson<any>('/windows-automation/nodes');
+            setNodes(data.nodes || []);
+        } catch { setNodes([]); }
+        setLoading(false);
+    };
+
+    useEffect(() => { loadNodes(); }, []);
+
+    const toggleEnabled = async (nodeId: string, enabled: boolean) => {
+        await fetchJson(`/windows-automation/nodes/${nodeId}`, {
+            method: 'PUT',
+            body: JSON.stringify({ enabled: !enabled }),
+        });
+        loadNodes();
+    };
+
+    const deleteNode = async (nodeId: string) => {
+        if (!confirm(t('enterprise.tools.deleteConfirm', '确定要删除此节点？'))) return;
+        await fetchJson(`/windows-automation/nodes/${nodeId}`, { method: 'DELETE' });
+        loadNodes();
+    };
+
+    const testConnection = async (nodeId: string) => {
+        try {
+            const data = await fetchJson<any>(`/windows-automation/nodes/${nodeId}/status`);
+            useToastStore.getState().showToast(data.status === 'online' ? 'Online' : 'Offline', data.status === 'online' ? 'success' : 'error');
+        } catch { useToastStore.getState().showToast('Connection failed', 'error'); }
+    };
+
+    const onlineCount = nodes.filter((n: any) => n.status === 'online').length;
+
+    return (
+        <div style={{ marginTop: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    🖥️ {t('enterprise.windowsAutomation.title', 'Windows 自动化节点')}
+                    <span style={{ fontSize: '12px', color: 'var(--text-tertiary)', fontWeight: 400 }}>
+                        ({onlineCount}/{nodes.length} {t('enterprise.windowsAutomation.online', 'online')})
+                    </span>
+                </h3>
+            </div>
+            <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
+                {t('enterprise.windowsAutomation.hint', '运行了 windows_automation 服务的客户端计算机将自动注册到此处。在客户端 config.json 中配置 registration.server_url。')}
+            </p>
+            {loading ? <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-tertiary)' }}>Loading...</div> : (
+                nodes.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-tertiary)' }}>
+                        {t('enterprise.windowsAutomation.noNodes', '暂无注册节点。请在客户端计算机上部署 windows_automation。')}
+                    </div>
+                ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {nodes.map((node: any) => (
+                            <div key={node.node_id} className="card" style={{ padding: '12px 16px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: node.status === 'online' ? '#22c55e' : '#ef4444', flexShrink: 0 }} />
+                                            <span style={{ fontWeight: 500, fontSize: '13px' }}>{node.description || node.hostname || node.node_id}</span>
+                                            {!node.enabled && <span style={{ fontSize: '10px', background: 'var(--bg-tertiary)', borderRadius: '4px', padding: '1px 5px' }}>Disabled</span>}
+                                        </div>
+                                        <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                                            <span>IP: {node.ip_address}:{node.port}</span>
+                                            {node.hostname && <span>Host: {node.hostname}</span>}
+                                            {node.cpu_count && <span>CPU: {node.cpu_count}</span>}
+                                            {node.memory_gb && <span>RAM: {node.memory_gb}GB</span>}
+                                            {node.last_heartbeat && <span>Last: {new Date(node.last_heartbeat).toLocaleString()}</span>}
+                                        </div>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                                        <button className="btn btn-ghost" style={{ fontSize: '11px' }} onClick={() => testConnection(node.node_id)}>🔍 Test</button>
+                                        <button className="btn btn-ghost" style={{ fontSize: '11px' }} onClick={() => toggleEnabled(node.node_id, node.enabled)}>
+                                            {node.enabled ? '⛔ Disable' : '✅ Enable'}
+                                        </button>
+                                        <button className="btn btn-ghost" style={{ fontSize: '11px', color: 'var(--error)' }} onClick={() => deleteNode(node.node_id)}>🗑️</button>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )
+            )}
+        </div>
+    );
 }
 
 // ─── Skills Tab ────────────────────────────────────
@@ -1017,7 +1067,7 @@ function SkillsTab() {
         <div>
             <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
-                    <h3>{t('enterprise.tabs.skills', 'Skill Registry')}</h3>
+                    <h3>{t('enterprise.tabs.skills', '技能注册表')}</h3>
                     <p style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
                         {t('enterprise.tools.manageGlobalSkills')}
                     </p>
@@ -1225,7 +1275,7 @@ function SkillsTab() {
                 key={refreshKey}
                 api={adapter}
                 features={{ newFile: true, newFolder: true, edit: true, delete: true, directoryNavigation: true }}
-                title={t('agent.skills.skillFiles', 'Skill Files')}
+                title={t('agent.skills.skillFiles', '技能文件')}
                 onRefresh={() => setRefreshKey(k => k + 1)}
             />
 
@@ -1424,12 +1474,12 @@ function CompanyNameEditor() {
                     className="form-input"
                     value={name}
                     onChange={e => setName(e.target.value)}
-                    placeholder={t('enterprise.companyName.placeholder', 'Enter company name')}
+                    placeholder={t('enterprise.companyName.placeholder', '输入公司名称')}
                     style={{ flex: 1, fontSize: '14px' }}
                     onKeyDown={e => e.key === 'Enter' && handleSave()}
                 />
                 <button className="btn btn-primary" onClick={handleSave} disabled={saving || !name.trim()}>
-                    {saving ? t('common.loading') : t('common.save', 'Save')}
+                    {saving ? t('common.loading') : t('common.save', '保存')}
                 </button>
                 {saved && <span style={{ color: 'var(--success)', fontSize: '12px' }}>✅</span>}
             </div>
@@ -1440,24 +1490,24 @@ function CompanyNameEditor() {
 
 // ─── Company Timezone Editor ───────────────────────
 const COMMON_TIMEZONES = [
-    'UTC',
-    'Asia/Shanghai',
-    'Asia/Tokyo',
-    'Asia/Seoul',
-    'Asia/Singapore',
-    'Asia/Kolkata',
-    'Asia/Dubai',
-    'Europe/London',
-    'Europe/Paris',
-    'Europe/Berlin',
-    'Europe/Moscow',
-    'America/New_York',
-    'America/Chicago',
-    'America/Denver',
-    'America/Los_Angeles',
-    'America/Sao_Paulo',
-    'Australia/Sydney',
-    'Pacific/Auckland',
+    { value: 'UTC', label: 'UTC (协调世界时)' },
+    { value: 'Asia/Shanghai', label: 'Asia/Shanghai (UTC+8) 中国标准时间' },
+    { value: 'Asia/Tokyo', label: 'Asia/Tokyo (UTC+9) 日本标准时间' },
+    { value: 'Asia/Seoul', label: 'Asia/Seoul (UTC+9) 韩国标准时间' },
+    { value: 'Asia/Singapore', label: 'Asia/Singapore (UTC+8) 新加坡时间' },
+    { value: 'Asia/Kolkata', label: 'Asia/Kolkata (UTC+5:30) 印度标准时间' },
+    { value: 'Asia/Dubai', label: 'Asia/Dubai (UTC+4) 阿联酋时间' },
+    { value: 'Europe/London', label: 'Europe/London (UTC+0/+1) 格林威治时间' },
+    { value: 'Europe/Paris', label: 'Europe/Paris (UTC+1/+2) 欧洲中部时间' },
+    { value: 'Europe/Berlin', label: 'Europe/Berlin (UTC+1/+2) 德国时间' },
+    { value: 'Europe/Moscow', label: 'Europe/Moscow (UTC+3) 莫斯科时间' },
+    { value: 'America/New_York', label: 'America/New_York (UTC-5/-4) 美东时间' },
+    { value: 'America/Chicago', label: 'America/Chicago (UTC-6/-5) 美中时间' },
+    { value: 'America/Denver', label: 'America/Denver (UTC-7/-6) 美山时间' },
+    { value: 'America/Los_Angeles', label: 'America/Los_Angeles (UTC-8/-7) 美西时间' },
+    { value: 'America/Sao_Paulo', label: 'America/Sao_Paulo (UTC-3) 巴西时间' },
+    { value: 'Australia/Sydney', label: 'Australia/Sydney (UTC+10/+11) 悉尼时间' },
+    { value: 'Pacific/Auckland', label: 'Pacific/Auckland (UTC+12/+13) 奥克兰时间' },
 ];
 
 function CompanyTimezoneEditor() {
@@ -1492,9 +1542,9 @@ function CompanyTimezoneEditor() {
         <div className="card" style={{ padding: '16px', marginBottom: '24px' }}>
             <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                 <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 500, fontSize: '13px', marginBottom: '4px' }}>🌐 {t('enterprise.timezone.title', 'Company Timezone')}</div>
+                    <div style={{ fontWeight: 500, fontSize: '13px', marginBottom: '4px' }}>🌐 {t('enterprise.timezone.title', '公司时区')}</div>
                     <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                        {t('enterprise.timezone.description', 'Default timezone for all agents. Agents can override individually.')}
+                        {t('enterprise.timezone.description', '默认时区，适用于所有数字员工。员工可单独覆盖。')}
                     </div>
                 </div>
                 <select
@@ -1505,7 +1555,7 @@ function CompanyTimezoneEditor() {
                     disabled={saving}
                 >
                     {COMMON_TIMEZONES.map(tz => (
-                        <option key={tz} value={tz}>{tz}</option>
+                        <option key={tz.value} value={tz.value}>{tz.label}</option>
                     ))}
                 </select>
                 {saved && <span style={{ color: 'var(--success)', fontSize: '12px' }}>✅</span>}
@@ -1529,7 +1579,7 @@ function BroadcastSection() {
         setSending(true);
         setResult(null);
         try {
-            const token = localStorage.getItem('token');
+            const token = getToken();
             const res = await fetch('/api/notifications/broadcast', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -1537,7 +1587,7 @@ function BroadcastSection() {
             });
             if (!res.ok) {
                 const err = await res.json().catch(() => ({}));
-                alert(err.detail || 'Failed to send broadcast');
+                useToastStore.getState().showToast(err.detail || 'Failed to send broadcast', 'error');
                 setSending(false);
                 return;
             }
@@ -1551,21 +1601,21 @@ function BroadcastSection() {
             setBody('');
             setSendEmail(false);
         } catch (e: any) {
-            alert(e.message || 'Failed');
+            useToastStore.getState().showToast(e.message || 'Failed', 'error');
         }
         setSending(false);
     };
 
     return (
         <div style={{ marginTop: '24px', marginBottom: '24px' }}>
-            <h3 style={{ marginBottom: '4px' }}>{t('enterprise.broadcast.title', 'Broadcast Notification')}</h3>
+            <h3 style={{ marginBottom: '4px' }}>{t('enterprise.broadcast.title', '广播通知')}</h3>
             <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
-                {t('enterprise.broadcast.description', 'Send a notification to all users and agents in this company.')}
+                {t('enterprise.broadcast.description', '向公司所有用户和员工发送通知。')}
             </p>
             <div className="card" style={{ padding: '16px' }}>
                 <input
                     className="form-input"
-                    placeholder={t('enterprise.broadcast.titlePlaceholder', 'Notification title')}
+                    placeholder={t('enterprise.broadcast.titlePlaceholder', '通知标题')}
                     value={title}
                     onChange={e => setTitle(e.target.value)}
                     maxLength={200}
@@ -1573,7 +1623,7 @@ function BroadcastSection() {
                 />
                 <textarea
                     className="form-input"
-                    placeholder={t('enterprise.broadcast.bodyPlaceholder', 'Optional details...')}
+                    placeholder={t('enterprise.broadcast.bodyPlaceholder', '可选详情...')}
                     value={body}
                     onChange={e => setBody(e.target.value)}
                     maxLength={1000}
@@ -1586,11 +1636,11 @@ function BroadcastSection() {
                         checked={sendEmail}
                         onChange={e => setSendEmail(e.target.checked)}
                     />
-                    <span>{t('enterprise.broadcast.sendEmail', 'Also send email to users with a configured address')}</span>
+                    <span>{t('enterprise.broadcast.sendEmail', '同时发送邮件给已配置邮箱的用户')}</span>
                 </label>
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                     <button className="btn btn-primary" onClick={handleSend} disabled={sending || !title.trim()}>
-                        {sending ? t('common.loading') : t('enterprise.broadcast.send', 'Send Broadcast')}
+                        {sending ? t('common.loading') : t('enterprise.broadcast.send', '发送广播')}
                     </button>
                     {result && (
                         <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
@@ -1613,7 +1663,7 @@ function BroadcastSection() {
 export default function EnterpriseSettings() {
     const { t } = useTranslation();
     const qc = useQueryClient();
-    const [activeTab, setActiveTab] = useState<'llm' | 'org' | 'info' | 'approvals' | 'audit' | 'tools' | 'skills' | 'quotas' | 'users' | 'invites'>('info');
+    const [activeTab, setActiveTab] = useState<'llm' | 'brain' | 'org' | 'info' | 'approvals' | 'audit' | 'tools' | 'skills' | 'quotas' | 'users' | 'invites'>('info');
 
     // Track selected tenant as state so page refreshes on company switch
     const [selectedTenantId, setSelectedTenantId] = useState(localStorage.getItem('current_tenant_id') || '');
@@ -1648,7 +1698,7 @@ export default function EnterpriseSettings() {
         try {
             await fetchJson('/enterprise/tenant-quotas', { method: 'PATCH', body: JSON.stringify(quotaForm) });
             setQuotaSaved(true); setTimeout(() => setQuotaSaved(false), 2000);
-        } catch (e) { alert('Failed to save'); }
+        } catch (e) { useToastStore.getState().showToast('Failed to save', 'error'); }
         setQuotaSaving(false);
     };
     const [companyIntro, setCompanyIntro] = useState('');
@@ -1662,8 +1712,7 @@ export default function EnterpriseSettings() {
     useEffect(() => {
         setCompanyIntro('');
         if (!selectedTenantId) return;
-        const tenantKey = `company_intro_${selectedTenantId}`;
-        fetchJson<any>(`/enterprise/system-settings/${tenantKey}`)
+        fetchJson<any>(`/enterprise/system-settings/company_intro/${selectedTenantId}`)
             .then(d => {
                 if (d?.value?.content) {
                     setCompanyIntro(d.value.content);
@@ -1676,7 +1725,7 @@ export default function EnterpriseSettings() {
     const saveCompanyIntro = async () => {
         setCompanyIntroSaving(true);
         try {
-            await fetchJson(`/enterprise/system-settings/${companyIntroKey}`, {
+            await fetchJson(`/enterprise/system-settings/company_intro/${selectedTenantId}`, {
                 method: 'PUT', body: JSON.stringify({ value: { content: companyIntro } }),
             });
             setCompanyIntroSaved(true);
@@ -1720,12 +1769,12 @@ export default function EnterpriseSettings() {
         task: t('agent.toolCategories.task'),
         communication: t('agent.toolCategories.communication'),
         search: t('agent.toolCategories.search'),
-        aware: t('agent.toolCategories.aware', 'Aware & Triggers'),
-        social: t('agent.toolCategories.social', 'Social'),
-        code: t('agent.toolCategories.code', 'Code & Execution'),
-        discovery: t('agent.toolCategories.discovery', 'Discovery'),
-        email: t('agent.toolCategories.email', 'Email'),
-        feishu: t('agent.toolCategories.feishu', 'Feishu / Lark'),
+        aware: t('agent.toolCategories.aware', '感知与触发'),
+        social: t('agent.toolCategories.social', '社交'),
+        code: t('agent.toolCategories.code', '代码与执行'),
+        discovery: t('agent.toolCategories.discovery', '发现'),
+        email: t('agent.toolCategories.email', '邮件'),
+        feishu: t('agent.toolCategories.feishu', '飞书 / Lark'),
         custom: t('agent.toolCategories.custom'),
         general: t('agent.toolCategories.general'),
         agentbay: t('agent.toolCategories.agentbay', 'AgentBay'),
@@ -1753,7 +1802,7 @@ export default function EnterpriseSettings() {
     const [jinaKeyMasked, setJinaKeyMasked] = useState('');  // stored key from DB
     useEffect(() => {
         if (activeTab !== 'tools') return;
-        const token = localStorage.getItem('token');
+        const token = getToken();
         fetch('/api/enterprise/system-settings/jina_api_key', { headers: { Authorization: `Bearer ${token}` } })
             .then(r => r.json())
             .then(d => { if (d.value?.api_key) setJinaKeyMasked(d.value.api_key.slice(0, 8) + '••••••••'); })
@@ -1761,7 +1810,7 @@ export default function EnterpriseSettings() {
     }, [activeTab]);
     const saveJinaKey = async () => {
         setJinaKeySaving(true);
-        const token = localStorage.getItem('token');
+        const token = getToken();
         await fetch('/api/enterprise/system-settings/jina_api_key', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -1774,7 +1823,7 @@ export default function EnterpriseSettings() {
         setTimeout(() => setJinaKeySaved(false), 2000);
     };
     const clearJinaKey = async () => {
-        const token = localStorage.getItem('token');
+        const token = getToken();
         await fetch('/api/enterprise/system-settings/jina_api_key', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -1795,55 +1844,6 @@ export default function EnterpriseSettings() {
     const { data: stats } = useQuery({
         queryKey: ['chairman-dashboard', selectedTenantId],
         queryFn: () => fetchJson<any>(`/chairman/dashboard`),
-    });
-
-    // ─── LLM Models
-    const { data: models = [] } = useQuery({
-        queryKey: ['llm-models', selectedTenantId],
-        queryFn: () => fetchJson<LLMModel[]>(`/enterprise/llm-models${selectedTenantId ? `?tenant_id=${selectedTenantId}` : ''}`),
-        enabled: activeTab === 'llm',
-    });
-    const [showAddModel, setShowAddModel] = useState(false);
-    const [editingModelId, setEditingModelId] = useState<string | null>(null);
-    const [modelForm, setModelForm] = useState({ provider: 'anthropic', model: '', api_key: '', base_url: '', label: '', supports_vision: false, max_output_tokens: '' as string, temperature: '' as string });
-    const { data: providerSpecs = [] } = useQuery({
-        queryKey: ['llm-provider-specs'],
-        queryFn: () => fetchJson<LLMProviderSpec[]>('/enterprise/llm-providers'),
-        enabled: activeTab === 'llm',
-    });
-    const providerOptions = providerSpecs.length > 0 ? providerSpecs : FALLBACK_LLM_PROVIDERS;
-    const addModel = useMutation({
-        mutationFn: (data: any) => fetchJson(`/enterprise/llm-models${selectedTenantId ? `?tenant_id=${selectedTenantId}` : ''}`, { method: 'POST', body: JSON.stringify(data) }),
-        onSuccess: () => { qc.invalidateQueries({ queryKey: ['llm-models', selectedTenantId] }); setShowAddModel(false); setEditingModelId(null); },
-    });
-    const updateModel = useMutation({
-        mutationFn: ({ id, data }: { id: string; data: any }) => fetchJson(`/enterprise/llm-models/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-        onSuccess: () => { qc.invalidateQueries({ queryKey: ['llm-models', selectedTenantId] }); setShowAddModel(false); setEditingModelId(null); },
-    });
-    const deleteModel = useMutation({
-        mutationFn: async ({ id, force = false }: { id: string; force?: boolean }) => {
-            const url = force ? `/enterprise/llm-models/${id}?force=true` : `/enterprise/llm-models/${id}`;
-            const res = await fetch(`/api${url}`, {
-                method: 'DELETE',
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-            });
-            if (res.status === 409) {
-                const data = await res.json();
-                const agents = data.detail?.agents || [];
-                const msg = `This model is used by ${agents.length} agent(s):\n\n${agents.join(', ')}\n\nDelete anyway? (their model config will be cleared)`;
-                if (confirm(msg)) {
-                    // Retry with force
-                    const r2 = await fetch(`/api/enterprise/llm-models/${id}?force=true`, {
-                        method: 'DELETE',
-                        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-                    });
-                    if (!r2.ok && r2.status !== 204) throw new Error('Delete failed');
-                }
-                return;
-            }
-            if (!res.ok && res.status !== 204) throw new Error('Delete failed');
-        },
-        onSuccess: () => qc.invalidateQueries({ queryKey: ['llm-models', selectedTenantId] }),
     });
 
     // ─── Approvals
@@ -1888,300 +1888,22 @@ export default function EnterpriseSettings() {
                 </div>
 
                 <div className="tabs">
-                    {(['info', 'llm', 'tools', 'skills', 'invites', 'quotas', 'users', 'org', 'approvals', 'audit'] as const).map(tab => (
+                    {(['info', 'llm', 'brain', 'tools', 'skills', 'invites', 'quotas', 'users', 'org', 'approvals', 'audit'] as const).map(tab => (
                         <div key={tab} className={`tab ${activeTab === tab ? 'active' : ''}`} onClick={() => setActiveTab(tab)}>
-                            {tab === 'quotas' ? t('enterprise.tabs.quotas', 'Quotas') : tab === 'users' ? t('enterprise.tabs.users', 'Users') : tab === 'invites' ? t('enterprise.tabs.invites', 'Invitations') : t(`enterprise.tabs.${tab}`)}
+                            {tab === 'quotas' ? t('enterprise.tabs.quotas', '配额') : tab === 'users' ? t('enterprise.tabs.users', '用户') : tab === 'invites' ? t('enterprise.tabs.invites', '邀请') : tab === 'brain' ? '大脑配置' : t(`enterprise.tabs.${tab}`)}
                         </div>
                     ))}
                 </div>
 
                 {/* ── LLM Model Pool ── */}
-                {activeTab === 'llm' && (
-                    <div>
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
-                            <button className="btn btn-primary" onClick={() => {
-                                setEditingModelId(null);
-                                const defaultSpec = providerOptions[0];
-                                setModelForm({
-                                    provider: defaultSpec?.provider || 'anthropic',
-                                    model: '', api_key: '',
-                                    base_url: defaultSpec?.default_base_url || '',
-                                    label: '', supports_vision: false,
-                                    max_output_tokens: defaultSpec ? String(defaultSpec.default_max_tokens) : '4096',
-                                    temperature: '',
-                                });
-                                setShowAddModel(true);
-                            }}>+ {t('enterprise.llm.addModel')}</button>
-                        </div>
+                {/*  LLM Model Pool  */}
+                {activeTab === 'llm' && <ModelPoolProviders />}
 
-                        {/* Add Model form — only shown at top when adding new */}
-                        {showAddModel && !editingModelId && (
-                            <div className="card" style={{ marginBottom: '16px' }}>
-                                <h3 style={{ marginBottom: '16px' }}>{t('enterprise.llm.addModel')}</h3>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                                    <div className="form-group">
-                                        <label className="form-label">{t('enterprise.llm.provider')}</label>
-                                        <select className="form-input" value={modelForm.provider} onChange={e => {
-                                            const newProvider = e.target.value;
-                                            const spec = providerOptions.find(p => p.provider === newProvider);
-                                            const updates: any = { provider: newProvider };
-                                            if (spec?.default_base_url) {
-                                                updates.base_url = spec.default_base_url;
-                                            } else {
-                                                updates.base_url = '';
-                                            }
-                                            if (spec) {
-                                                updates.max_output_tokens = String(spec.default_max_tokens);
-                                            }
-                                            setModelForm(f => ({ ...f, ...updates }));
-                                        }}>
-                                            {providerOptions.map((p) => (
-                                                <option key={p.provider} value={p.provider}>{p.display_name}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                    <div className="form-group">
-                                        <label className="form-label">{t('enterprise.llm.model')}</label>
-                                        <input
-                                            className="form-input"
-                                            placeholder={t('enterprise.llm.modelPlaceholder', 'e.g. claude-sonnet-4-20250514')}
-                                            value={modelForm.model}
-                                            onChange={e => setModelForm({ ...modelForm, model: e.target.value })}
-                                        />
-                                    </div>
-                                    <div className="form-group">
-                                        <label className="form-label">{t('enterprise.llm.label')}</label>
-                                        <input className="form-input" placeholder={t('enterprise.llm.labelPlaceholder')} value={modelForm.label} onChange={e => setModelForm({ ...modelForm, label: e.target.value })} />
-                                    </div>
-                                    <div className="form-group">
-                                        <label className="form-label">{t('enterprise.llm.baseUrl')}</label>
-                                        <input className="form-input" placeholder={t('enterprise.llm.baseUrlPlaceholder')} value={modelForm.base_url} onChange={e => setModelForm({ ...modelForm, base_url: e.target.value })} />
-                                    </div>
-                                    <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                                        <label className="form-label">{t('enterprise.llm.apiKey')}</label>
-                                        <input className="form-input" type="password" placeholder={t('enterprise.llm.apiKeyPlaceholder')} value={modelForm.api_key} onChange={e => setModelForm({ ...modelForm, api_key: e.target.value })} />
-                                    </div>
-                                    <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px' }}>
-                                            <input type="checkbox" checked={modelForm.supports_vision} onChange={e => setModelForm({ ...modelForm, supports_vision: e.target.checked })} />
-                                            {t('enterprise.llm.supportsVision')}
-                                            <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 400 }}>{t('enterprise.llm.supportsVisionDesc')}</span>
-                                        </label>
-                                    </div>
-                                    <div className="form-group">
-                                        <label className="form-label">{t('enterprise.llm.maxOutputTokens', 'Max Output Tokens')}</label>
-                                        <input className="form-input" type="number" placeholder={t('enterprise.llm.maxOutputTokensPlaceholder', 'e.g. 4096')} value={modelForm.max_output_tokens} onChange={e => setModelForm({ ...modelForm, max_output_tokens: e.target.value })} />
-                                        <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{t('enterprise.llm.maxOutputTokensDesc', 'Limits generation length')}</div>
-                                    </div>
-                                    <div className="form-group">
-                                        <label className="form-label">{t('enterprise.llm.temperature', 'Temperature')}</label>
-                                        <input className="form-input" type="number" step="0.1" min="0" max="2" placeholder={t('enterprise.llm.temperaturePlaceholder', 'e.g. 0.7 or 1.0 (Leave empty for default)')} value={modelForm.temperature} onChange={e => setModelForm({ ...modelForm, temperature: e.target.value })} />
-                                        <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{t('enterprise.llm.temperatureDesc', 'Leave empty to use the provider default. o1/o3 reasoning models usually require 1.0')}</div>
-                                    </div>
-                                </div>
-                                <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', alignItems: 'center' }}>
-                                    <button className="btn btn-secondary" onClick={() => { setShowAddModel(false); setEditingModelId(null); }}>{t('common.cancel')}</button>
-                                    <button className="btn btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '6px' }} disabled={!modelForm.model || !modelForm.api_key} onClick={async () => {
-                                        const btn = document.activeElement as HTMLButtonElement;
-                                        const origText = btn?.textContent || '';
-                                        if (btn) btn.textContent = t('enterprise.llm.testing');
-                                        try {
-                                            const token = localStorage.getItem('token');
-                                            const testData: any = { provider: modelForm.provider, model: modelForm.model, base_url: modelForm.base_url || undefined };
-                                            if (modelForm.api_key) testData.api_key = modelForm.api_key;
-                                            const res = await fetch('/api/enterprise/llm-test', {
-                                                method: 'POST',
-                                                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                                                body: JSON.stringify(testData),
-                                            });
-                                            const result = await res.json();
-                                            if (result.success) {
-                                                if (btn) { btn.textContent = t('enterprise.llm.testSuccess', { latency: result.latency_ms }); btn.style.color = 'var(--success)'; }
-                                                setTimeout(() => { if (btn) { btn.textContent = origText; btn.style.color = ''; } }, 3000);
-                                            } else {
-                                                alert(t('enterprise.llm.testFailed', { error: result.error || 'Unknown error', latency: result.latency_ms }));
-                                                if (btn) btn.textContent = origText;
-                                            }
-                                        } catch (e: any) {
-                                            alert(t('enterprise.llm.testError', { message: e.message }));
-                                            if (btn) btn.textContent = origText;
-                                        }
-                                    }}>{t('enterprise.llm.test')}</button>
-                                    <button className="btn btn-primary" onClick={() => {
-                                        const data = {
-                                            ...modelForm,
-                                            max_output_tokens: modelForm.max_output_tokens ? Number(modelForm.max_output_tokens) : null,
-                                            temperature: modelForm.temperature !== '' ? Number(modelForm.temperature) : null
-                                        };
-                                        addModel.mutate(data);
-                                    }} disabled={!modelForm.model || !modelForm.api_key}>
-                                        {t('common.save')}
-                                    </button>
-                                </div>
-                            </div>
-                        )}
-
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            {models.map((m) => (
-                                <div key={m.id}>
-                                    {editingModelId === m.id ? (
-                                        /* Inline edit form */
-                                        <div className="card" style={{ border: '1px solid var(--accent-primary)' }}>
-                                            <h3 style={{ marginBottom: '16px' }}>Edit Model</h3>
-                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                                                <div className="form-group">
-                                                    <label className="form-label">{t('enterprise.llm.provider')}</label>
-                                                    <select className="form-input" value={modelForm.provider} onChange={e => {
-                                                        const newProvider = e.target.value;
-                                                        setModelForm(f => ({ ...f, provider: newProvider }));
-                                                    }}>
-                                                        {providerOptions.map((p) => (
-                                                            <option key={p.provider} value={p.provider}>{p.display_name}</option>
-                                                        ))}
-                                                        {!providerOptions.some((p) => p.provider === modelForm.provider) && (
-                                                            <option value={modelForm.provider}>{modelForm.provider}</option>
-                                                        )}
-                                                    </select>
-                                                </div>
-                                                <div className="form-group">
-                                                    <label className="form-label">{t('enterprise.llm.model')}</label>
-                                                    <input
-                                                        className="form-input"
-                                                        placeholder={t('enterprise.llm.modelPlaceholder', 'e.g. claude-sonnet-4-20250514')}
-                                                        value={modelForm.model}
-                                                        onChange={e => setModelForm({ ...modelForm, model: e.target.value })}
-                                                    />
-                                                </div>
-                                                <div className="form-group">
-                                                    <label className="form-label">{t('enterprise.llm.label')}</label>
-                                                    <input className="form-input" placeholder={t('enterprise.llm.labelPlaceholder')} value={modelForm.label} onChange={e => setModelForm({ ...modelForm, label: e.target.value })} />
-                                                </div>
-                                                <div className="form-group">
-                                                    <label className="form-label">{t('enterprise.llm.baseUrl')}</label>
-                                                    <input className="form-input" placeholder={t('enterprise.llm.baseUrlPlaceholder')} value={modelForm.base_url} onChange={e => setModelForm({ ...modelForm, base_url: e.target.value })} />
-                                                </div>
-                                                <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                                                    <label className="form-label">{t('enterprise.llm.apiKey')}</label>
-                                                    <input className="form-input" type="password" placeholder="•••••••• (Leave blank to keep unchanged)" value={modelForm.api_key} onChange={e => setModelForm({ ...modelForm, api_key: e.target.value })} />
-                                                </div>
-                                                <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px' }}>
-                                                        <input type="checkbox" checked={modelForm.supports_vision} onChange={e => setModelForm({ ...modelForm, supports_vision: e.target.checked })} />
-                                                        {t('enterprise.llm.supportsVision')}
-                                                        <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 400 }}>{t('enterprise.llm.supportsVisionDesc')}</span>
-                                                    </label>
-                                                </div>
-                                                <div className="form-group">
-                                                    <label className="form-label">{t('enterprise.llm.maxOutputTokens', 'Max Output Tokens')}</label>
-                                                    <input className="form-input" type="number" placeholder={t('enterprise.llm.maxOutputTokensPlaceholder', 'e.g. 4096')} value={modelForm.max_output_tokens} onChange={e => setModelForm({ ...modelForm, max_output_tokens: e.target.value })} />
-                                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{t('enterprise.llm.maxOutputTokensDesc', 'Limits generation length')}</div>
-                                                </div>
-                                                <div className="form-group">
-                                                    <label className="form-label">{t('enterprise.llm.temperature', 'Temperature')}</label>
-                                                    <input className="form-input" type="number" step="0.1" min="0" max="2" placeholder={t('enterprise.llm.temperaturePlaceholder', 'e.g. 0.7 or 1.0 (Leave empty for default)')} value={modelForm.temperature} onChange={e => setModelForm({ ...modelForm, temperature: e.target.value })} />
-                                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{t('enterprise.llm.temperatureDesc', 'Leave empty to use the provider default. o1/o3 reasoning models usually require 1.0')}</div>
-                                                </div>
-                                            </div>
-                                            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', alignItems: 'center' }}>
-                                                <button className="btn btn-secondary" onClick={() => { setShowAddModel(false); setEditingModelId(null); }}>{t('common.cancel')}</button>
-                                                <button className="btn btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '6px' }} disabled={!modelForm.model} onClick={async () => {
-                                                    const btn = document.activeElement as HTMLButtonElement;
-                                                    const origText = btn?.textContent || '';
-                                                    if (btn) btn.textContent = t('enterprise.llm.testing');
-                                                    try {
-                                                        const token = localStorage.getItem('token');
-                                                        const testData: any = { provider: modelForm.provider, model: modelForm.model, base_url: modelForm.base_url || undefined };
-                                                        if (modelForm.api_key) testData.api_key = modelForm.api_key;
-                                                        testData.model_id = editingModelId;
-                                                        const res = await fetch('/api/enterprise/llm-test', {
-                                                            method: 'POST',
-                                                            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                                                            body: JSON.stringify(testData),
-                                                        });
-                                                        const result = await res.json();
-                                                        if (result.success) {
-                                                            if (btn) { btn.textContent = t('enterprise.llm.testSuccess', { latency: result.latency_ms }); btn.style.color = 'var(--success)'; }
-                                                            setTimeout(() => { if (btn) { btn.textContent = origText; btn.style.color = ''; } }, 3000);
-                                                        } else {
-                                                            alert(t('enterprise.llm.testFailed', { error: result.error || 'Unknown error', latency: result.latency_ms }));
-                                                            if (btn) btn.textContent = origText;
-                                                        }
-                                                    } catch (e: any) {
-                                                        alert(t('enterprise.llm.testError', { message: e.message }));
-                                                        if (btn) btn.textContent = origText;
-                                                    }
-                                                }}>{t('enterprise.llm.test')}</button>
-                                                <button className="btn btn-primary" onClick={() => {
-                                                    const data = {
-                                                        ...modelForm,
-                                                        max_output_tokens: modelForm.max_output_tokens ? Number(modelForm.max_output_tokens) : null,
-                                                        temperature: modelForm.temperature !== '' ? Number(modelForm.temperature) : null
-                                                    };
-                                                    updateModel.mutate({ id: editingModelId!, data });
-                                                }} disabled={!modelForm.model}>
-                                                    {t('common.save')}
-                                                </button>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        /* Normal model row */
-                                        <div className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                            <div>
-                                                <div style={{ fontWeight: 500 }}>{m.label}</div>
-                                                <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
-                                                    {m.provider}/{m.model}
-                                                    {m.base_url && <span> · {m.base_url}</span>}
-                                                </div>
-                                            </div>
-                                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                                {/* Toggle switch for enabled/disabled */}
-                                                <button
-                                                    onClick={async () => {
-                                                        try {
-                                                            const token = localStorage.getItem('token');
-                                                            await fetch(`/api/enterprise/llm-models/${m.id}`, {
-                                                                method: 'PUT',
-                                                                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                                                                body: JSON.stringify({ enabled: !m.enabled }),
-                                                            });
-                                                            qc.invalidateQueries({ queryKey: ['llm-models', selectedTenantId] });
-                                                        } catch (e) { console.error(e); }
-                                                    }}
-                                                    title={m.enabled ? t('enterprise.llm.clickToDisable', 'Click to disable') : t('enterprise.llm.clickToEnable', 'Click to enable')}
-                                                    style={{
-                                                        position: 'relative', width: '36px', height: '20px', borderRadius: '10px', border: 'none', cursor: 'pointer', transition: 'background 0.2s',
-                                                        background: m.enabled ? 'var(--success, #00b478)' : 'var(--bg-tertiary, #444)',
-                                                        padding: 0, flexShrink: 0,
-                                                    }}
-                                                >
-                                                    <span style={{
-                                                        position: 'absolute', left: m.enabled ? '18px' : '2px', top: '2px',
-                                                        width: '16px', height: '16px', borderRadius: '50%', background: '#fff',
-                                                        transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-                                                    }} />
-                                                </button>
-                                                {m.supports_vision && <span className="badge" style={{ background: 'rgba(99,102,241,0.15)', color: 'rgb(99,102,241)', fontSize: '10px' }}>Vision</span>}
-                                                <button className="btn btn-ghost" onClick={() => {
-                                                    setEditingModelId(m.id);
-                                                    setModelForm({ provider: m.provider, model: m.model, label: m.label, base_url: m.base_url || '', api_key: m.api_key_masked || '', supports_vision: m.supports_vision || false, max_output_tokens: m.max_output_tokens ? String(m.max_output_tokens) : '', temperature: m.temperature !== null && m.temperature !== undefined ? String(m.temperature) : '' });
-                                                    setShowAddModel(true);
-                                                }} style={{ fontSize: '12px' }}>✏️ {t('enterprise.tools.edit')}</button>
-                                                <button className="btn btn-ghost" onClick={() => deleteModel.mutate({ id: m.id })} style={{ color: 'var(--error)' }}>{t('common.delete')}</button>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            ))}
-                            {models.length === 0 && <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-tertiary)' }}>{t('common.noData')}</div>}
-                        </div>
-                    </div>
-                )}
+                {/* ── Brain Config ── */}
+                {activeTab === 'brain' && <BrainConfig />}
 
                 {/* ── Org Structure ── */}
-                {activeTab === 'org' && <OrgTab tenant={currentTenant} />}
-
-                {/* ── Approvals ── */}
-                {activeTab === 'approvals' && (
+                {activeTab === 'org' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                         {approvals.map((a: any) => (
                             <div key={a.id} className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -2269,23 +1991,23 @@ export default function EnterpriseSettings() {
                     <div>
 
                         {/* ── 0. Company Name ── */}
-                        <h3 style={{ marginBottom: '8px' }}>{t('enterprise.companyName.title', 'Company Name')}</h3>
+                        <h3 style={{ marginBottom: '8px' }}>{t('enterprise.companyName.title', '公司名称')}</h3>
                         <CompanyNameEditor key={`name-${selectedTenantId}`} />
 
                         {/* ── 0.5. Company Timezone ── */}
                         <CompanyTimezoneEditor key={`tz-${selectedTenantId}`} />
 
                         {/* ── 1. Company Intro ── */}
-                        <h3 style={{ marginBottom: '8px' }}>{t('enterprise.companyIntro.title', 'Company Intro')}</h3>
+                        <h3 style={{ marginBottom: '8px' }}>{t('enterprise.companyIntro.title', '公司简介')}</h3>
                         <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
-                            {t('enterprise.companyIntro.description', 'Describe your company\'s mission, products, and culture. This information is included in every agent conversation as context.')}
+                            {t('enterprise.companyIntro.description', '描述公司的使命、产品和文化。此内容将作为上下文包含在每个员工的对话中。')}
                         </p>
                         <div className="card" style={{ padding: '16px', marginBottom: '24px' }}>
                             <textarea
                                 className="form-input"
                                 value={companyIntro}
                                 onChange={e => setCompanyIntro(e.target.value)}
-                                placeholder={`# Company Name\nClawith\n\n# About\nOpenClaw\uD83E\uDD9E For Teams\nOpen Source \u00B7 Multi-OpenClaw Collaboration\n\nOpenClaw empowers individuals.\nClawith scales it to frontier organizations.`}
+                                placeholder={`# Company Name\n生命智能体自治系统\n\n# About\nOpenClaw\uD83E\uDD9E For Teams\nOpen Source \u00B7 Multi-OpenClaw Collaboration\n\nOpenClaw empowers individuals.\n生命智能体自治系统 scales it to frontier organizations.`}
                                 style={{
                                     minHeight: '200px', resize: 'vertical',
                                     fontFamily: 'var(--font-mono)', fontSize: '13px',
@@ -2294,11 +2016,11 @@ export default function EnterpriseSettings() {
                             />
                             <div style={{ marginTop: '12px', display: 'flex', gap: '8px', alignItems: 'center' }}>
                                 <button className="btn btn-primary" onClick={saveCompanyIntro} disabled={companyIntroSaving}>
-                                    {companyIntroSaving ? t('common.loading') : t('common.save', 'Save')}
+                                    {companyIntroSaving ? t('common.loading') : t('common.save', '保存')}
                                 </button>
-                                {companyIntroSaved && <span style={{ color: 'var(--success)', fontSize: '12px' }}>✅ {t('enterprise.config.saved', 'Saved')}</span>}
+                                {companyIntroSaved && <span style={{ color: 'var(--success)', fontSize: '12px' }}>✅ {t('enterprise.config.saved', '已保存')}</span>}
                                 <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginLeft: 'auto' }}>
-                                    💡 {t('enterprise.companyIntro.hint', 'This content appears in every agent\'s system prompt')}
+                                    💡 {t('enterprise.companyIntro.hint', '此内容将出现在每个员工的系统提示中')}
                                 </span>
                             </div>
                         </div>
@@ -2306,7 +2028,7 @@ export default function EnterpriseSettings() {
                         {/* ── 2. Company Knowledge Base ── */}
                         <h3 style={{ marginBottom: '8px' }}>{t('enterprise.kb.title')}</h3>
                         <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
-                            {t('enterprise.kb.description', 'Shared files accessible to all agents via enterprise_info/ directory.')}
+                            {t('enterprise.kb.description', '所有员工均可通过 enterprise_info/ 目录访问的共享文件。')}
                         </p>
                         <div className="card" style={{ marginBottom: '24px', padding: '16px' }}>
                             <EnterpriseKBBrowser onRefresh={() => setInfoRefresh((v: number) => v + 1)} refreshKey={infoRefresh} />
@@ -2322,15 +2044,15 @@ export default function EnterpriseSettings() {
 
                         {/* ── Danger Zone: Delete Company ── */}
                         <div style={{ marginTop: '32px', padding: '16px', border: '1px solid var(--status-error, #e53e3e)', borderRadius: '8px' }}>
-                            <h3 style={{ marginBottom: '4px', color: 'var(--status-error, #e53e3e)' }}>{t('enterprise.dangerZone', 'Danger Zone')}</h3>
+                            <h3 style={{ marginBottom: '4px', color: 'var(--status-error, #e53e3e)' }}>{t('enterprise.dangerZone', '危险区域')}</h3>
                             <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
-                                {t('enterprise.deleteCompanyDesc', 'Permanently delete this company and all its data including agents, models, tools, and skills. This action cannot be undone.')}
+                                {t('enterprise.deleteCompanyDesc', '永久删除此公司及其所有数据，包括员工、模型、工具和技能。此操作不可撤销。')}
                             </p>
                             <button
                                 className="btn"
                                 onClick={async () => {
                                     const name = document.querySelector<HTMLInputElement>('.company-name-input')?.value || selectedTenantId;
-                                    if (!confirm(t('enterprise.deleteCompanyConfirm', 'Are you sure you want to delete this company and ALL its data? This cannot be undone.'))) return;
+                                    if (!confirm(t('enterprise.deleteCompanyConfirm', '确定要删除此公司及其所有数据吗？此操作不可撤销。'))) return;
                                     try {
                                         const res = await fetchJson<any>(`/tenants/${selectedTenantId}`, { method: 'DELETE' });
                                         // Switch to fallback tenant
@@ -2340,7 +2062,7 @@ export default function EnterpriseSettings() {
                                         window.dispatchEvent(new StorageEvent('storage', { key: 'current_tenant_id', newValue: fallbackId }));
                                         qc.invalidateQueries({ queryKey: ['tenants'] });
                                     } catch (e: any) {
-                                        alert(e.message || 'Delete failed');
+                                        useToastStore.getState().showToast(e.message || 'Delete failed', 'error');
                                     }
                                 }}
                                 style={{
@@ -2349,7 +2071,7 @@ export default function EnterpriseSettings() {
                                     padding: '6px 16px', fontSize: '13px', cursor: 'pointer',
                                 }}
                             >
-                                {t('enterprise.deleteCompany', 'Delete This Company')}
+                                {t('enterprise.deleteCompany', '删除此公司')}
                             </button>
                         </div>
                     </div>
@@ -2422,27 +2144,27 @@ export default function EnterpriseSettings() {
                             <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '10px' }}>{t('enterprise.quotas.triggerLimits')}</div>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '20px' }}>
                                 <div className="form-group">
-                                    <label className="form-label">{t('enterprise.quotas.defaultMaxTriggers', 'Default Max Triggers')}</label>
+                                    <label className="form-label">{t('enterprise.quotas.defaultMaxTriggers', '默认最大触发次数')}</label>
                                     <input className="form-input" type="number" min={1} max={100} value={quotaForm.default_max_triggers}
                                         onChange={e => setQuotaForm({ ...quotaForm, default_max_triggers: Number(e.target.value) })} />
                                     <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-                                        {t('enterprise.quotas.defaultMaxTriggersDesc', 'Default trigger limit for new agents')}
+                                        {t('enterprise.quotas.defaultMaxTriggersDesc', '新员工的默认触发次数限制')}
                                     </div>
                                 </div>
                                 <div className="form-group">
-                                    <label className="form-label">{t('enterprise.quotas.minPollInterval', 'Min Poll Interval (min)')}</label>
+                                    <label className="form-label">{t('enterprise.quotas.minPollInterval', '最小轮询间隔（分钟）')}</label>
                                     <input className="form-input" type="number" min={1} max={60} value={quotaForm.min_poll_interval_floor}
                                         onChange={e => setQuotaForm({ ...quotaForm, min_poll_interval_floor: Number(e.target.value) })} />
                                     <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-                                        {t('enterprise.quotas.minPollIntervalDesc', 'Company-wide floor: agents cannot poll faster than this')}
+                                        {t('enterprise.quotas.minPollIntervalDesc', '公司级下限：员工轮询频率不得低于此值')}
                                     </div>
                                 </div>
                                 <div className="form-group">
-                                    <label className="form-label">{t('enterprise.quotas.maxWebhookRate', 'Max Webhook Rate (/min)')}</label>
+                                    <label className="form-label">{t('enterprise.quotas.maxWebhookRate', '最大 Webhook 频率（次/分钟）')}</label>
                                     <input className="form-input" type="number" min={1} max={60} value={quotaForm.max_webhook_rate_ceiling}
                                         onChange={e => setQuotaForm({ ...quotaForm, max_webhook_rate_ceiling: Number(e.target.value) })} />
                                     <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-                                        {t('enterprise.quotas.maxWebhookRateDesc', 'Company-wide ceiling: max webhook hits per minute per agent')}
+                                        {t('enterprise.quotas.maxWebhookRateDesc', '公司级上限：每个员工每分钟最大 Webhook 调用次数')}
                                     </div>
                                 </div>
                             </div>
@@ -2597,7 +2319,7 @@ export default function EnterpriseSettings() {
                                                                         });
                                                                         loadAllTools();
                                                                     } catch (e: any) {
-                                                                        alert(`${t('enterprise.tools.importFailed') || 'Import failed'}: ${e.message}`);
+                                                                        useToastStore.getState().showToast(`${t('enterprise.tools.importFailed') || 'Import failed'}: ${e.message}`, 'error');
                                                                     }
                                                                 }}>{t('enterprise.tools.import') || 'Import'}</button>
                                                             </div>
@@ -2632,7 +2354,7 @@ export default function EnterpriseSettings() {
                                                                 loadAllTools();
                                                                 setShowAddMCP(false); setMcpTestResult(null); setMcpForm({ server_url: '', server_name: '' }); setMcpRawInput('');
                                                                 if (errors.length > 0) {
-                                                                    alert(`Imported ${successCount}/${tools.length} tools.\nFailed:\n${errors.join('\n')}`);
+                                                                    useToastStore.getState().showToast(`Imported ${successCount}/${tools.length} tools. Failed: ${errors.join('; ')}`, errors.length > 0 ? 'error' : 'success');
                                                                 }
                                                             }}>{t('enterprise.tools.importAll')}</button>
                                                         </div>
@@ -2700,7 +2422,7 @@ export default function EnterpriseSettings() {
                                                                             await fetchJson('/tools/bulk', { method: 'PUT', body: JSON.stringify(payload) });
                                                                             loadAllTools();
                                                                         } catch (err: any) {
-                                                                            alert('Bulk update failed: ' + err.message);
+                                                                            useToastStore.getState().showToast('Bulk update failed: ' + err.message, 'error');
                                                                         }
                                                                     }}
                                                                     style={{ opacity: 0, width: 0, height: 0 }} />
@@ -2750,7 +2472,7 @@ export default function EnterpriseSettings() {
                                                                                         // Pre-load jina api_key from system_settings
                                                                                         if (tool.name === 'jina_search' || tool.name === 'jina_read') {
                                                                                             try {
-                                                                                                const token = localStorage.getItem('token');
+                                                                                                const token = getToken();
                                                                                                 const res = await fetch('/api/enterprise/system-settings/jina_api_key', { headers: { Authorization: `Bearer ${token}` } });
                                                                                                 const d = await res.json();
                                                                                                 if (d.value?.api_key) cfg.api_key = d.value.api_key;
@@ -2868,7 +2590,7 @@ export default function EnterpriseSettings() {
                                                     <button className="btn btn-primary" onClick={async () => {
                                                         if (tool.name === 'jina_search' || tool.name === 'jina_read') {
                                                             if (editingConfig.api_key) {
-                                                                const token = localStorage.getItem('token');
+                                                                const token = getToken();
                                                                 await fetch('/api/enterprise/system-settings/jina_api_key', {
                                                                     method: 'PUT',
                                                                     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -2929,12 +2651,15 @@ export default function EnterpriseSettings() {
                                                     }
                                                     setConfigCategory(null);
                                                     loadAllTools();
-                                                }}>{t('common.save', 'Save')}</button>
+                                                }}>{t('common.save', '保存')}</button>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
                             )}
+
+                            {/* ── Windows Automation Nodes ── */}
+                            <WindowsAutomationNodes />
                         </>}
                     </div>
                 )}

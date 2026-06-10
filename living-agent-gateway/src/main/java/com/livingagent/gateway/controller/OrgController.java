@@ -2,6 +2,7 @@ package com.livingagent.gateway.controller;
 
 import com.livingagent.core.employee.Employee;
 import com.livingagent.core.employee.EmployeeService;
+import com.livingagent.core.security.AccessGateService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -16,16 +17,23 @@ public class OrgController {
     private static final Logger log = LoggerFactory.getLogger(OrgController.class);
 
     private final EmployeeService employeeService;
+    private final AccessGateService accessGateService;
 
-    public OrgController(EmployeeService employeeService) {
+    public OrgController(EmployeeService employeeService, AccessGateService accessGateService) {
         this.employeeService = employeeService;
+        this.accessGateService = accessGateService;
     }
 
     @GetMapping("/users")
     public ResponseEntity<ApiResponse<List<UserInfo>>> getUsers(
-            @RequestParam(required = false) String tenant_id
+            @RequestParam(required = false) String tenant_id,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         log.debug("Getting users for tenant: {}", tenant_id);
+
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
 
         List<UserInfo> users = new ArrayList<>();
 
@@ -51,9 +59,14 @@ public class OrgController {
 
     @GetMapping("/departments")
     public ResponseEntity<ApiResponse<List<DepartmentInfo>>> getDepartments(
-            @RequestParam(required = false) String tenant_id
+            @RequestParam(required = false) String tenant_id,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         log.debug("Getting departments for tenant: {}", tenant_id);
+
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
 
         List<DepartmentInfo> departments = Arrays.asList(
                 new DepartmentInfo("tech", "技术部", 10, 5),

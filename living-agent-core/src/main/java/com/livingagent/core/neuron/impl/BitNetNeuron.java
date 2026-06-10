@@ -27,6 +27,21 @@ import com.livingagent.core.neuron.NeuronState;
 import com.livingagent.core.neuron.evolution.EvolutionSignalTrigger;
 import com.livingagent.core.tool.Tool;
 
+/**
+ * BitNetNeuron - Layer 3 工具神经元（已停用/备用状态）
+ *
+ * 当前状态：停用
+ * 原因：Python Daemon 不支持 tool_intent/bitnet/tool service
+ * 替代方案：TOOL_CALL 意图已临时路由到 chatNeuron，由 Python chat service 自动路由
+ *
+ * 如需恢复使用，需先完成：
+ * 1. 在 model_daemon.py 中实现 tool_intent service
+ * 2. 修复 ChatNeuronRouter 的路由逻辑
+ * 3. 对齐 BitNetNeuron 与 Daemon 返回格式
+ *
+ * @deprecated 当前未使用，TOOL_CALL 已路由到 Qwen3Neuron (service=chat)
+ */
+@Deprecated
 public class BitNetNeuron implements Neuron {
     
     private static final Logger log = LoggerFactory.getLogger(BitNetNeuron.class);
@@ -167,6 +182,7 @@ public class BitNetNeuron implements Neuron {
     public void subscribe(Channel channel) {
         subscribedChannels.add(channel);
         subscribedChannelIds.add(channel.getId());
+        channel.subscribe(this.neuronId);
         log.info("BitNetNeuron {} subscribed to channel: {}", neuronId, channel.getId());
     }
     
@@ -360,6 +376,7 @@ public class BitNetNeuron implements Neuron {
                 payload
             );
             outputChannel.publish(message);
+            context.publish(outputChannel.getId(), message);
             
             log.info("BitNetNeuron published tool intent: tool={}, session={}", toolName, sessionId);
         }
@@ -375,6 +392,7 @@ public class BitNetNeuron implements Neuron {
                 response
             );
             outputChannel.publish(message);
+            context.publish(outputChannel.getId(), message);
         }
     }
     
@@ -393,6 +411,7 @@ public class BitNetNeuron implements Neuron {
                 payload
             );
             outputChannel.publish(message);
+            context.publish(outputChannel.getId(), message);
         }
     }
     
@@ -406,6 +425,7 @@ public class BitNetNeuron implements Neuron {
                 error
             );
             outputChannel.publish(message);
+            context.publish(outputChannel.getId(), message);
         }
     }
     

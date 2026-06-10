@@ -4,6 +4,7 @@
  * unordered/ordered lists, blockquotes, horizontal rules, links, tables.
  */
 import React, { useMemo } from 'react';
+import { getToken } from '../stores';
 
 function escapeHtml(str: string): string {
     return str
@@ -14,7 +15,9 @@ function escapeHtml(str: string): string {
 }
 
 function renderInline(text: string): string {
-    return text
+    // 先对输入文本进行 HTML 转义，防止 XSS 注入
+    let escaped = escapeHtml(text);
+    return escaped
         // Bold + italic
         .replace(/\*\*\*(.*?)\*\*\*/g, '<strong><em>$1</em></strong>')
         // Bold
@@ -29,12 +32,12 @@ function renderInline(text: string): string {
         .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt, url) => {
             let finalUrl = url;
             if (finalUrl.startsWith('/api/agents/')) {
-                const token = localStorage.getItem('token');
+                const token = getToken();
                 if (token && !finalUrl.includes('token=')) {
                     finalUrl += (finalUrl.includes('?') ? '&' : '?') + `token=${token}`;
                 }
             }
-            return `<a href="${finalUrl}" target="_blank"><img src="${finalUrl}" alt="${alt}" style="max-width:100%;max-height:400px;border-radius:4px;margin:8px 0;object-fit:contain;cursor:pointer" /></a>`;
+            return `<a href="${escapeHtml(finalUrl)}" target="_blank"><img src="${escapeHtml(finalUrl)}" alt="${escapeHtml(alt)}" style="max-width:100%;max-height:400px;border-radius:4px;margin:8px 0;object-fit:contain;cursor:pointer" /></a>`;
         })
         // Links
         .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, text, url) => {
@@ -42,12 +45,12 @@ function renderInline(text: string): string {
             if (match.startsWith('!')) return match;
             let finalUrl = url;
             if (finalUrl.startsWith('/api/agents/')) {
-                const token = localStorage.getItem('token');
+                const token = getToken();
                 if (token && !finalUrl.includes('token=')) {
                     finalUrl += (finalUrl.includes('?') ? '&' : '?') + `token=${token}`;
                 }
             }
-            return `<a href="${finalUrl}" target="_blank" rel="noopener noreferrer" style="color:var(--accent-primary)">${text}</a>`;
+            return `<a href="${escapeHtml(finalUrl)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent-primary)">${escapeHtml(text)}</a>`;
         })
         // Strikethrough
         .replace(/~~(.*?)~~/g, '<del>$1</del>');

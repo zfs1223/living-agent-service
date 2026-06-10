@@ -58,6 +58,19 @@ public class SkillGeneratorImpl implements SkillGenerator {
         skill.setContent(skillContent);
         skill.setCategory((String) context.getOrDefault("category", "general"));
         skill.setTargetBrain((String) context.getOrDefault("targetBrain", "TechBrain"));
+
+        // P1-5.1: 进化生成的技能强制设置 scope 为 department:{departmentName}
+        String brainDomain = (String) context.get("brainDomain");
+        if (brainDomain != null && !brainDomain.isBlank()) {
+            skill.setScope("department:" + brainDomain);
+            skill.setDepartmentId(brainDomain);
+        } else {
+            skill.setScope("evolved");
+        }
+        String ownerId = (String) context.get("ownerId");
+        if (ownerId != null) {
+            skill.setOwnerId(ownerId);
+        }
         
         if (!validateSkill(skill)) {
             log.warn("Skill validation failed for: {}", skillName);
@@ -127,6 +140,7 @@ public class SkillGeneratorImpl implements SkillGenerator {
         for (String skillName : commonSkills) {
             if (!existingNames.contains(skillName) && isRelevant(skillName, scenario)) {
                 GeneratedSkill suggestion = new GeneratedSkill(skillName, "Auto-suggested for: " + scenario);
+                suggestion.setScope("evolved");
                 suggestions.add(suggestion);
             }
         }

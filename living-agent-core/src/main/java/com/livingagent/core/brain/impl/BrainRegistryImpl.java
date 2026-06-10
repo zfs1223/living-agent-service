@@ -119,16 +119,24 @@ public class BrainRegistryImpl implements BrainRegistry {
 
     @Override
     public void startAll() {
-        log.info("Starting all brains (count: {})", brainById.size());
+        log.info("Starting all brains (count: {}) - business brains will start with provider=null, to be updated by EmployeeNeuron", brainById.size());
         
         List<Brain> failedBrains = new ArrayList<>();
+        int startedCount = 0;
+        int skippedCount = 0;
         
         for (Brain brain : brainById.values()) {
             try {
                 if (brain.getState() != BrainState.RUNNING) {
+                    if (isBusinessBrain(brain)) {
+                        log.info("Business brain {} will be started with provider=null, EmployeeNeuron will update it with Provider later", brain.getId());
+                    }
                     BrainContext context = createBrainContext(brain);
                     brain.start(context);
-                    log.info("Started brain: {}", brain.getId());
+                    startedCount++;
+                    log.info("Started brain: {} (provider=null, will be updated by EmployeeNeuron)", brain.getId());
+                } else {
+                    skippedCount++;
                 }
             } catch (Exception e) {
                 log.error("Failed to start brain: {}", brain.getId(), e);
@@ -136,11 +144,23 @@ public class BrainRegistryImpl implements BrainRegistry {
             }
         }
 
+        log.info("Brain startup summary: {} started, {} skipped (already running), {} failed", 
+            startedCount, skippedCount, failedBrains.size());
+        
         if (!failedBrains.isEmpty()) {
             log.warn("Failed to start {} brains: {}", 
                 failedBrains.size(), 
                 failedBrains.stream().map(Brain::getId).toList());
         }
+    }
+
+    private boolean isBusinessBrain(Brain brain) {
+        String brainId = brain.getId();
+        return brainId != null && (
+            brainId.contains("main-brain") || 
+            brainId.contains("department") ||
+            brainId.contains("brain")
+        );
     }
 
     @Override

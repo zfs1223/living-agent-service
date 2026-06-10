@@ -88,6 +88,10 @@ public class ModelManagerImpl implements ModelManager {
         return executeWithSession(sessionId, request);
     }
     
+    /**
+     * @deprecated Python Daemon 不支持 bitnet service，请使用 Layer 1 Brain ReAct 或 Layer 3 chat service
+     */
+    @Deprecated
     @Override
     public CompletableFuture<ModelResponse> generateTextBitNet(String sessionId, String prompt, int maxTokens, double temperature) {
         ModelRequest request = ModelRequest.builder()
@@ -97,7 +101,10 @@ public class ModelManagerImpl implements ModelManager {
             .param("temperature", temperature > 0 ? temperature : 0.7)
             .build();
         
-        return executeWithSession(sessionId, request);
+        log.warn("generateTextBitNet 已弃用，Python Daemon 不支持 bitnet service，返回失败");
+        return CompletableFuture.completedFuture(
+            ModelResponse.failure("bitnet service 已停用，请使用 Brain ReAct 工具调用")
+        );
     }
     
     @Override
@@ -116,26 +123,28 @@ public class ModelManagerImpl implements ModelManager {
         return executeWithSession(sessionId, request);
     }
     
+    /**
+     * @deprecated Python Daemon 不支持 tool_intent service，TOOL_CALL 已路由到 chatNeuron
+     */
+    @Deprecated
     @Override
     public CompletableFuture<ModelResponse> processToolIntent(String sessionId, String userInput, List<String> availableTools) {
-        ModelRequest request = ModelRequest.builder()
-            .service("tool_intent")
-            .param("user_input", userInput)
-            .param("available_tools", availableTools)
-            .build();
-        
-        return executeWithSession(sessionId, request);
+        log.warn("processToolIntent 已弃用，Python Daemon 不支持 tool_intent service");
+        return CompletableFuture.completedFuture(
+            ModelResponse.failure("tool_intent service 已停用，TOOL_CALL 已路由到 chatNeuron")
+        );
     }
     
+    /**
+     * @deprecated Python Daemon 不支持 tool service，请使用 Layer 1 Brain ReAct 工具调用
+     */
+    @Deprecated
     @Override
     public CompletableFuture<ModelResponse> executeToolCall(String sessionId, String toolName, Map<String, Object> parameters) {
-        ModelRequest request = ModelRequest.builder()
-            .service("tool")
-            .param("tool", toolName)
-            .param("parameters", parameters)
-            .build();
-        
-        return executeWithSession(sessionId, request);
+        log.warn("executeToolCall 已弃用，Python Daemon 不支持 tool service");
+        return CompletableFuture.completedFuture(
+            ModelResponse.failure("tool service 已停用，请使用 Brain ReAct 工具调用")
+        );
     }
     
     private CompletableFuture<ModelResponse> executeWithSession(String sessionId, ModelRequest request) {

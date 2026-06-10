@@ -1,5 +1,6 @@
 package com.livingagent.core.workflow;
 
+import com.livingagent.core.autonomy.TaskMetadataKeys;
 import com.livingagent.core.project.Project;
 import com.livingagent.core.project.ProjectPhase;
 import com.livingagent.core.project.ProjectService;
@@ -224,7 +225,7 @@ public class WorkflowMonitor {
         List<Map<String, Object>> executionDetails = new ArrayList<>();
         for (Map.Entry<String, PhaseExecution> entry : activeExecutions.entrySet()) {
             Map<String, Object> detail = new HashMap<>();
-            detail.put("projectId", entry.getKey());
+            detail.put(TaskMetadataKeys.PROJECT_ID, entry.getKey());
             detail.put("phase", entry.getValue().getPhase().getCode());
             detail.put("elapsed", entry.getValue().getElapsedTime().toString());
             detail.put("neuronId", entry.getValue().getNeuronId());

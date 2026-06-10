@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>真砺 - 代码审查员 | 项目文件浏览器</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: #e4e4e4;
+        }
+
+        .header {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 20px 40px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .role-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .role-icon {
+            width: 20px;
+            height: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 40px auto;
+            padding: 0 20px;
+        }
+
+        .task-info {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .task-info h2 {
+            color: #fff;
+            margin-bottom: 16px;
+            font-size: 24px;
+        }
+
+        .task-meta {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+        }
+
+        .meta-item {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .meta-label {
+            color: #888;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .meta-value {
+            color: #fff;
+            font-size: 14px;
+        }
+
+        .file-explorer {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            overflow: hidden;
+        }
+
+        .explorer-header {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 16px 24px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .folder-icon {
+            width: 24px;
+            height: 24px;
+            fill: #fbbf24;
+        }
+
+        .explorer-title {
+            font-size: 16px;
+            font-weight: 500;
+            color: #fff;
+        }
+
+        .file-tree {
+            padding: 16px 0;
+        }
+
+        .tree-item {
+            display: flex;
+            align-items: center;
+            padding: 10px 24px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border-left: 3px solid transparent;
+        }
+
+        .tree-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+            border-left-color: #667eea;
+        }
+
+        .tree-item.folder {
+            color: #fbbf24;
+        }
+
+        .tree-item.file {
+            color: #a5b4fc;
+        }
+
+        .tree-item.html {
+            color: #f97316;
+        }
+
+        .tree-item.css {
+            color: #38bdf8;
+        }
+
+        .tree-item.js {
+            color: #fbbf24;
+        }
+
+        .tree-item.json {
+            color: #4ade80;
+        }
+
+        .tree-icon {
+            width: 18px;
+            height: 18px;
+            margin-right: 12px;
+            flex-shrink: 0;
+        }
+
+        .file-name {
+            flex: 1;
+            font-size: 14px;
+        }
+
+        .file-size {
+            color: #666;
+            font-size: 12px;
+            margin-right: 20px;
+        }
+
+        .file-date {
+            color: #666;
+            font-size: 12px;
+        }
+
+        .status-section {
+            margin-top: 30px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 24px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .status-title {
+            font-size: 18px;
+            font-weight: 500;
+            margin-bottom: 20px;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 16px;
+        }
+
+        .status-card {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            padding: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .status-label {
+            color: #888;
+            font-size: 12px;
+            margin-bottom: 8px;
+        }
+
+        .status-value {
+            color: #fff;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .dot-success { background: #4ade80; }
+        .dot-warning { background: #fbbf24; }
+        .dot-info { background: #38bdf8; }
+
+        .action-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            margin-top: 20px;
+        }
+
+        .action-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .footer {
+            text-align: center;
+            padding: 40px 20px;
+            color: #666;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="role-badge">
+            <svg class="role-icon" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/>
+            </svg>
+            真砺 - 代码审查员
+        </div>
+        <div style="color: #888; font-size: 14px;">任务编号: TASK-2024-001</div>
+    </header>
+
+    <div class="container">
+        <div class="task-info">
+            <h2>📋 任务执行面板</h2>
+            <div class="task-meta">
+                <div class="meta-item">
+                    <span class="meta-label">任务类型</span>
+                    <span class="meta-value">file_listing - 文件列表</span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">当前角色</span>
+                    <span class="meta-value">reviewer (代码审查员)</span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">执行状态</span>
+                    <span class="meta-value" style="color: #4ade80;">✓ 就绪</span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">工作目录</span>
+                    <span class="meta-value">/project/frontend</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="file-explorer">
+            <div class="explorer-header">
+                <svg class="folder-icon" viewBox="0 0 24 24">
+                    <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+                </svg>
+                <span class="explorer-title">项目文件结构</span>
+            </div>
+            <div class="file-tree">
+                <div class="tree-item folder">
+                    <svg class="tree-icon" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+                    </svg>
+                    <span class="file-name">📁 src/</span>
+                    <span class="file-size">-</span>
+                    <span class="file-date">2024-01-15</span>
+                </div>
+                <div class="tree-item folder" style="padding-left: 48px;">
+                    <svg class="tree-icon" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+                    </svg>
+                    <span class="file-name">📁 components/</span>
+                    <span class="file-size">-</span>
+                    <span class="file-date">2024-01-14</span>
+                </div>
+                <div class="tree-item html" style="padding-left: 72px;">
+                    <svg class="tree-icon" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
+                    </svg>
+                    <span class="file-name">Header.jsx</span>
+                    <span class="file-size">2.4 KB</span>
+                    <span class="file-date">2024-01-14</span>
+                </div>
+                <div class="tree-item html" style="padding-left: 72px;">
+                    <svg class="tree-icon" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
+                    </svg>
+                    <span class="file-name">Footer.jsx</span>
+                    <span class="file-size">1.8 KB</span>
+                    <span class="file-date">2024-01-13</span>
+                </div>
+                <div class="tree-item html" style="padding-left: 72px;">
+                    <svg class="tree-icon" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
+                    </svg>
+                    <span class="file-name">Button.jsx</span>
+                    <span class="file-size">3.2 KB</span>
+                    <span class="file-date">2024-01-12</span>
+                </div>
+                <div class="tree-item folder" style="padding-left: 48px;">
+                    <svg class="tree-icon" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+                    </svg>
+                    <span class="file-name">📁 utils/</span>
+                    <span class="file-size">-</span>
+                    <span class="file-date">2024-01-10</span>
+                </div>
+                <div class="tree-item js" style="padding-left: 72px;">
+                    <svg class="tree-icon" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
+                    </svg>
+                    <span class="file-name">helpers.js</span>
+                    <span class="file-size">4.1 KB</span>
+                    <span class="file-date">2024-01-10</span>
+                </div>
+                <div class="tree-item js" style="padding-left: 72px;">
+                    <svg class="tree-icon" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
+                    </svg>
+                    <span class="file-name">api.js</span>
+                    <span class="file-size">5.7 KB</span>
+                    <span class="file-date">2024-01-09</span>
+                </div>
+                <div class="tree-item html" style="padding-left: 24px;">
+                    <svg class="tree-icon" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
+                    </svg>
+                    <span class="file-name">App.jsx</span>
+                    <span class="file-size">8.3 KB</span>
+                    <span class="file-date">2024-01-15</span>
+                </div>
+                <div class="tree-item html" style="padding-left: 24px;">
+                    <svg class="tree-icon" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="

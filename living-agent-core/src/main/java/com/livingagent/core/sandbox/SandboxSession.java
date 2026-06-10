@@ -25,6 +25,8 @@ public interface SandboxSession {
     CompletableFuture<ExecutionResult> executeCode(String code, String language);
     
     CompletableFuture<ExecutionResult> executeCommand(String command, List<String> args);
+
+    CompletableFuture<ExecutionResult> executeCommand(String command, List<String> args, Map<String, String> env);
     
     CompletableFuture<ExecutionResult> executeTraeCommand(String action, Map<String, Object> params);
     

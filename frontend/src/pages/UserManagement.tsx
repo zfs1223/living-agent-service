@@ -4,6 +4,7 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../stores';
+import { fetchJson } from '../services/api';
 
 interface UserInfo {
     id: string;
@@ -23,18 +24,6 @@ interface UserInfo {
     source?: string;
 }
 
-const API_PREFIX = '/api';
-
-async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
-    const token = localStorage.getItem('token');
-    const res = await fetch(`${API_PREFIX}${url}`, {
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        ...options,
-    });
-    if (!res.ok) throw new Error(await res.text());
-    return res.json();
-}
-
 const PERIOD_OPTIONS = [
     { value: 'permanent', label: 'Permanent' },
     { value: 'daily', label: 'Daily' },
@@ -46,7 +35,6 @@ const PAGE_SIZE = 15;
 
 export default function UserManagement() {
     const { t, i18n } = useTranslation();
-    const isChinese = i18n.language?.startsWith('zh');
     const { user: currentUser, setUser } = useAuthStore();
 
     const [users, setUsers] = useState<UserInfo[]>([]);
@@ -99,7 +87,7 @@ export default function UserManagement() {
                 method: 'PATCH',
                 body: JSON.stringify(editForm),
             });
-            setToast(isChinese ? '✅ 配额已更新' : '✅ Quota updated');
+            setToast(t('userMgmt.quotaUpdated'));
             setTimeout(() => setToast(''), 2000);
             setEditingUserId(null);
             loadUsers();
@@ -118,7 +106,7 @@ export default function UserManagement() {
                 method: 'PATCH',
                 body: JSON.stringify({ role: newRole }),
             });
-            setToast(isChinese ? 'Role updated' : 'Role updated');
+            setToast(t('userMgmt.quotaUpdated'));
             setTimeout(() => setToast(''), 2000);
             // If changed own role, update auth store
             if (userId === currentUser?.id) {
@@ -134,11 +122,13 @@ export default function UserManagement() {
     };
 
     const periodLabel = (period: string) => {
-        if (isChinese) {
-            const map: Record<string, string> = { permanent: '永久', daily: '每天', weekly: '每周', monthly: '每月' };
-            return map[period] || period;
-        }
-        return PERIOD_OPTIONS.find(p => p.value === period)?.label || period;
+        const map: Record<string, string> = {
+            permanent: t('userMgmt.periodPermanent'),
+            daily: t('userMgmt.periodDaily'),
+            weekly: t('userMgmt.periodWeekly'),
+            monthly: t('userMgmt.periodMonthly'),
+        };
+        return map[period] || period;
     };
 
     // Role label & styling helpers
@@ -151,7 +141,7 @@ export default function UserManagement() {
         if (!s) return null;
         return (
             <span style={{ marginLeft: '6px', fontSize: '10px', background: s.bg, color: s.color, borderRadius: '4px', padding: '1px 6px', fontWeight: 500 }}>
-                {isChinese ? s.labelZh : s.label}
+                {i18n.language?.startsWith('zh') ? s.labelZh : s.label}
             </span>
         );
     };
@@ -159,7 +149,7 @@ export default function UserManagement() {
     const formatDate = (iso?: string) => {
         if (!iso) return '-';
         const d = new Date(iso);
-        return d.toLocaleString(isChinese ? 'zh-CN' : 'en-US', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+        return d.toLocaleString(i18n.language?.startsWith('zh') ? 'zh-CN' : 'en-US', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
     };
 
     // Search filter
@@ -189,7 +179,38 @@ export default function UserManagement() {
     };
 
     return (
-        <div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+            <div style={{
+                borderRadius: '24px',
+                padding: '22px',
+                background: 'linear-gradient(135deg, rgba(16,185,129,0.12), rgba(12,18,28,0.84) 48%, rgba(5,6,10,0.96))',
+                border: '1px solid rgba(255,255,255,0.08)',
+                boxShadow: '0 24px 60px rgba(0,0,0,0.18)',
+            }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '18px', alignItems: 'flex-start' }}>
+                    <div style={{ maxWidth: '760px' }}>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '6px 10px', borderRadius: '999px', background: 'rgba(255,255,255,0.08)', color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '14px' }}>
+                            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--success)', boxShadow: '0 0 18px rgba(16,185,129,0.85)' }} />
+                            管理员用户中心
+                        </div>
+                        <h1 style={{ fontSize: '28px', fontWeight: 700, margin: 0, letterSpacing: '-0.04em', color: 'var(--text-primary)' }}>用户管理</h1>
+                        <p style={{ margin: '10px 0 0', color: 'var(--text-secondary)', fontSize: '13px', lineHeight: 1.75, maxWidth: '68ch' }}>
+                            管理用户角色、配额、生命周期和访问来源。
+                        </p>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '10px', minWidth: '320px' }}>
+                        <div style={{ padding: '12px 14px', borderRadius: '16px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>Users</div>
+                            <div style={{ fontSize: '22px', fontWeight: 700, marginTop: '6px' }}>{users.length}</div>
+                        </div>
+                        <div style={{ padding: '12px 14px', borderRadius: '16px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>Admins</div>
+                            <div style={{ fontSize: '22px', fontWeight: 700, marginTop: '6px' }}>{users.filter(u => ['platform_admin', 'org_admin'].includes(u.role)).length}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             {toast && (
                 <div style={{
                     position: 'fixed', top: '20px', right: '20px', padding: '10px 20px',
@@ -211,7 +232,7 @@ export default function UserManagement() {
                         <input
                             className="form-input"
                             type="text"
-                            placeholder={isChinese ? '搜索用户名、显示名或邮箱…' : 'Search username, name or email…'}
+                            placeholder={t('userMgmt.searchPlaceholder')}
                             value={searchQuery}
                             onChange={e => { setSearchQuery(e.target.value); setPage(1); }}
                             style={{
@@ -223,7 +244,7 @@ export default function UserManagement() {
                         />
                         {searchQuery && (
                             <span style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginLeft: '12px' }}>
-                                {isChinese ? `${filtered.length} / ${users.length} 位用户` : `${filtered.length} / ${users.length} users`}
+                                {t('userMgmt.userCount', { filtered: filtered.length, total: users.length })}
                             </span>
                         )}
                     </div>
@@ -234,22 +255,22 @@ export default function UserManagement() {
                         gap: '10px', padding: '10px 16px', fontSize: '11px', fontWeight: 600,
                         color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em',
                     }}>
-                        <div>{t('enterprise.users.user', isChinese ? '用户' : 'User')}</div>
-                        <div>{t('enterprise.users.email', 'Email')}</div>
+                        <div>{t('userMgmt.user')}</div>
+                        <div>{t('userMgmt.email')}</div>
                         {/* Created At with sort toggle */}
                         <div
                             style={{ cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '3px' }}
                             onClick={toggleSort}
-                            title={isChinese ? '点击切换排序' : 'Click to toggle sort order'}
+                            title={t('userMgmt.clickToToggleSort')}
                         >
-                            {isChinese ? '注册时间' : 'Joined'} {sortOrder === 'asc' ? '↑' : '↓'}
+                            {t('userMgmt.joinedAt')} {sortOrder === 'asc' ? '↑' : '↓'}
                         </div>
-                        <div>{isChinese ? '角色' : 'Role'}</div>
-                        <div>{isChinese ? '来源' : 'Source'}</div>
-                        <div>{t('enterprise.users.msgQuota', isChinese ? '消息配额' : 'Msg Quota')}</div>
-                        <div>{t('enterprise.users.period', isChinese ? '周期' : 'Period')}</div>
-                        <div>{t('enterprise.users.agents', isChinese ? '数字员工' : 'Agents')}</div>
-                        <div>{t('enterprise.users.ttl', 'TTL')}</div>
+                        <div>{t('userMgmt.role')}</div>
+                        <div>{t('userMgmt.source')}</div>
+                        <div>{t('userMgmt.msgQuota')}</div>
+                        <div>{t('userMgmt.period')}</div>
+                        <div>{t('userMgmt.agents')}</div>
+                        <div>{t('userMgmt.ttl')}</div>
                         <div></div>
                     </div>
 
@@ -277,15 +298,16 @@ export default function UserManagement() {
                                             disabled={changingRoleUserId === user.id}
                                             onChange={e => {
                                                 const newRole = e.target.value;
-                                                const confirmMsg = isChinese
-                                                    ? `确认将 ${user.display_name || user.username} 的角色更改为 ${newRole === 'org_admin' ? 'Admin' : 'Member'}？`
-                                                    : `Change ${user.display_name || user.username}'s role to ${newRole === 'org_admin' ? 'Admin' : 'Member'}?`;
+                                                const confirmMsg = t('userMgmt.confirmRoleChange', {
+                                                    name: user.display_name || user.username,
+                                                    role: newRole === 'org_admin' ? t('userMgmt.admin') : t('userMgmt.member')
+                                                });
                                                 if (confirm(confirmMsg)) handleRoleChange(user.id, newRole);
                                             }}
                                             style={{ fontSize: '11px', padding: '2px 4px', width: '100%', minWidth: 0 }}
                                         >
-                                            <option value="member">{isChinese ? 'Member' : 'Member'}</option>
-                                            <option value="org_admin">{isChinese ? 'Admin' : 'Admin'}</option>
+                                            <option value="member">{t('userMgmt.member')}</option>
+                                            <option value="org_admin">{t('userMgmt.admin')}</option>
                                         </select>
                                     ) : (
                                         <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
@@ -301,7 +323,7 @@ export default function UserManagement() {
                                         </span>
                                     ) : (
                                         <span style={{ fontSize: '10px', background: 'rgba(0,180,120,0.12)', color: 'var(--success)', borderRadius: '4px', padding: '2px 7px', whiteSpace: 'nowrap' }}>
-                                            {isChinese ? '注册' : 'Reg'}
+                                            {t('userMgmt.registered')}
                                         </span>
                                     )}
                                 </div>
@@ -338,7 +360,7 @@ export default function UserManagement() {
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '16px' }}>
                                         <div className="form-group">
                                             <label className="form-label" style={{ fontSize: '11px' }}>
-                                                {t('enterprise.users.msgLimit', isChinese ? '消息限额' : 'Message Limit')}
+                                                {t('userMgmt.msgLimit')}
                                             </label>
                                             <input
                                                 className="form-input"
@@ -349,7 +371,7 @@ export default function UserManagement() {
                                         </div>
                                         <div className="form-group">
                                             <label className="form-label" style={{ fontSize: '11px' }}>
-                                                {t('enterprise.users.period', isChinese ? '重置周期' : 'Period')}
+                                                {t('userMgmt.resetPeriod')}
                                             </label>
                                             <select
                                                 className="form-input"
@@ -363,7 +385,7 @@ export default function UserManagement() {
                                         </div>
                                         <div className="form-group">
                                             <label className="form-label" style={{ fontSize: '11px' }}>
-                                                {t('enterprise.users.maxAgents', isChinese ? '最多数字员工' : 'Max Agents')}
+                                                {t('userMgmt.maxAgents')}
                                             </label>
                                             <input
                                                 className="form-input"
@@ -374,7 +396,7 @@ export default function UserManagement() {
                                         </div>
                                         <div className="form-group">
                                             <label className="form-label" style={{ fontSize: '11px' }}>
-                                                {t('enterprise.users.agentTTL', isChinese ? '员工存活时长(h)' : 'Agent TTL (hours)')}
+                                                {t('userMgmt.agentTTL')}
                                             </label>
                                             <input
                                                 className="form-input"
@@ -412,7 +434,7 @@ export default function UserManagement() {
                                 disabled={page <= 1}
                                 onClick={() => setPage(p => p - 1)}
                             >
-                                ‹ {isChinese ? '上一页' : 'Prev'}
+                                ‹ {t('userMgmt.prev')}
                             </button>
                             {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
                                 <button
@@ -430,7 +452,7 @@ export default function UserManagement() {
                                 disabled={page >= totalPages}
                                 onClick={() => setPage(p => p + 1)}
                             >
-                                {isChinese ? '下一页' : 'Next'} ›
+                                {t('userMgmt.next')} ›
                             </button>
                         </div>
                     )}

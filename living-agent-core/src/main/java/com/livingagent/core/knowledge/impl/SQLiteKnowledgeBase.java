@@ -16,7 +16,8 @@ public class SQLiteKnowledgeBase implements KnowledgeBase {
     private final String dbPath;
     private final int vectorDimension;
     private final Map<String, float[]> vectorCache;
-    
+    private volatile Connection cachedConnection;
+
     public SQLiteKnowledgeBase(String dbPath, int vectorDimension) {
         this.dbPath = dbPath;
         this.vectorDimension = vectorDimension;
@@ -101,7 +102,54 @@ public class SQLiteKnowledgeBase implements KnowledgeBase {
     }
     
     private Connection getConnection() throws SQLException {
-        return DriverManager.getConnection("jdbc:sqlite:" + dbPath);
+        if (cachedConnection != null) {
+            try {
+                if (!cachedConnection.isClosed() && cachedConnection.isValid(2)) {
+                    return wrapNonClosing(cachedConnection);
+                }
+            } catch (SQLException e) {
+                log.debug("Cached connection invalid, creating new one: {}", e.getMessage());
+            }
+            try {
+                cachedConnection.close();
+            } catch (SQLException ignored) {}
+            cachedConnection = null;
+        }
+        Connection conn = DriverManager.getConnection("jdbc:sqlite:" + dbPath);
+        try {
+            conn.setAutoCommit(true);
+        } catch (SQLException ignored) {}
+        cachedConnection = conn;
+        return wrapNonClosing(cachedConnection);
+    }
+
+    /**
+     * Wraps a Connection so that close() is a no-op, allowing try-with-resources
+     * callers to "close" the connection without invalidating the cached instance.
+     */
+    private Connection wrapNonClosing(Connection delegate) {
+        return (Connection) java.lang.reflect.Proxy.newProxyInstance(
+            Connection.class.getClassLoader(),
+            new Class[]{Connection.class},
+            (proxy, method, args) -> {
+                if ("close".equals(method.getName())) {
+                    return null; // no-op: keep the underlying connection alive
+                }
+                return method.invoke(delegate, args);
+            }
+        );
+    }
+
+    /**
+     * Actually close the cached connection. Call during shutdown.
+     */
+    public void shutdown() {
+        if (cachedConnection != null) {
+            try {
+                cachedConnection.close();
+            } catch (SQLException ignored) {}
+            cachedConnection = null;
+        }
     }
     
     @Override

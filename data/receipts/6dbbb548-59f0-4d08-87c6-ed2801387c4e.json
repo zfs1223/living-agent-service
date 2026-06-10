@@ -1,0 +1,20 @@
+[ {
+  "receiptId" : "4e4e81f1-074d-46be-88f0-ca820c2629a4",
+  "executionId" : "6dbbb548-59f0-4d08-87c6-ed2801387c4e",
+  "dispatchId" : "7d022a73-c94a-4657-86b0-cc9dc2f7489c",
+  "assignmentId" : "5ffe686b-2dd8-4ff4-82ac-3cbf012ead62",
+  "employeeCode" : "T09",
+  "employeeNeuronId" : "neuron://tech/frontend/001",
+  "status" : "COMPLETED",
+  "summary" : "任务执行完成（工具驱动）\n\n员工: 真绘 (T09)\n任务类型: 前端游戏开发\n使用工具: [file_write]\n产物文件:\n- result.txt (text): data/artifacts/T09/5ffe686b-2dd8-4ff4-82ac-3cbf012ead62/result.txt\n执行结果: 任务已完成",
+  "receivedAt" : 1778726170.199807129,
+  "metadata" : {
+    "modelName" : "tool_executor",
+    "modelProvider" : "tool_executor",
+    "confidence" : 0.9,
+    "failureReason" : null,
+    "outcomeStatus" : "COMPLETED",
+    "needsHumanReview" : false,
+    "needsRetry" : false
+  }
+} ]

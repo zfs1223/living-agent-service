@@ -16,9 +16,7 @@ public class MiscController {
     }
 
     @GetMapping("/notifications/unread-count")
-    public ResponseEntity<ApiResponse<UnreadCount>> getUnreadCount(
-            @RequestHeader(value = "Authorization", required = false) String authorization
-    ) {
+    public ResponseEntity<ApiResponse<UnreadCount>> getUnreadCount() {
         UnreadCount count = new UnreadCount(0);
         return ResponseEntity.ok(ApiResponse.ok(count));
     }

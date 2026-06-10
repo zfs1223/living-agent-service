@@ -1,0 +1,20 @@
+[ {
+  "receiptId" : "ebe93547-3401-4748-a00a-e48a59a5c90e",
+  "executionId" : "291f0ed2-248c-403b-a9f6-31ae42700a16",
+  "dispatchId" : "b0b94efd-747d-4aac-b722-782151330a8c",
+  "assignmentId" : "9c1c2346-9d9c-4cf3-ba4c-618c10e38dac",
+  "employeeCode" : "T09",
+  "employeeNeuronId" : "neuron://tech/frontend/001",
+  "status" : "COMPLETED",
+  "summary" : "任务执行完成（工具驱动）\n\n员工: 真绘 (T09)\n任务类型: 网页游戏开发\n使用工具: [llm_code_generation, file_write]\n产物文件:\n- index.html (html): data/artifacts/tech/291f0ed2-248c-403b-a9f6-31ae42700a16/index.html\n执行结果: Web 任务已完成，生成 1 个文件",
+  "receivedAt" : 1778749873.452297437,
+  "metadata" : {
+    "modelName" : "tool_executor",
+    "modelProvider" : "tool_executor",
+    "confidence" : 0.9,
+    "failureReason" : null,
+    "outcomeStatus" : "COMPLETED",
+    "needsHumanReview" : false,
+    "needsRetry" : false
+  }
+} ]

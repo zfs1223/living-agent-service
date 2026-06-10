@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- CSP：脚本仅自源；样式允许自源 + 内联（动态主题）
+         桌面端连的后端 URL 在安装时由用户配置（http://localhost:8382 占位），
+         生产环境会在"设置"中填入真实远程地址，因此 connect-src 不能写死 -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' http: https: ws: wss:"
+    />
+    <title>Living Agent Desktop</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./main.tsx"></script>
+  </body>
+</html>

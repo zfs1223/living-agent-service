@@ -6,12 +6,13 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+    image: living-agent-frontend
     container_name: living-agent-frontend
     hostname: living-agent-frontend
     ports:
       - "8383:8383"
     networks:
-      - living-agent-network
+      - frontend
     depends_on:
       living-agent-service:
         condition: service_started
@@ -30,6 +31,7 @@ services:
     build:
       context: .
       dockerfile: living-agent-app/Dockerfile.local
+    image: living-agent-service
     container_name: living-agent-service
     hostname: living-agent-service
     ports:
@@ -37,9 +39,9 @@ services:
     environment:
       - SPRING_PROFILES_ACTIVE=prod
       # 数据库连接
-      - DATABASE_URL=jdbc:postgresql://postgres:5432/livingagent
+      - DATABASE_URL=jdbc:postgresql://postgres:5432/livingagent?charSet=UTF-8
       - DATABASE_USERNAME=livingagent
-      - DATABASE_PASSWORD=${POSTGRES_PASSWORD:-livingagent123}
+      - DATABASE_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD environment variable must be set}
       # Redis 连接
       - REDIS_HOST=redis
       - REDIS_PORT=6379
@@ -65,25 +67,57 @@ services:
       # MemOS 记忆系统
       - MEMOS_BASE_URL=http://memos:8381
       - MEMOS_DEFAULT_CUBE_ID=living-agent
+      # Claude CLI 代理配置
+      - CLAUDE_CLI_PROXY_ENABLED=${CLAUDE_CLI_PROXY_ENABLED:-true}
+      - CLAUDE_CLI_PROXY_BASE_URL=${CLAUDE_CLI_PROXY_BASE_URL:-http://living-agent-service:8382/api/v1/proxy/anthropic}
+      - CLAUDE_CLI_PROXY_AUTH_TOKEN=${CLAUDE_CLI_PROXY_AUTH_TOKEN:-}
+      - CLAUDE_CLI_PROXY_REQUIRE_AUTH=${CLAUDE_CLI_PROXY_REQUIRE_AUTH:-false}
+      - CLAUDE_CLI_PROXY_DEFAULT_BRAIN=${CLAUDE_CLI_PROXY_DEFAULT_BRAIN:-tech}
+      - CLAUDE_CLI_PROXY_STREAM_TIMEOUT=${CLAUDE_CLI_PROXY_STREAM_TIMEOUT:-600}
+      - CLAUDE_CLI_PROXY_AUDIT_ENABLED=${CLAUDE_CLI_PROXY_AUDIT_ENABLED:-true}
+      # Claude CLI 直接环境变量（供容器内直接使用 claude 命令）
+      - ANTHROPIC_API_KEY=sk-living-agent-claude-proxy
+      - ANTHROPIC_BASE_URL=http://living-agent-service:8382/api/v1/proxy/anthropic
       # 可选: 云端API (备用)
       # 声纹识别远程服务配置
       - SPEAKER_USE_REMOTE=false
       #- SPEAKER_SERVICE_URL=http://host.docker.internal:8390
-      - TAVILY_API_KEY=${TAVILY_API_KEY:-tvly-dev-xxxxxxxxxxxxxxx}
-      # - NOTION_API_KEY=${NOTION_API_KEY:ntn-dev-1234567890abcdef1234567890abcdef}
-      # - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:slack-bot-token-1234567890abcdef1234567890abcdef}
+      # RuView WiFi 感知服务配置
+      - RUVIEW_POLLING_ENABLED=${RUVIEW_POLLING_ENABLED:-false}
+      - TAVILY_API_KEY=${TAVILY_API_KEY:-}
+      # - NOTION_API_KEY=${NOTION_API_KEY:-}
+      # - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:-}
       # 天气API (可选，有免费wttr.in兜底)
-      - WEATHER_QWEATHER_KEY=${WEATHER_QWEATHER_KEY:-xxxxxxxxxxxxxxxx}
-      - WEATHER_OPENWEATHERMAP_KEY=${WEATHER_OPENWEATHERMAP_KEY:-xxxxxxxxxxxxxx}
+      - WEATHER_QWEATHER_KEY=${WEATHER_QWEATHER_KEY:-}
+      - WEATHER_OPENWEATHERMAP_KEY=${WEATHER_OPENWEATHERMAP_KEY:-}
       # 飞书配置
       - FEISHU_ENABLED=${FEISHU_ENABLED:-true}
-      - FEISHU_APP_ID=${FEISHU_APP_ID:-cli_xxxxxxxxx}
-      - FEISHU_APP_SECRET=${FEISHU_APP_SECRET:-xxxxxxxxxxx}
+      - FEISHU_APP_ID=${FEISHU_APP_ID:-}
+      - FEISHU_APP_SECRET=${FEISHU_APP_SECRET:-}
       - FEISHU_WEBHOOK_KEY=${FEISHU_WEBHOOK_KEY:-}
+      # Jenkins 配置 (本地部署)
+      - JENKINS_BASE_URL=http://jenkins:8080
+      - JENKINS_USERNAME=${JENKINS_USERNAME:-}
+      - JENKINS_API_TOKEN=${JENKINS_API_TOKEN:-}
+      # GitLab 配置 (本地部署)
+      - GITLAB_BASE_URL=http://gitlab:8929
+      - GITLAB_ACCESS_TOKEN=${GITLAB_ACCESS_TOKEN:-}
+      # Jira 配置 (备选，OpenProject 优先；如已有 Jira 实例可配置此项)
+      - JIRA_BASE_URL=${JIRA_BASE_URL:-}
+      - JIRA_EMAIL=${JIRA_EMAIL:-}
+      - JIRA_API_TOKEN=${JIRA_API_TOKEN:-}
+      # OpenProject 配置 (本地部署，免费替代 Jira，优先使用)
+      - OPENPROJECT_BASE_URL=http://openproject:8080
+      - OPENPROJECT_API_TOKEN=${OPENPROJECT_API_TOKEN:-}
+      # RuView WiFi 感知服务配置 (使用容器内部端口 3000)
+      - RUVIEW_API_BASE_URL=http://ruview-sensing:3000
+      - RUVIEW_POLLING_INTERVAL_SECONDS=${RUVIEW_POLLING_INTERVAL_SECONDS:-10}
     volumes:
-      # 数据持久化
-      - living-agent-data:/app/data
-      - living-agent-logs:/app/logs
+      # 数据持久化（知识库/运行数据）
+      - ./data:/app/data
+      - ./logs:/app/logs
+      # 文档型资料文件夹（本地可直接查看/编辑）
+      - ./documents:/app/documents
       # 本地AI模型挂载 (关键! 挂载宿主机模型目录)
       # Windows: 设置 AI_MODELS_PATH=f:\SoarCloudAI\ai-models
       # Linux/Mac: 设置 AI_MODELS_PATH=/path/to/SoarCloudAI/ai-models
@@ -92,10 +126,18 @@ services:
       - ./scripts/python:/opt/python_scripts:ro
       # 技能目录挂载
       - ./living-agent-skill/src/main/resources/skills:/app/skills:ro
-      # Docker socket (容器管理)
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # 知识库/部门资料本地映射（可直接在宿主机查看）
+      - ./data/knowledge:/app/data/knowledge
+      - ./data/department-knowledge:/app/data/department-knowledge
+      - ./data/personal-knowledge:/app/data/personal-knowledge
+      # Docker socket — 已移除，避免容器逃逸风险
+      # 如需容器管理功能，请使用 Docker Socket Proxy
+      # - /var/run/docker.sock:/var/run/docker.sock
+      # 源码工作区 (LLM 可读写项目源码)
+      - ${WORKSPACE_PATH:-../..}:/app/workspace
     networks:
-      - living-agent-network
+      - frontend
+      - backend
     depends_on:
       postgres:
         condition: service_healthy
@@ -118,6 +160,44 @@ services:
           memory: 8G
         reservations:
           memory: 2G
+
+  # ===========================================
+  # RuView Sensing - WiFi 物理感知服务
+  # 基于 WiFi CSI 信号实现人员检测、占用统计、生命体征监测
+  # 使用本地构建的镜像 (需先运行 docker build -f docker/Dockerfile.rust.nightly -t living-agent-ruview-sensing:nightly .)
+  # ===========================================
+  ruview-sensing:
+    image: living-agent-ruview-sensing:nightly
+    container_name: living-agent-ruview-sensing
+    hostname: ruview-sensing
+    ports:
+      - "8387:3000"      # REST API (外部 8387 → 容器内部 3000)
+      - "8389:3001"      # WebSocket (外部 8389 → 容器内部 3001)
+      - "5005:5005/udp"  # ESP32 数据接收 (可选，硬件模式)
+    environment:
+      - RUST_LOG=info
+      - CSI_SOURCE=${CSI_SOURCE:-simulated}
+      - MODELS_DIR=/app/data/models
+    volumes:
+      - ruview-data:/app/data
+      - ruview-models:/app/data/models
+      - ../RuView/ui:/app/ui:ro  # 挂载本地 UI 目录以便实时更新
+    networks:
+      - frontend
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
 
   # ===========================================
   # Crawl4AI - 网页爬取辅助服务
@@ -153,12 +233,132 @@ services:
   #        memory: 1G
 
   # ===========================================
+  # Jenkins - CI/CD 持续集成服务
+  # ===========================================
+  jenkins:
+    image: jenkins/jenkins:lts
+    container_name: living-agent-jenkins
+    hostname: jenkins
+    ports:
+      - "8384:8080"
+      - "50000:50000"
+    environment:
+      - JENKINS_JAVA_OPTS=-Xms256m -Xmx512m
+    volumes:
+      - jenkins-home:/var/jenkins_home
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/login || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
+
+  # ===========================================
+  # GitLab CE - 代码管理服务
+  # ===========================================
+  gitlab:
+    image: gitlab/gitlab-ce:latest
+    container_name: living-agent-gitlab
+    hostname: gitlab
+    ports:
+      - "8385:8929"
+      - "2289:22"
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'http://gitlab:8929'
+        gitlab_rails['gitlab_shell_ssh_port'] = 2289
+        puma['worker_processes'] = 0
+        puma['min_threads'] = 2
+        puma['max_threads'] = 4
+        sidekiq['max_concurrency'] = 5
+        postgresql['shared_buffers'] = '128MB'
+        postgresql['max_worker_processes'] = 2
+        nginx['worker_processes'] = 1
+        prometheus_monitoring['enable'] = false
+    volumes:
+      - gitlab-config:/etc/gitlab
+      - gitlab-logs:/var/log/gitlab
+      - gitlab-data:/var/opt/gitlab
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8929/-/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 300s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+
+  # ===========================================
+  # OpenProject - 项目管理服务 (免费开源，Jira 替代)
+  # 从本地源码构建，无需拉取 Docker Hub 镜像
+  # ===========================================
+  openproject:
+    build:
+      context: ../openproject-17.3.1
+      dockerfile: docker/prod/Dockerfile
+      target: slim
+      args:
+        BIM_SUPPORT: "false"
+        PGVERSION: "15"
+    image: living-agent-openproject
+    container_name: living-agent-openproject
+    hostname: openproject
+    ports:
+      - "8386:8080"
+    environment:
+      - OPENPROJECT_HTTPS=false
+      - OPENPROJECT_HOST__NAME=localhost:8386
+      - OPENPROJECT_DEFAULT__LANGUAGE=zh-CN
+      - DATABASE_URL=postgres://livingagent:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD environment variable must be set}@postgres:5432/openproject
+      - OPENPROJECT_SECRET_KEY_BASE=${OPENPROJECT_SECRET:-livingagent-openproject-secret}
+      - OPENPROJECT_RAILS__CACHE__STORE=file_store
+      - RAILS_ENV=production
+      - MIGRATE=true
+    volumes:
+      - openproject-data:/var/openproject/assets
+    networks:
+      - backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health_checks/default || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 180s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+
+  # ===========================================
   # MemOS - 记忆系统 (可选，完整模式)
   # ===========================================
   memos:
     build:
       context: ../MemOS-2.0.7
       dockerfile: docker/Dockerfile
+    image: living-agent-memos
     container_name: living-agent-memos
     hostname: memos
     ports:
@@ -168,33 +368,38 @@ services:
     environment:
       - PYTHONPATH=/app/src
       - HF_ENDPOINT=https://hf-mirror.com
+      - GRAPH_DB_BACKEND=neo4j-community
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
       - NEO4J_URI=bolt://memos-neo4j:7687
       - NEO4J_USER=neo4j
-      - NEO4J_PASSWORD=memos123456
-      # Ollama 配置 (内网服务)
-      - OLLAMA_BASE_URL=http://192.168.0.249:2025
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-memos123456}
+      # Ollama 配置 (本地服务)
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
       - MOS_LLM_BACKEND=ollama
-      - MOS_LLM_MODEL=qwen3.5:9b
+      - MOS_LLM_MODEL=qwen3.5:2b
       - MOS_EMBEDDER_BACKEND=ollama
       - MOS_EMBEDDER_MODEL=qwen2.5:latest
+      # Internet Retriever LLM 配置 (解决 reader.llm.model_name_or_path 为 None 的问题)
+      - MEMRADER_MODEL=qwen3.5:2b
+      - MEMRADER_API_BASE=http://host.docker.internal:11434/v1
+      - MEMRADER_API_KEY=EMPTY
     volumes:
       - memos-src:/app/src
       - memos-data:/app/data
     networks:
-      - living-agent-network
+      - backend
     depends_on:
       memos-neo4j:
         condition: service_healthy
       qdrant:
         condition: service_started
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/product/users"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/openapi.json > /dev/null 2>&1 || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 60s
+      start_period: 120s
     restart: unless-stopped
     deploy:
       resources:
@@ -216,14 +421,14 @@ services:
       - "7688:7687"
     environment:
       NEO4J_ACCEPT_LICENSE_AGREEMENT: "yes"
-      NEO4J_AUTH: neo4j/memos123456
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-memos123456}
       NEO4J_server_memory_heap_initial__size: "512m"
       NEO4J_server_memory_heap_max__size: "1G"
     volumes:
       - memos-neo4j-data:/data
       - memos-neo4j-logs:/logs
     networks:
-      - living-agent-network
+      - backend
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:7474"]
       interval: 10s
@@ -231,9 +436,7 @@ services:
       retries: 10
       start_period: 30s
     restart: unless-stopped
-
-
-  # ===========================================
+     # ===========================================
   # PostgreSQL - 企业知识存储
   # ===========================================
   postgres:
@@ -244,18 +447,24 @@ services:
       - "5432:5432"
     environment:
       - POSTGRES_USER=livingagent
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-livingagent123}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD environment variable must be set}
       - POSTGRES_DB=livingagent
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./init-db:/docker-entrypoint-initdb.d
     networks:
-      - living-agent-network
+      - backend
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U livingagent"]
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
     restart: unless-stopped
 
   # ===========================================
@@ -274,12 +483,19 @@ services:
       QDRANT__SERVICE__GRPC_PORT: 6334
       QDRANT__SERVICE__HTTP_PORT: 6333
     networks:
-      - living-agent-network
+      - backend
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:6333/healthz || exit 1"]
       interval: 30s
       timeout: 10s
-      retries: 3
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
     restart: unless-stopped
 
   # ===========================================
@@ -294,12 +510,18 @@ services:
     volumes:
       - redis-data:/data
     networks:
-      - living-agent-network
+      - backend
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
     restart: unless-stopped
 
   # ===========================================
@@ -318,12 +540,18 @@ services:
       - zookeeper-data:/var/lib/zookeeper/data
       - zookeeper-logs:/var/lib/zookeeper/log
     networks:
-      - living-agent-network
+      - backend
     healthcheck:
       test: ["CMD", "nc", "-z", "localhost", "2181"]
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
     restart: unless-stopped
 
   # ===========================================
@@ -345,12 +573,12 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
       KAFKA_NUM_PARTITIONS: 3
     volumes:
       - kafka-data:/var/lib/kafka/data
     networks:
-      - living-agent-network
+      - backend
     depends_on:
       zookeeper:
         condition: service_healthy
@@ -369,9 +597,12 @@ services:
           memory: 512M
 
 networks:
-  living-agent-network:
+  frontend:
     driver: bridge
-    name: living-agent-network
+    name: living-agent-frontend
+  backend:
+    driver: bridge
+    name: living-agent-backend
 
 volumes:
   living-agent-data:
@@ -402,3 +633,21 @@ volumes:
     name: living-agent-zookeeper-logs
   kafka-data:
     name: living-agent-kafka-data
+  # Jenkins volume
+  jenkins-home:
+    name: living-agent-jenkins-home
+  # GitLab volumes
+  gitlab-config:
+    name: living-agent-gitlab-config
+  gitlab-logs:
+    name: living-agent-gitlab-logs
+  gitlab-data:
+    name: living-agent-gitlab-data
+  # OpenProject volume
+  openproject-data:
+    name: living-agent-openproject-data
+  # RuView volumes
+  ruview-data:
+    name: living-agent-ruview-data
+  ruview-models:
+    name: living-agent-ruview-models

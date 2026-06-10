@@ -91,7 +91,7 @@ public class FallbackHandler {
         if (alertService != null) {
             alertService.sendCriticalAlert(
                     "Circuit Breaker Opened",
-                    String.format("Main brain (Qwen3.5-27B) is experiencing failures. " +
+                    String.format("Main brain is experiencing failures. " +
                             "Fallback mode activated. Last error: %s", context.getMessage())
             );
         }

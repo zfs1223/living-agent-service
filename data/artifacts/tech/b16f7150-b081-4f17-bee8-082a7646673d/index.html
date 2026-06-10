@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Claude CLI Report</title>
+	<style>
+		body {
+			font-family: Arial, sans-serif;
+			margin: 20px;
+		}
+		
+		table {
+			border-collapse: collapse;
+			width: 100%;
+		}
+		
+		th, td {
+			border: 1px solid #ddd;
+			padding: 10px;
+			text-align: center;
+		}
+		
+		th {
+			background-color: #f0f0f0;
+		}
+	</style>
+</head>
+<body>
+	<h1>Claude CLI Report</h1>
+	<table id="report">
+		<thead>
+			<tr>
+				<th>Category</th>
+				<th>Issue</th>
+				<th>Description</th>
+			</tr>
+		</thead>
+		<tbody>
+			<!-- Insert report data here -->
+			<tr>
+				<td>Security</td>
+				<td>Insecure Dependency</td>
+				<td>The project is using an insecure dependency, please review and update the package.</td>
+			</tr>
+			<tr>
+				<td>Performance</td>
+				<td>Unused Code</td>
+				<td>There are unused code blocks in the project, please remove or refactor them to improve performance.</td>
+			</tr>
+			<tr>
+				<td>Best Practices</td>
+				<td>Lack of Comments</td>
+				<td>The project lacks comments and documentation, please add clear and concise comments to improve code readability.</td>
+			</tr>
+			<tr>
+				<td>Code Quality</td>
+				<td>Unused Variables</td>
+				<td>There are unused variables in the project, please remove or refactor them to improve code quality.</td>
+			</tr>
+		</tbody>
+	</table>
+</body>
+</html>

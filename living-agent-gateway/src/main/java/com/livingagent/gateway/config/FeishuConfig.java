@@ -6,7 +6,7 @@ import com.livingagent.core.security.sync.FeishuSyncAdapter;
 import com.livingagent.core.security.sync.HrSyncAdapter;
 import com.livingagent.core.tool.Tool;
 import com.livingagent.core.tool.ToolRegistry;
-import com.livingagent.core.tool.impl.enterprise.ChairmanFeishuTool;
+import com.livingagent.core.tool.impl.enterprise.EnterpriseFeishuTool;
 import com.livingagent.core.tool.impl.enterprise.HrFeishuTool;
 import com.livingagent.core.tool.impl.enterprise.EmployeeFeishuTool;
 import com.livingagent.core.proactive.alert.AlertNotifier;
@@ -25,11 +25,11 @@ public class FeishuConfig {
 
     private static final Logger log = LoggerFactory.getLogger(FeishuConfig.class);
 
-    @Value("${feishu.chairman.app-id:}")
-    private String chairmanAppId;
+    @Value("${feishu.enterprise.app-id:}")
+    private String enterpriseAppId;
 
-    @Value("${feishu.chairman.app-secret:}")
-    private String chairmanAppSecret;
+    @Value("${feishu.enterprise.app-secret:}")
+    private String enterpriseAppSecret;
 
     @Value("${feishu.hr.app-id:}")
     private String hrAppId;
@@ -49,8 +49,8 @@ public class FeishuConfig {
     @Bean
     @Primary
     public OAuthService feishuOAuthService() {
-        String appId = chairmanAppId != null && !chairmanAppId.isEmpty() ? chairmanAppId : hrAppId;
-        String appSecret = chairmanAppId != null && !chairmanAppId.isEmpty() ? chairmanAppSecret : hrAppSecret;
+        String appId = enterpriseAppId != null && !enterpriseAppId.isEmpty() ? enterpriseAppId : hrAppId;
+        String appSecret = enterpriseAppId != null && !enterpriseAppId.isEmpty() ? enterpriseAppSecret : hrAppSecret;
         
         log.info("Initializing FeishuOAuthService with App ID: {}", maskAppId(appId));
         
@@ -64,21 +64,21 @@ public class FeishuConfig {
     @Bean
     @Primary
     public HrSyncAdapter feishuSyncAdapter() {
-        String appId = chairmanAppId != null && !chairmanAppId.isEmpty() ? chairmanAppId : hrAppId;
-        String appSecret = chairmanAppId != null && !chairmanAppId.isEmpty() ? chairmanAppSecret : hrAppSecret;
+        String appId = enterpriseAppId != null && !enterpriseAppId.isEmpty() ? enterpriseAppId : hrAppId;
+        String appSecret = enterpriseAppId != null && !enterpriseAppId.isEmpty() ? enterpriseAppSecret : hrAppSecret;
         
-        log.info("Initializing FeishuSyncAdapter (Chairman/HR level)");
+        log.info("Initializing FeishuSyncAdapter (Enterprise/HR level)");
         return new FeishuSyncAdapter(appId, appSecret);
     }
 
     @Bean
-    public Tool chairmanFeishuTool() {
-        if (chairmanAppId == null || chairmanAppId.isEmpty()) {
-            log.warn("Chairman Feishu App ID not configured, ChairmanFeishuTool will not be available");
+    public Tool enterpriseFeishuTool() {
+        if (enterpriseAppId == null || enterpriseAppId.isEmpty()) {
+            log.warn("Enterprise Feishu App ID not configured, EnterpriseFeishuTool will not be available");
             return null;
         }
-        log.info("Initializing ChairmanFeishuTool with App ID: {}", maskAppId(chairmanAppId));
-        return new ChairmanFeishuTool(chairmanAppId, chairmanAppSecret);
+        log.info("Initializing EnterpriseFeishuTool with App ID: {}", maskAppId(enterpriseAppId));
+        return new EnterpriseFeishuTool(enterpriseAppId, enterpriseAppSecret);
     }
 
     @Bean

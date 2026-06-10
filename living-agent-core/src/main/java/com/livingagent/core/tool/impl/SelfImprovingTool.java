@@ -103,13 +103,14 @@ public class SelfImprovingTool implements Tool {
         errors.put(errorId, record);
         
         Optional<LearningRecord> solution = findSolution(errorType, errorMessage);
-        
-        return Map.of(
-            "error_id", errorId,
-            "recorded", true,
-            "has_solution", solution.isPresent(),
-            "solution", solution.map(LearningRecord::solution).orElse(null)
-        );
+
+        // 使用 HashMap 而不是 Map.of()，因为 Map.of() 不允许 null 值
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("error_id", errorId);
+        result.put("recorded", true);
+        result.put("has_solution", solution.isPresent());
+        result.put("solution", solution.map(LearningRecord::solution).orElse(null));
+        return result;
     }
 
     private Map<String, Object> recordCorrection(ToolParams params) {

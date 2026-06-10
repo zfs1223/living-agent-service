@@ -4,6 +4,8 @@ import com.livingagent.core.neuron.Neuron;
 import com.livingagent.core.neuron.NeuronContext;
 import com.livingagent.core.neuron.NeuronRegistry;
 import com.livingagent.core.neuron.NeuronState;
+import com.livingagent.core.channel.ChannelManager;
+import com.livingagent.core.channel.ChannelMessageQueue;
 import com.livingagent.core.util.IdUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,6 +20,11 @@ public class NeuronRegistryImpl implements NeuronRegistry {
     private final Map<String, Neuron> neurons = new ConcurrentHashMap<>();
     private final Map<String, Set<String>> channelSubscriptions = new ConcurrentHashMap<>();
     private final Map<String, String> employeeIdIndex = new ConcurrentHashMap<>();
+    private ChannelManager channelManager;
+
+    public void setChannelManager(ChannelManager channelManager) {
+        this.channelManager = channelManager;
+    }
 
     @Override
     public void register(Neuron neuron) {
@@ -133,13 +140,14 @@ public class NeuronRegistryImpl implements NeuronRegistry {
         log.info("Starting all neurons...");
         neurons.values().forEach(neuron -> {
             try {
+                String channelId = neuron.getSubscribedChannels().isEmpty()
+                    ? null : neuron.getSubscribedChannels().get(0);
+                ChannelMessageQueue queue = new ChannelMessageQueue(neuron.getId(), 100);
                 NeuronContext context = new NeuronContext(
-                    neuron.getId(),
-                    neuron.getSubscribedChannels().isEmpty() ? null : neuron.getSubscribedChannels().get(0),
-                    (String) null,
-                    (com.livingagent.core.channel.ChannelMessageQueue) null
-                );
+                    neuron.getId(), channelId, null, queue, null, channelManager);
                 neuron.start(context);
+                log.info("Started neuron: {} (queue capacity=100, channelManager={})",
+                    neuron.getId(), channelManager != null);
             } catch (Exception e) {
                 log.error("Failed to start neuron: {}", neuron.getId(), e);
             }

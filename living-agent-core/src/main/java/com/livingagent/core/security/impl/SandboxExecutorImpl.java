@@ -1,6 +1,11 @@
 package com.livingagent.core.security.impl;
 
+import com.livingagent.core.security.ApprovalManager;
+import com.livingagent.core.security.ApprovalManager.ApprovalResponse;
 import com.livingagent.core.security.SandboxExecutor;
+import com.livingagent.core.security.bash.BashSecurityValidator;
+import com.livingagent.core.security.bash.BashValidationResult;
+import com.livingagent.core.tool.ToolCall;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -8,6 +13,7 @@ import org.springframework.stereotype.Component;
 
 import java.io.*;
 import java.nio.file.*;
+import java.nio.file.attribute.PosixFilePermission;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
@@ -19,7 +25,11 @@ public class SandboxExecutorImpl implements SandboxExecutor {
 
     private static final Logger log = LoggerFactory.getLogger(SandboxExecutorImpl.class);
 
-    private final ExecutorService executorService = Executors.newCachedThreadPool();
+    private final ExecutorService executorService = new ThreadPoolExecutor(
+        4, 16, 60L, TimeUnit.SECONDS,
+        new LinkedBlockingQueue<>(100),
+        new ThreadPoolExecutor.CallerRunsPolicy()
+    );
     
     @Value("${sandbox.worker.java-path:java}")
     private String javaPath;
@@ -29,6 +39,12 @@ public class SandboxExecutorImpl implements SandboxExecutor {
     
     @Value("${sandbox.enabled:true}")
     private boolean sandboxEnabled;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private BashSecurityValidator bashSecurityValidator;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private ApprovalManager approvalManager;
     
     private final AtomicLong totalExecutions = new AtomicLong(0);
     private final AtomicLong successfulExecutions = new AtomicLong(0);
@@ -136,17 +152,89 @@ public class SandboxExecutorImpl implements SandboxExecutor {
     }
 
     @Override
+    public <T> ExecutionResult<T> execute(String script, ExecutionEnvironment environment, Class<T> resultType) {
+        totalExecutions.incrementAndGet();
+        activeExecutions.incrementAndGet();
+
+        long startTime = System.currentTimeMillis();
+
+        try {
+            SandboxConfig config = environment.getDefaultConfig();
+            if (config == null) {
+                failedExecutions.incrementAndGet();
+                return ExecutionResult.failure("Execution environment " + environment + " requires manual review, cannot auto-execute");
+            }
+
+            String language = "python";
+
+            if (containsDangerousPatterns(script)) {
+                log.warn("Script execution blocked: contains dangerous patterns");
+                return ExecutionResult.failure("Script contains forbidden patterns");
+            }
+
+            Path tempScript = createTempScript(script, language);
+            String[] command = buildScriptCommand(language, tempScript.toString());
+
+            ExecutionResult<String> rawResult = executeInProcess(config, command);
+
+            try {
+                Files.deleteIfExists(tempScript);
+            } catch (IOException e) {
+                log.warn("Failed to delete temp script: {}", e.getMessage());
+            }
+
+            long executionTime = System.currentTimeMillis() - startTime;
+            totalExecutionTime.addAndGet(executionTime);
+
+            if (!rawResult.success()) {
+                @SuppressWarnings("unchecked")
+                ExecutionResult<T> typedFailure = (ExecutionResult<T>) rawResult;
+                return typedFailure;
+            }
+
+            String output = rawResult.result();
+            if (resultType == String.class) {
+                @SuppressWarnings("unchecked")
+                ExecutionResult<T> typedResult = (ExecutionResult<T>) ExecutionResult.success(output, executionTime);
+                return typedResult;
+            }
+
+            return ExecutionResult.success(null, executionTime);
+
+        } catch (Exception e) {
+            failedExecutions.incrementAndGet();
+            log.error("Script execution failed: {}", e.getMessage());
+            return ExecutionResult.failure(e.getMessage());
+        } finally {
+            activeExecutions.decrementAndGet();
+        }
+    }
+
+    @Override
     public ExecutionResult<?> executeScript(SandboxConfig config, String script, String language) {
         log.info("Executing {} script in sandbox", language);
-        
+
         if (!isLanguageAllowed(language)) {
             log.warn("Script execution blocked: language {} not allowed", language);
             return ExecutionResult.failure("Language not allowed: " + language);
         }
-        
+
+        if (isBashLanguage(language)) {
+            ExecutionResult<?> validationFailure = validateBashInput(script, "script");
+            if (validationFailure != null) {
+                return validationFailure;
+            }
+        }
+
         if (containsDangerousPatterns(script)) {
             log.warn("Script execution blocked: contains dangerous patterns");
             return ExecutionResult.failure("Script contains forbidden patterns (e.g., file access, network calls)");
+        }
+
+        // 审批检查：高风险脚本执行需人工审批
+        ExecutionResult<?> approvalResult = checkApproval("sandbox.script." + language, script, "script");
+        if (approvalResult != null) {
+            return approvalResult;
         }
 
         try {
@@ -176,7 +264,15 @@ public class SandboxExecutorImpl implements SandboxExecutor {
             log.warn("Command execution blocked: command {} not in allowed list", command);
             return ExecutionResult.failure("Command not allowed: " + command);
         }
-        
+
+        if (isBashCommand(command)) {
+            String fullCommand = composeCommandLine(command, args);
+            ExecutionResult<?> validationFailure = validateBashInput(fullCommand, "command");
+            if (validationFailure != null) {
+                return validationFailure;
+            }
+        }
+
         if (args != null) {
             for (String arg : args) {
                 if (!isArgumentAllowed(arg, config)) {
@@ -184,6 +280,13 @@ public class SandboxExecutorImpl implements SandboxExecutor {
                     return ExecutionResult.failure("Argument not allowed: " + arg);
                 }
             }
+        }
+
+        // 审批检查：高风险命令执行需人工审批
+        String argsSummary = args != null ? String.join(" ", args) : "";
+        ExecutionResult<?> approvalResult = checkApproval("sandbox.command." + command, argsSummary, "command");
+        if (approvalResult != null) {
+            return approvalResult;
         }
         
         List<String> commandParts = new ArrayList<>();
@@ -198,8 +301,8 @@ public class SandboxExecutorImpl implements SandboxExecutor {
     private boolean isLanguageAllowed(String language) {
         if (language == null) return false;
         return switch (language.toLowerCase()) {
-            case "python", "python3", "javascript", "node", "nodejs", 
-                 "bash", "shell", "sh", "ruby", "perl" -> true;
+            case "python", "python3", "javascript", "node", "nodejs",
+                 "ruby", "perl" -> true;
             default -> false;
         };
     }
@@ -211,8 +314,8 @@ public class SandboxExecutorImpl implements SandboxExecutor {
         String fileName = commandPath.getFileName().toString();
         
         List<String> allowedCommands = List.of(
-            "python3", "python", "node", "npm", "bash", "sh", "ruby", "perl",
-            "git", "curl", "wget", "echo", "cat", "ls", "mkdir", "rm", "cp", "mv"
+            "python3", "python", "node", "npm", "ruby", "perl",
+            "git", "echo", "cat", "ls", "mkdir", "cp", "mv"
         );
         
         return allowedCommands.contains(fileName);
@@ -239,7 +342,11 @@ public class SandboxExecutorImpl implements SandboxExecutor {
             Pattern.compile("(?i)(/etc/passwd|/etc/shadow|\\.ssh|\\.gnupg)"),
             Pattern.compile("(?i)(eval\\s*\\(|exec\\s*\\(|system\\s*\\()", Pattern.CASE_INSENSITIVE),
             Pattern.compile("(?i)(socket\\.socket|urllib\\.request|requests\\.)", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("(?i)(subprocess|os\\.system|os\\.popen)", Pattern.CASE_INSENSITIVE)
+            Pattern.compile("(?i)(subprocess|os\\.system|os\\.popen)", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("(?i)(__import__|importlib)", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("(?i)(getattr|__builtins__)", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("(?i)(http\\.client|urllib2)", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("(?i)(chmod|chown|passwd|shutdown|reboot|systemctl|service)", Pattern.CASE_INSENSITIVE)
         );
         
         for (Pattern pattern : dangerousPatterns) {
@@ -257,6 +364,101 @@ public class SandboxExecutorImpl implements SandboxExecutor {
             return System.getProperty("user.home") + path.substring(1);
         }
         return path;
+    }
+
+    private boolean isBashLanguage(String language) {
+        if (language == null) {
+            return false;
+        }
+        String normalized = language.toLowerCase(Locale.ROOT);
+        return normalized.equals("bash") || normalized.equals("shell") || normalized.equals("sh");
+    }
+
+    private boolean isBashCommand(String command) {
+        if (command == null || command.isBlank()) {
+            return false;
+        }
+        String executable = Paths.get(command).getFileName().toString().toLowerCase(Locale.ROOT);
+        return executable.equals("bash") || executable.equals("sh");
+    }
+
+    private String composeCommandLine(String command, String[] args) {
+        StringBuilder builder = new StringBuilder(command == null ? "" : command);
+        if (args != null) {
+            for (String arg : args) {
+                if (arg != null && !arg.isBlank()) {
+                    builder.append(' ').append(arg);
+                }
+            }
+        }
+        return builder.toString();
+    }
+
+    private ExecutionResult<?> validateBashInput(String command, String mode) {
+        if (bashSecurityValidator == null) {
+            log.error("BashSecurityValidator is not available, rejecting bash {} for safety", mode);
+            return ExecutionResult.failure("Bash security validation unavailable: " + mode + " denied");
+        }
+        BashValidationResult result = bashSecurityValidator.validate(command);
+        if (result.isSafe()) {
+            return null;
+        }
+
+        String reason = result.reason() == null ? "bash command denied" : result.reason();
+        if (result.shouldDeny()) {
+            log.warn("Bash {} blocked by validator: type={}, severity={}, reason={}",
+                mode, result.threatType(), result.severity(), reason);
+            return ExecutionResult.failure("Bash security validation failed: " + reason);
+        }
+
+        log.info("Bash {} warning from validator: type={}, severity={}, reason={}",
+            mode, result.threatType(), result.severity(), reason);
+        return null;
+    }
+
+    /**
+     * 审批检查：高风险工具执行需人工审批
+     * @param toolName 工具名称（如 sandbox.script.bash, sandbox.command.git）
+     * @param contentSummary 内容摘要（脚本内容或命令参数）
+     * @param mode 执行模式（script 或 command）
+     * @return null 表示允许执行，非 null 表示拒绝执行（包含错误信息）
+     */
+    private ExecutionResult<?> checkApproval(String toolName, String contentSummary, String mode) {
+        if (approvalManager == null) {
+            return null;
+        }
+
+        if (!approvalManager.needsApproval(toolName)) {
+            return null;
+        }
+
+        log.info("Approval required for {} execution: toolName={}", mode, toolName);
+        ToolCall call = ToolCall.of(toolName, Map.of(
+            "mode", mode,
+            "content", contentSummary.length() > 200 ? contentSummary.substring(0, 200) + "..." : contentSummary
+        ));
+
+        ApprovalResponse response = approvalManager.requestApproval(toolName, call);
+
+        switch (response) {
+            case NO -> {
+                log.warn("{} execution denied by approval: toolName={}", mode, toolName);
+                return ExecutionResult.failure(mode + " execution denied by approval: " + toolName);
+            }
+            case ALWAYS -> {
+                log.info("{} execution approved (always): toolName={}, added to allowlist", mode, toolName);
+                approvalManager.addToAllowlist(toolName);
+                return null;
+            }
+            case YES -> {
+                log.info("{} execution approved: toolName={}", mode, toolName);
+                return null;
+            }
+            default -> {
+                log.warn("Unknown approval response for {}: {}, denying execution", mode, response);
+                return ExecutionResult.failure("Unknown approval response: " + response);
+            }
+        }
     }
 
     private ExecutionResult<String> executeInProcess(SandboxConfig config, String[] command) {
@@ -348,8 +550,13 @@ public class SandboxExecutorImpl implements SandboxExecutor {
             executorService.shutdownNow();
             Thread.currentThread().interrupt();
         }
-        
+
         cleanupTempFiles();
+    }
+
+    @jakarta.annotation.PreDestroy
+    public void destroy() {
+        cleanup();
     }
 
     private List<String> buildWorkerCommand(SandboxConfig config, Path taskFile, Path resultFile, String taskId) {
@@ -387,7 +594,8 @@ public class SandboxExecutorImpl implements SandboxExecutor {
                 new BufferedOutputStream(Files.newOutputStream(taskFile)))) {
             oos.writeObject(new TaskWrapper(task));
         }
-        
+
+        setOwnerOnlyPermissions(taskFile);
         return taskFile;
     }
 
@@ -470,8 +678,25 @@ public class SandboxExecutorImpl implements SandboxExecutor {
         };
         
         Path tempFile = Files.createTempFile("sandbox_", extension);
+        setOwnerOnlyPermissions(tempFile);
         Files.writeString(tempFile, script);
         return tempFile;
+    }
+
+    private void setOwnerOnlyPermissions(Path path) {
+        try {
+            if (!System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win")) {
+                Set<PosixFilePermission> ownerOnly = Set.of(
+                    PosixFilePermission.OWNER_READ,
+                    PosixFilePermission.OWNER_WRITE
+                );
+                Files.setPosixFilePermissions(path, ownerOnly);
+            }
+        } catch (UnsupportedOperationException e) {
+            log.debug("POSIX file permissions not supported, skipping permission setting for {}", path);
+        } catch (IOException e) {
+            log.warn("Failed to set owner-only permissions on temp file {}: {}", path, e.getMessage());
+        }
     }
 
     private String[] buildScriptCommand(String language, String scriptPath) {

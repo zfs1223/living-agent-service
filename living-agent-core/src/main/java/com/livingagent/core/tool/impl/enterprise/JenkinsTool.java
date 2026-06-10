@@ -126,17 +126,27 @@ public class JenkinsTool implements Tool {
     }
     
     private String getAuthHeader() {
+        if (username == null || username.isEmpty() || apiToken == null || apiToken.isEmpty()) {
+            return null;
+        }
         return "Basic " + java.util.Base64.getEncoder().encodeToString(
             (username + ":" + apiToken).getBytes());
+    }
+
+    private HttpRequest.Builder addAuth(HttpRequest.Builder builder) {
+        String auth = getAuthHeader();
+        if (auth != null) {
+            builder.header("Authorization", auth);
+        }
+        return builder;
     }
     
     private ToolResult listJobs() throws Exception {
         String url = baseUrl + "/api/json?tree=jobs[name,url,color,lastBuild[number,result,timestamp]]";
         
-        HttpRequest request = HttpRequest.newBuilder()
+        HttpRequest request = addAuth(HttpRequest.newBuilder()
             .uri(URI.create(url))
-            .header("Accept", "application/json")
-            .header("Authorization", getAuthHeader())
+            .header("Accept", "application/json"))
             .GET()
             .build();
         
@@ -180,10 +190,9 @@ public class JenkinsTool implements Tool {
         
         String url = baseUrl + "/job/" + jobName + "/api/json";
         
-        HttpRequest request = HttpRequest.newBuilder()
+        HttpRequest request = addAuth(HttpRequest.newBuilder()
             .uri(URI.create(url))
-            .header("Accept", "application/json")
-            .header("Authorization", getAuthHeader())
+            .header("Accept", "application/json"))
             .GET()
             .build();
         
@@ -237,9 +246,8 @@ public class JenkinsTool implements Tool {
             url = baseUrl + "/job/" + jobName + "/build";
         }
         
-        requestBuilder = HttpRequest.newBuilder()
-            .uri(URI.create(url))
-            .header("Authorization", getAuthHeader())
+        requestBuilder = addAuth(HttpRequest.newBuilder()
+            .uri(URI.create(url)))
             .POST(HttpRequest.BodyPublishers.noBody());
         
         HttpRequest request = requestBuilder.build();
@@ -281,10 +289,9 @@ public class JenkinsTool implements Tool {
             url = baseUrl + "/job/" + jobName + "/lastBuild/api/json";
         }
         
-        HttpRequest request = HttpRequest.newBuilder()
+        HttpRequest request = addAuth(HttpRequest.newBuilder()
             .uri(URI.create(url))
-            .header("Accept", "application/json")
-            .header("Authorization", getAuthHeader())
+            .header("Accept", "application/json"))
             .GET()
             .build();
         
@@ -335,9 +342,8 @@ public class JenkinsTool implements Tool {
             url = baseUrl + "/job/" + jobName + "/lastBuild/consoleText";
         }
         
-        HttpRequest request = HttpRequest.newBuilder()
-            .uri(URI.create(url))
-            .header("Authorization", getAuthHeader())
+        HttpRequest request = addAuth(HttpRequest.newBuilder()
+            .uri(URI.create(url)))
             .GET()
             .build();
         
@@ -370,9 +376,8 @@ public class JenkinsTool implements Tool {
         
         String url = baseUrl + "/queue/cancelItem?id=" + queueId;
         
-        HttpRequest request = HttpRequest.newBuilder()
-            .uri(URI.create(url))
-            .header("Authorization", getAuthHeader())
+        HttpRequest request = addAuth(HttpRequest.newBuilder()
+            .uri(URI.create(url)))
             .POST(HttpRequest.BodyPublishers.noBody())
             .build();
         

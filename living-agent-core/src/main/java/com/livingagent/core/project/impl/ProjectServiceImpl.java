@@ -1,17 +1,29 @@
-package com.livingagent.core.project;
+package com.livingagent.core.project.impl;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
-
+import com.livingagent.core.database.entity.ProjectEntity;
+import com.livingagent.core.database.repository.ProjectRepository;
+import com.livingagent.core.project.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 @Service
 public class ProjectServiceImpl implements ProjectService {
     
+    private static final Logger log = LoggerFactory.getLogger(ProjectServiceImpl.class);
+
     private final Map<String, Project> projectStore = new ConcurrentHashMap<>();
+    private final ProjectRepository projectRepository;
+    
+    public ProjectServiceImpl(ProjectRepository projectRepository) {
+        this.projectRepository = projectRepository;
+    }
     
     @Override
     public Project createProject(CreateProjectRequest request) {
@@ -19,6 +31,8 @@ public class ProjectServiceImpl implements ProjectService {
         project.setDescription(request.description());
         project.setManagerId(request.managerId());
         projectStore.put(project.getProjectId(), project);
+        persistProject(project);
+        log.info("Created project: {} name={}", project.getProjectId(), project.getName());
         return project;
     }
     
@@ -58,12 +72,18 @@ public class ProjectServiceImpl implements ProjectService {
             project.setManagerId(request.managerId());
         }
         
+        persistProject(project);
         return project;
     }
     
     @Override
     public void deleteProject(String projectId) {
         projectStore.remove(projectId);
+        try {
+            projectRepository.findByProjectId(projectId).ifPresent(projectRepository::delete);
+        } catch (Exception e) {
+            log.warn("Failed to delete project from repository: {}", e.getMessage());
+        }
     }
     
     @Override
@@ -82,6 +102,7 @@ public class ProjectServiceImpl implements ProjectService {
             currentIndex++;
         }
         
+        persistProject(project);
         return project;
     }
     
@@ -95,6 +116,7 @@ public class ProjectServiceImpl implements ProjectService {
         ProjectPhase phase = ProjectPhase.fromCode(phaseCode);
         project.setPhaseProgress(phase, progress);
         
+        persistProject(project);
         return project;
     }
     
@@ -132,5 +154,37 @@ public class ProjectServiceImpl implements ProjectService {
         return projectStore.values().stream()
             .filter(p -> managerId.equals(p.getManagerId()))
             .collect(Collectors.toList());
+    }
+
+    private void persistProject(Project project) {
+        try {
+            Optional<ProjectEntity> existing = projectRepository.findByProjectId(project.getProjectId());
+            ProjectEntity entity = existing.orElseGet(ProjectEntity::new);
+            entity.setProjectId(project.getProjectId());
+            entity.setName(project.getName());
+            entity.setDescription(project.getDescription());
+            entity.setStatus(project.getStatus().name());
+            entity.setCurrentPhase(project.getCurrentPhase() != null ? project.getCurrentPhase().name() : null);
+            entity.setOwnerDepartment(project.getOwnerDepartment());
+            entity.setManagerId(project.getManagerId());
+            entity.setStartDate(project.getStartDate());
+            entity.setEndDate(project.getEndDate());
+            entity.setProgress(project.getProgress());
+            entity.setCreatedAt(project.getCreatedAt());
+            entity.setUpdatedAt(Instant.now());
+            if (project.getMetadata() != null) {
+                Object tenantId = project.getMetadata().get("tenantId");
+                if (tenantId != null) entity.setTenantId(String.valueOf(tenantId));
+                Object creatorUserId = project.getMetadata().get("creatorUserId");
+                if (creatorUserId != null) entity.setCreatorUserId(String.valueOf(creatorUserId));
+                Object projectKey = project.getMetadata().get("projectKey");
+                if (projectKey != null) entity.setProjectKey(String.valueOf(projectKey));
+                Object dataNamespace = project.getMetadata().get("dataNamespace");
+                if (dataNamespace != null) entity.setDataNamespace(String.valueOf(dataNamespace));
+            }
+            projectRepository.save(entity);
+        } catch (Exception e) {
+            log.warn("Failed to persist project {}: {}", project.getProjectId(), e.getMessage());
+        }
     }
 }

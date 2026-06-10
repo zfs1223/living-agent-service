@@ -3,10 +3,11 @@ import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { channelApi } from '../services/api';
 import { copyToClipboard } from '../utils/clipboard';
+import { getToken } from '../stores';
 
 // ─── Shared fetchAuth (same as AgentDetail) ─────────────
 function fetchAuth<T>(url: string, options?: RequestInit): Promise<T> {
-    const token = localStorage.getItem('token');
+    const token = getToken();
     return fetch(`/api${url}`, {
         ...options,
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
@@ -323,57 +324,57 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
     });
     const { data: slackConfig } = useQuery({
         queryKey: ['slack-channel', agentId],
-        queryFn: () => fetchAuth<any>(`/agents/${agentId}/slack-channel`).catch(() => null),
+        queryFn: () => fetchAuth<any>(`/agents/${encodeURIComponent(agentId!)}/slack-channel`).catch(() => null),
         enabled: enabled,
     });
     const { data: slackWebhook } = useQuery({
         queryKey: ['slack-webhook-url', agentId],
-        queryFn: () => fetchAuth<any>(`/agents/${agentId}/slack-channel/webhook-url`),
+        queryFn: () => fetchAuth<any>(`/agents/${encodeURIComponent(agentId!)}/slack-channel/webhook-url`),
         enabled: enabled,
     });
     const { data: discordConfig } = useQuery({
         queryKey: ['discord-channel', agentId],
-        queryFn: () => fetchAuth<any>(`/agents/${agentId}/discord-channel`).catch(() => null),
+        queryFn: () => fetchAuth<any>(`/agents/${encodeURIComponent(agentId!)}/discord-channel`).catch(() => null),
         enabled: enabled,
     });
     const { data: discordWebhook } = useQuery({
         queryKey: ['discord-webhook-url', agentId],
-        queryFn: () => fetchAuth<any>(`/agents/${agentId}/discord-channel/webhook-url`),
+        queryFn: () => fetchAuth<any>(`/agents/${encodeURIComponent(agentId!)}/discord-channel/webhook-url`),
         enabled: enabled,
     });
     const { data: teamsConfig } = useQuery({
         queryKey: ['teams-channel', agentId],
-        queryFn: () => fetchAuth<any>(`/agents/${agentId}/teams-channel`).catch(() => null),
+        queryFn: () => fetchAuth<any>(`/agents/${encodeURIComponent(agentId!)}/teams-channel`).catch(() => null),
         enabled: enabled,
     });
     const { data: teamsWebhook } = useQuery({
         queryKey: ['teams-webhook-url', agentId],
-        queryFn: () => fetchAuth<any>(`/agents/${agentId}/teams-channel/webhook-url`).catch(() => null),
+        queryFn: () => fetchAuth<any>(`/agents/${encodeURIComponent(agentId!)}/teams-channel/webhook-url`).catch(() => null),
         enabled: enabled,
     });
     const { data: dingtalkConfig } = useQuery({
         queryKey: ['dingtalk-channel', agentId],
-        queryFn: () => fetchAuth<any>(`/agents/${agentId}/dingtalk-channel`).catch(() => null),
+        queryFn: () => fetchAuth<any>(`/agents/${encodeURIComponent(agentId!)}/dingtalk-channel`).catch(() => null),
         enabled: enabled,
     });
     const { data: wecomConfig } = useQuery({
         queryKey: ['wecom-channel', agentId],
-        queryFn: () => fetchAuth<any>(`/agents/${agentId}/wecom-channel`).catch(() => null),
+        queryFn: () => fetchAuth<any>(`/agents/${encodeURIComponent(agentId!)}/wecom-channel`).catch(() => null),
         enabled: enabled,
     });
     const { data: wecomWebhook } = useQuery({
         queryKey: ['wecom-webhook-url', agentId],
-        queryFn: () => fetchAuth<any>(`/agents/${agentId}/wecom-channel/webhook-url`),
+        queryFn: () => fetchAuth<any>(`/agents/${encodeURIComponent(agentId!)}/wecom-channel/webhook-url`),
         enabled: enabled,
     });
     const { data: atlassianConfig } = useQuery({
         queryKey: ['atlassian-channel', agentId],
-        queryFn: () => fetchAuth<any>(`/agents/${agentId}/atlassian-channel`).catch(() => null),
+        queryFn: () => fetchAuth<any>(`/agents/${encodeURIComponent(agentId!)}/atlassian-channel`).catch(() => null),
         enabled: enabled,
     });
     const { data: agentbayConfig } = useQuery({
         queryKey: ['agentbay-channel', agentId],
-        queryFn: () => fetchAuth<any>(`/agents/${agentId}/agentbay-channel`).catch(() => null),
+        queryFn: () => fetchAuth<any>(`/agents/${encodeURIComponent(agentId!)}/agentbay-channel`).catch(() => null),
         enabled: enabled,
     });
 
@@ -410,7 +411,7 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
             if (ch.useChannelApi) {
                 return channelApi.create(agentId!, data);
             }
-            return fetchAuth(`/agents/${agentId}/${ch.apiSlug}`, { method: 'POST', body: JSON.stringify(data) });
+            return fetchAuth(`/agents/${encodeURIComponent(agentId!)}/${ch.apiSlug}`, { method: 'POST', body: JSON.stringify(data) });
         },
         onSuccess: (_d, { ch }) => {
             const keys = ch.useChannelApi
@@ -428,7 +429,7 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
             if (ch.useChannelApi) {
                 return channelApi.delete(agentId!);
             }
-            return fetchAuth(`/agents/${agentId}/${ch.apiSlug}`, { method: 'DELETE' });
+            return fetchAuth(`/agents/${encodeURIComponent(agentId!)}/${ch.apiSlug}`, { method: 'DELETE' });
         },
         onSuccess: (_d, { ch }) => {
             const keys = ch.useChannelApi
@@ -444,7 +445,7 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
         setAtlassianTesting(true);
         setAtlassianTestResult(null);
         try {
-            const res = await fetchAuth<any>(`/agents/${agentId}/atlassian-channel/test`, { method: 'POST' });
+            const res = await fetchAuth<any>(`/agents/${encodeURIComponent(agentId!)}/atlassian-channel/test`, { method: 'POST' });
             setAtlassianTestResult(res);
         } catch (e: any) {
             setAtlassianTestResult({ ok: false, error: String(e) });
@@ -456,7 +457,7 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
         setAgentbayTesting(true);
         setAgentbayTestResult(null);
         try {
-            const res = await fetchAuth<any>(`/agents/${agentId}/agentbay-channel/test`, { method: 'POST' });
+            const res = await fetchAuth<any>(`/agents/${encodeURIComponent(agentId!)}/agentbay-channel/test`, { method: 'POST' });
             setAgentbayTestResult(res);
         } catch (e: any) {
             setAgentbayTestResult({ ok: false, error: String(e) });

@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.Optional;
 
 @Repository
-public interface KnowledgeEntryRepository extends JpaRepository<KnowledgeEntryEntity, Long> {
+public interface KnowledgeEntryRepository extends JpaRepository<KnowledgeEntryEntity, java.util.UUID> {
 
     Optional<KnowledgeEntryEntity> findByEntryId(String entryId);
 

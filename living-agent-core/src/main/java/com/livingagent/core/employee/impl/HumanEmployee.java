@@ -165,6 +165,9 @@ public class HumanEmployee implements Employee {
     
     @Override
     public boolean isDigital() { return false; }
+
+    @Override
+    public EmployeeOrigin getOrigin() { return EmployeeOrigin.HUMAN; }
     
     @Override
     public HumanConfig getHumanConfig() {

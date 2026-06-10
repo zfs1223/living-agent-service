@@ -51,6 +51,7 @@ public interface Employee {
 
     boolean isHuman();
     boolean isDigital();
+    EmployeeOrigin getOrigin();
     
     HumanConfig getHumanConfig();
     DigitalConfig getDigitalConfig();

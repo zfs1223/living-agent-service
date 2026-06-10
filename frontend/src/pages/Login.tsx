@@ -13,6 +13,8 @@ export default function Login() {
     const [loading, setLoading] = useState(false);
     const [systemStatus, setSystemStatus] = useState<{ hasFounder: boolean; isFirstUser: boolean } | null>(null);
     const [countdown, setCountdown] = useState(0);
+    const [testCode, setTestCode] = useState('');
+    const [isTestMode, setIsTestMode] = useState(true);
 
     const [form, setForm] = useState({
         phone: '',
@@ -40,7 +42,7 @@ export default function Login() {
 
     const handleSendCode = async () => {
         if (!form.phone) {
-            setError(isChinese ? '请输入手机号' : 'Please enter phone number');
+            setError(t('phoneLogin.enterPhone'));
             return;
         }
         
@@ -48,10 +50,14 @@ export default function Login() {
         setLoading(true);
         
         try {
-            await authApi.sendSmsCode({ phone: form.phone, type: 'login' });
+            const res = await authApi.sendSmsCode({ phone: form.phone, type: 'login' });
             setCountdown(60);
+            if (res.code) {
+                setTestCode(res.code);
+                setForm(prev => ({ ...prev, code: res.code || '' }));
+            }
         } catch (err: any) {
-            setError(err.message || (isChinese ? '发送验证码失败' : 'Failed to send code'));
+            setError(err.message || t('phoneLogin.failedToSendCode'));
         } finally {
             setLoading(false);
         }
@@ -74,6 +80,7 @@ export default function Login() {
                 display_name: res.user.name,
                 role: 'org_admin',
                 tenant_id: res.user.tenantId,
+                department_code: res.user.department || undefined,
                 identity: res.user.identity as UserIdentity,
                 access_level: res.user.accessLevel as AccessLevel,
                 is_active: true,
@@ -84,11 +91,11 @@ export default function Login() {
         } catch (err: any) {
             const msg = err.message || '';
             if (msg.includes('invalid') || msg.includes('incorrect')) {
-                setError(isChinese ? '验证码错误或已过期' : 'Invalid or expired code');
+                setError(t('phoneLogin.invalidOrExpiredCode'));
             } else if (msg.includes('not found')) {
-                setError(isChinese ? '用户不存在，请先注册' : 'User not found, please register first');
+                setError(t('phoneLogin.userNotFoundRegister'));
             } else {
-                setError(msg || (isChinese ? '登录失败' : 'Login failed'));
+                setError(msg || t('phoneLogin.loginFailed'));
             }
         } finally {
             setLoading(false);
@@ -102,7 +109,7 @@ export default function Login() {
     }
 
     return (
-        <div className="login-page">
+        <div className="login-page" style={{ position: 'relative' }}>
             <div className="login-hero">
                 <div className="login-hero-bg" />
                 <div className="login-hero-content">
@@ -141,16 +148,18 @@ export default function Login() {
                 </div>
             </div>
 
-            <div className="login-form-panel">
+            <div className="login-form-panel" style={{ position: 'relative' }}>
                 <div style={{
                     position: 'absolute', top: '16px', right: '16px',
                     cursor: 'pointer', fontSize: '13px', color: 'var(--text-secondary)',
                     display: 'flex', alignItems: 'center', gap: '4px',
-                    padding: '6px 12px', borderRadius: '8px',
-                    background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)',
+                    padding: '6px 12px', borderRadius: '999px',
+                    background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border-subtle)',
                     zIndex: 101,
+                    boxShadow: '0 8px 20px rgba(0,0,0,0.08)',
                 }} onClick={toggleLang}>
-                    🌐
+                    <span style={{ fontSize: '14px' }}>🌐</span>
+                    <span>{t('phoneLogin.switchLang')}</span>
                 </div>
 
                 <div className="login-form-wrapper">
@@ -159,8 +168,8 @@ export default function Login() {
                             <img src="/logo-black.png" className="login-logo-img" alt="" style={{ width: 28, height: 28, marginRight: 8, verticalAlign: 'middle' }} />
                             Living Agent
                         </div>
-                        <h2 className="login-form-title">{isChinese ? '手机验证码登录' : 'Phone Login'}</h2>
-                        <p className="login-form-subtitle">{isChinese ? '使用手机验证码快速登录' : 'Quick login with phone verification'}</p>
+                        <h2 className="login-form-title">{t('phoneLogin.title')}</h2>
+                        <p className="login-form-subtitle">{t('phoneLogin.subtitle')}</p>
                     </div>
 
                     {error && (
@@ -169,26 +178,45 @@ export default function Login() {
                         </div>
                     )}
 
+                    {isTestMode && testCode && (
+                        <div style={{
+                            background: 'rgba(76, 175, 80, 0.15)',
+                            border: '1px solid rgba(76, 175, 80, 0.4)',
+                            borderRadius: '8px',
+                            padding: '10px 14px',
+                            marginBottom: '16px',
+                            fontSize: '13px',
+                            color: '#4caf50',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px'
+                        }}>
+                            <span>🧪</span>
+                            <span>{t('phoneLogin.testModeAutoFill')}</span>
+                            <strong style={{ letterSpacing: '4px', fontSize: '16px' }}>{testCode}</strong>
+                        </div>
+                    )}
+
                     <form onSubmit={handleSubmit} className="login-form">
                         <div className="login-field">
-                            <label>{isChinese ? '手机号' : 'Phone Number'}</label>
+                            <label>{t('phoneLogin.phoneNumber')}</label>
                             <input
                                 value={form.phone}
                                 onChange={(e) => setForm({ ...form, phone: e.target.value })}
                                 required
                                 autoFocus
-                                placeholder={isChinese ? '请输入手机号' : 'Enter phone number'}
+                                placeholder={t('phoneLogin.enterPhoneNumber')}
                             />
                         </div>
 
                         <div className="login-field">
-                            <label>{isChinese ? '验证码' : 'Verification Code'}</label>
+                            <label>{t('phoneLogin.verificationCode')}</label>
                             <div style={{ display: 'flex', gap: '8px' }}>
                                 <input
                                     value={form.code}
                                     onChange={(e) => setForm({ ...form, code: e.target.value })}
                                     required
-                                    placeholder={isChinese ? '请输入验证码' : 'Enter code'}
+                                    placeholder={t('phoneLogin.enterCode')}
                                     style={{ flex: 1 }}
                                     maxLength={6}
                                 />
@@ -205,7 +233,7 @@ export default function Login() {
                                 >
                                     {countdown > 0 
                                         ? `${countdown}s` 
-                                        : (isChinese ? '发送验证码' : 'Send Code')}
+                                        : t('phoneLogin.sendCode')}
                                 </button>
                             </div>
                         </div>
@@ -215,7 +243,7 @@ export default function Login() {
                                 <span className="login-spinner" />
                             ) : (
                                 <>
-                                    {isChinese ? '登录' : 'Login'}
+                                    {t('phoneLogin.login')}
                                     <span style={{ marginLeft: '6px' }}>→</span>
                                 </>
                             )}
@@ -228,6 +256,7 @@ export default function Login() {
 }
 
 function RegisterPage({ isChinese, toggleLang }: { isChinese: boolean; toggleLang: () => void }) {
+    const { t } = useTranslation();
     const navigate = useNavigate();
     const setAuth = useAuthStore((s) => s.setAuth);
     const [form, setForm] = useState({
@@ -252,15 +281,17 @@ function RegisterPage({ isChinese, toggleLang }: { isChinese: boolean; toggleLan
                 email: form.email,
                 display_name: res.name,
                 role: 'org_admin',
+                tenant_id: res.tenantId,
                 identity: res.identity as UserIdentity,
                 access_level: res.accessLevel as AccessLevel,
                 is_active: true,
                 created_at: new Date().toISOString(),
             };
             setAuth(user, res.sessionId);
+
             navigate('/');
         } catch (err: any) {
-            setError(err.message || (isChinese ? '注册失败' : 'Registration failed'));
+            setError(err.message || t('registerFounder.registrationFailed'));
         } finally {
             setLoading(false);
         }
@@ -272,29 +303,29 @@ function RegisterPage({ isChinese, toggleLang }: { isChinese: boolean; toggleLan
                 <div className="login-hero-bg" />
                 <div className="login-hero-content">
                     <h1 className="login-hero-title">
-                        {isChinese ? '系统初始化' : 'System Initialization'}<br />
+                        {t('registerFounder.systemInit')}<br />
                         <span style={{ fontSize: '0.65em', fontWeight: 600, opacity: 0.85 }}>
-                            {isChinese ? '注册创始人账号' : 'Register Founder Account'}
+                            {t('registerFounder.registerFounderAccount')}
                         </span>
                     </h1>
                     <p className="login-hero-desc">
-                        {isChinese 
-                            ? '欢迎使用 Living Agent 系统。请先注册创始人（董事长）账号。'
-                            : 'Welcome to Living Agent. Please register the founder account first.'}
+                        {t('registerFounder.welcomeDesc')}
                     </p>
                 </div>
             </div>
 
-            <div className="login-form-panel">
+            <div className="login-form-panel" style={{ position: 'relative' }}>
                 <div style={{
                     position: 'absolute', top: '16px', right: '16px',
                     cursor: 'pointer', fontSize: '13px', color: 'var(--text-secondary)',
                     display: 'flex', alignItems: 'center', gap: '4px',
-                    padding: '6px 12px', borderRadius: '8px',
-                    background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)',
+                    padding: '6px 12px', borderRadius: '999px',
+                    background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border-subtle)',
                     zIndex: 101,
+                    boxShadow: '0 8px 20px rgba(0,0,0,0.08)',
                 }} onClick={toggleLang}>
-                    🌐
+                    <span style={{ fontSize: '14px' }}>🌐</span>
+                    <span>{t('phoneLogin.switchLang')}</span>
                 </div>
 
                 <div className="login-form-wrapper">
@@ -303,8 +334,8 @@ function RegisterPage({ isChinese, toggleLang }: { isChinese: boolean; toggleLan
                             <img src="/logo-black.png" className="login-logo-img" alt="" style={{ width: 28, height: 28, marginRight: 8, verticalAlign: 'middle' }} />
                             Living Agent
                         </div>
-                        <h2 className="login-form-title">{isChinese ? '注册创始人' : 'Register Founder'}</h2>
-                        <p className="login-form-subtitle">{isChinese ? '创建系统管理员账号' : 'Create system admin account'}</p>
+                        <h2 className="login-form-title">{t('registerFounder.title')}</h2>
+                        <p className="login-form-subtitle">{t('registerFounder.subtitle')}</p>
                     </div>
 
                     {error && (
@@ -315,43 +346,43 @@ function RegisterPage({ isChinese, toggleLang }: { isChinese: boolean; toggleLan
 
                     <form onSubmit={handleSubmit} className="login-form">
                         <div className="login-field">
-                            <label>{isChinese ? '姓名' : 'Name'}</label>
+                            <label>{t('registerFounder.name')}</label>
                             <input
                                 value={form.name}
                                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                                 required
                                 autoFocus
-                                placeholder={isChinese ? '请输入姓名' : 'Enter name'}
+                                placeholder={t('registerFounder.enterName')}
                             />
                         </div>
 
                         <div className="login-field">
-                            <label>{isChinese ? '邮箱' : 'Email'}</label>
+                            <label>{t('registerFounder.email')}</label>
                             <input
                                 type="email"
                                 value={form.email}
                                 onChange={(e) => setForm({ ...form, email: e.target.value })}
                                 required
-                                placeholder={isChinese ? '请输入邮箱' : 'Enter email'}
+                                placeholder={t('registerFounder.enterEmail')}
                             />
                         </div>
 
                         <div className="login-field">
-                            <label>{isChinese ? '手机号' : 'Phone'}</label>
+                            <label>{t('registerFounder.phone')}</label>
                             <input
                                 value={form.phone}
                                 onChange={(e) => setForm({ ...form, phone: e.target.value })}
                                 required
-                                placeholder={isChinese ? '请输入手机号' : 'Enter phone number'}
+                                placeholder={t('phoneLogin.enterPhoneNumber')}
                             />
                         </div>
 
                         <div className="login-field">
-                            <label>{isChinese ? '公司名称' : 'Company Name'} ({isChinese ? '可选' : 'Optional'})</label>
+                            <label>{t('registerFounder.companyName')} ({t('registerFounder.optional')})</label>
                             <input
                                 value={form.companyName}
                                 onChange={(e) => setForm({ ...form, companyName: e.target.value })}
-                                placeholder={isChinese ? '请输入公司名称' : 'Enter company name'}
+                                placeholder={t('registerFounder.enterCompanyName')}
                             />
                         </div>
 
@@ -360,7 +391,7 @@ function RegisterPage({ isChinese, toggleLang }: { isChinese: boolean; toggleLan
                                 <span className="login-spinner" />
                             ) : (
                                 <>
-                                    {isChinese ? '注册' : 'Register'}
+                                    {t('registerFounder.register')}
                                     <span style={{ marginLeft: '6px' }}>→</span>
                                 </>
                             )}

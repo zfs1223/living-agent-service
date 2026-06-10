@@ -1,0 +1,618 @@
+package com.livingagent.gateway.controller;
+
+import com.livingagent.core.database.repository.DepartmentRepository;
+import com.livingagent.core.employee.Employee;
+import com.livingagent.core.employee.EmployeeService;
+import com.livingagent.core.operation.dashboard.DashboardService;
+import com.livingagent.core.security.AccessGateService;
+import com.livingagent.core.security.AccessLevel;
+import com.livingagent.core.security.AuthContext;
+import com.livingagent.core.security.auth.UnifiedAuthService;
+import com.livingagent.core.security.auth.UnifiedAuthService.AuthSession;
+import com.livingagent.gateway.controller.common.ApiResponse;
+import com.livingagent.gateway.service.SystemConfigService;
+import com.livingagent.gateway.service.SystemConfigService.ProviderConfig;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.*;
+import java.util.stream.Collectors;
+
+@RestController
+@RequestMapping(path = {"/api/enterprise", "/api/chairman"})
+public class EnterpriseApiController {
+
+    private static final Logger log = LoggerFactory.getLogger(EnterpriseApiController.class);
+
+    private final UnifiedAuthService authService;
+    private final EmployeeService employeeService;
+    private final AccessGateService accessGateService;
+    private final DashboardService dashboardService;
+    private final DepartmentRepository departmentRepository;
+    private final SystemConfigService systemConfigService;
+
+    public EnterpriseApiController(UnifiedAuthService authService, EmployeeService employeeService,
+                                   AccessGateService accessGateService, DashboardService dashboardService,
+                                   DepartmentRepository departmentRepository,
+                                   SystemConfigService systemConfigService) {
+        this.authService = authService;
+        this.employeeService = employeeService;
+        this.accessGateService = accessGateService;
+        this.dashboardService = dashboardService;
+        this.departmentRepository = departmentRepository;
+        this.systemConfigService = systemConfigService;
+    }
+
+    @GetMapping("/dashboard")
+    public ResponseEntity<DashboardOverview> getDashboard(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+
+        Optional<AuthContext> ctxOpt = getAuthContext(authorization);
+        if (ctxOpt.isEmpty() || !isEnterpriseAdmin(ctxOpt.get())) {
+            return ResponseEntity.status(403).build();
+        }
+
+        AuthContext ctx = ctxOpt.get();
+        String effectiveEmployeeId = employeeId != null && !employeeId.isBlank() ? employeeId : ctx.getEmployeeId();
+        if (!accessGateService.canRoute(effectiveEmployeeId, "brain", "AdminBrain")) {
+            return ResponseEntity.status(403).build();
+        }
+        log.info("Enterprise dashboard accessed by: {}", ctx.getEmployeeId());
+
+        var summary = dashboardService.getEnterpriseSummary(effectiveEmployeeId);
+
+        var departmentMetrics = summary.departmentHealth().stream()
+            .map(d -> new DepartmentMetric(d.code(), d.name(), d.memberCount(), d.healthScore(), d.status()))
+            .collect(Collectors.toList());
+
+        var alerts = summary.riskAlerts().stream()
+            .map(r -> new SystemAlert(r.level(), r.title(), r.message()))
+            .collect(Collectors.toList());
+
+        return ResponseEntity.ok(new DashboardOverview(
+            summary.departmentHealth().size(),
+            summary.employeeMetrics().digitalEmployees(),
+            summary.employeeMetrics().totalEmployees(),
+            summary.systemHealth().healthScore(),
+            departmentMetrics,
+            alerts
+        ));
+    }
+
+    @GetMapping("/employees")
+    public ResponseEntity<List<EmployeeSummary>> getAllEmployees(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+
+        Optional<AuthContext> ctxOpt = getAuthContext(authorization);
+        if (ctxOpt.isEmpty() || !isEnterpriseAdmin(ctxOpt.get())) {
+            return ResponseEntity.status(403).build();
+        }
+
+        AuthContext ctx = ctxOpt.get();
+        if (!accessGateService.canRoute(ctx.getEmployeeId(), "brain", "AdminBrain")) {
+            return ResponseEntity.status(403).build();
+        }
+
+        List<EmployeeSummary> employees = new ArrayList<>();
+        EmployeeService.EmployeeQuery query = new EmployeeService.EmployeeQuery(null, null, null, null, 100, 0);
+        employeeService.listEmployees(query).forEach(emp -> {
+            employees.add(new EmployeeSummary(
+                emp.getEmployeeId(),
+                emp.getName(),
+                emp.getDepartment(),
+                emp.getTitle(),
+                emp.getIdentity().name(),
+                emp.getAccessLevel().name(),
+                emp.getStatus() == com.livingagent.core.employee.EmployeeStatus.ACTIVE
+            ));
+        });
+
+        return ResponseEntity.ok(employees);
+    }
+
+    @GetMapping("/employees/{employeeId}")
+    public ResponseEntity<EmployeeDetail> getEmployeeDetail(
+            @PathVariable String employeeId,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestHeader(value = "X-Employee-Id", required = false) String headerEmployeeId) {
+
+        Optional<AuthContext> ctxOpt = getAuthContext(authorization);
+        if (ctxOpt.isEmpty() || !isEnterpriseAdmin(ctxOpt.get())) {
+            return ResponseEntity.status(403).build();
+        }
+
+        AuthContext ctx = ctxOpt.get();
+        String effectiveEmployeeId = headerEmployeeId != null && !headerEmployeeId.isBlank() ? headerEmployeeId : ctx.getEmployeeId();
+        if (!accessGateService.canRoute(effectiveEmployeeId, "brain", "AdminBrain")) {
+            return ResponseEntity.status(403).build();
+        }
+        Optional<Employee> optEmp = employeeService.getEmployee(employeeId);
+        if (optEmp.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        Employee emp = optEmp.get();
+        return ResponseEntity.ok(new EmployeeDetail(
+            emp.getEmployeeId(),
+            emp.getName(),
+            emp.getDepartment(),
+            emp.getDepartment(),
+            emp.getTitle(),
+            emp.getIdentity().name(),
+            emp.getAccessLevel().name(),
+            false,
+            emp.getStatus() == com.livingagent.core.employee.EmployeeStatus.ACTIVE,
+            emp.getCreatedAt(),
+            null,
+            emp.getAuthProvider()
+        ));
+    }
+
+    @PostMapping("/employees/{employeeId}/access-level")
+    public ResponseEntity<Map<String, Object>> updateEmployeeAccessLevel(
+            @PathVariable String employeeId,
+            @RequestBody Map<String, String> request,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestHeader(value = "X-Employee-Id", required = false) String headerEmployeeId) {
+
+        Optional<AuthContext> ctxOpt = getAuthContext(authorization);
+        if (ctxOpt.isEmpty() || !isEnterpriseAdmin(ctxOpt.get())) {
+            return ResponseEntity.status(403).build();
+        }
+
+        String newAccessLevel = request.get("accessLevel");
+        if (newAccessLevel == null) {
+            Map<String, Object> errorBody = new java.util.LinkedHashMap<>();
+            errorBody.put("success", false);
+            errorBody.put("error", "bad_request");
+            errorBody.put("errorDescription", "缺少 accessLevel 参数");
+            return ResponseEntity.badRequest().body(errorBody);
+        }
+
+        AuthContext ctx = ctxOpt.get();
+        String effectiveEmployeeId = headerEmployeeId != null && !headerEmployeeId.isBlank() ? headerEmployeeId : ctx.getEmployeeId();
+        if (!accessGateService.canRoute(effectiveEmployeeId, "brain", "AdminBrain")) {
+            return ResponseEntity.status(403).build();
+        }
+        log.info("Enterprise admin {} updating employee {} access level to {}",
+            ctx.getEmployeeId(), employeeId, newAccessLevel);
+
+        return ResponseEntity.ok(Map.of(
+            "success", true,
+            "employeeId", employeeId,
+            "newAccessLevel", newAccessLevel
+        ));
+    }
+
+    @GetMapping("/departments")
+    public ResponseEntity<List<DepartmentSummary>> getAllDepartments(
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+
+        Optional<AuthContext> ctxOpt = getAuthContext(authorization);
+        if (ctxOpt.isEmpty() || !isEnterpriseAdmin(ctxOpt.get())) {
+            return ResponseEntity.status(403).build();
+        }
+
+        var departments = dashboardService.getDepartmentSummaries().stream()
+            .map(d -> new DepartmentSummary(d.code(), d.name(), d.memberCount(), d.brainCode(), null))
+            .collect(Collectors.toList());
+
+        return ResponseEntity.ok(departments);
+    }
+
+    @GetMapping("/system/status")
+    public ResponseEntity<SystemStatus> getSystemStatus(
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+
+        Optional<AuthContext> ctxOpt = getAuthContext(authorization);
+        if (ctxOpt.isEmpty() || !isEnterpriseAdmin(ctxOpt.get())) {
+            return ResponseEntity.status(403).build();
+        }
+
+        Runtime runtime = Runtime.getRuntime();
+        long totalMemory = runtime.totalMemory();
+        long freeMemory = runtime.freeMemory();
+        long usedMemory = totalMemory - freeMemory;
+
+        var summary = dashboardService.getEnterpriseSummary(null);
+
+        return ResponseEntity.ok(new SystemStatus(
+            summary.systemHealth().status(),
+            "1.0.0",
+            usedMemory / (1024 * 1024),
+            totalMemory / (1024 * 1024),
+            runtime.availableProcessors(),
+            Thread.activeCount(),
+            summary.employeeMetrics().digitalEmployees(),
+            summary.departmentHealth().size()
+        ));
+    }
+
+    @GetMapping("/identity-providers")
+    public ResponseEntity<List<IdentityProviderInfo>> listIdentityProviders(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestParam(value = "tenant_id", required = false) String tenantId) {
+
+        Optional<AuthContext> ctxOpt = getAuthContext(authorization);
+        if (ctxOpt.isEmpty() || !isEnterpriseAdmin(ctxOpt.get())) {
+            return ResponseEntity.status(403).build();
+        }
+
+        var configs = systemConfigService.getProviderConfigs();
+        List<IdentityProviderInfo> result = configs.values().stream()
+            .filter(c -> tenantId == null || c.providerId().startsWith(tenantId))
+            .map(c -> new IdentityProviderInfo(
+                c.providerId(),
+                c.name(),
+                c.apiKey() != null && !c.apiKey().isEmpty(),
+                c.enabled(),
+                c.baseUrl(),
+                c.apiSecret() != null && !c.apiSecret().isEmpty() ? "oauth2" : "api_key"
+            ))
+            .toList();
+        return ResponseEntity.ok(result);
+    }
+
+    @PostMapping("/identity-providers")
+    public ResponseEntity<Map<String, Object>> createIdentityProvider(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestBody IdentityProviderRequest request) {
+
+        Optional<AuthContext> ctxOpt = getAuthContext(authorization);
+        if (ctxOpt.isEmpty() || !isEnterpriseAdmin(ctxOpt.get())) {
+            return ResponseEntity.status(403).build();
+        }
+
+        log.info("Creating identity provider: {}", request.providerId());
+        systemConfigService.updateProviderConfig(
+            request.providerId(),
+            new SystemConfigService.ProviderConfigUpdateRequest(
+                request.apiKey(),
+                request.apiSecret(),
+                request.baseUrl(),
+                true
+            )
+        );
+        return ResponseEntity.ok(Map.of("success", true, "providerId", request.providerId()));
+    }
+
+    @PostMapping("/identity-providers/oauth2")
+    public ResponseEntity<Map<String, Object>> createOAuth2Provider(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestBody OAuth2ProviderRequest request) {
+
+        Optional<AuthContext> ctxOpt = getAuthContext(authorization);
+        if (ctxOpt.isEmpty() || !isEnterpriseAdmin(ctxOpt.get())) {
+            return ResponseEntity.status(403).build();
+        }
+
+        log.info("Creating OAuth2 identity provider: {}", request.providerId());
+        systemConfigService.updateProviderConfig(
+            request.providerId(),
+            new SystemConfigService.ProviderConfigUpdateRequest(
+                request.clientId(),
+                request.clientSecret(),
+                request.authorizationUrl() != null ? request.authorizationUrl() : request.baseUrl(),
+                true
+            )
+        );
+        return ResponseEntity.ok(Map.of("success", true, "providerId", request.providerId()));
+    }
+
+    @PutMapping("/identity-providers/{id}")
+    public ResponseEntity<Map<String, Object>> updateIdentityProvider(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @PathVariable String id,
+            @RequestBody IdentityProviderRequest request) {
+
+        Optional<AuthContext> ctxOpt = getAuthContext(authorization);
+        if (ctxOpt.isEmpty() || !isEnterpriseAdmin(ctxOpt.get())) {
+            return ResponseEntity.status(403).build();
+        }
+
+        log.info("Updating identity provider: {}", id);
+        systemConfigService.updateProviderConfig(
+            id,
+            new SystemConfigService.ProviderConfigUpdateRequest(
+                request.apiKey(),
+                request.apiSecret(),
+                request.baseUrl(),
+                request.enabled()
+            )
+        );
+        return ResponseEntity.ok(Map.of("success", true, "providerId", id));
+    }
+
+    @PatchMapping("/identity-providers/{id}/oauth2")
+    public ResponseEntity<Map<String, Object>> updateOAuth2Provider(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @PathVariable String id,
+            @RequestBody OAuth2ProviderRequest request) {
+
+        Optional<AuthContext> ctxOpt = getAuthContext(authorization);
+        if (ctxOpt.isEmpty() || !isEnterpriseAdmin(ctxOpt.get())) {
+            return ResponseEntity.status(403).build();
+        }
+
+        log.info("Updating OAuth2 identity provider: {}", id);
+        systemConfigService.updateProviderConfig(
+            id,
+            new SystemConfigService.ProviderConfigUpdateRequest(
+                request.clientId(),
+                request.clientSecret(),
+                request.authorizationUrl() != null ? request.authorizationUrl() : request.baseUrl(),
+                request.enabled()
+            )
+        );
+        return ResponseEntity.ok(Map.of("success", true, "providerId", id));
+    }
+
+    @DeleteMapping("/identity-providers/{id}")
+    public ResponseEntity<Map<String, Object>> deleteIdentityProvider(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @PathVariable String id) {
+
+        Optional<AuthContext> ctxOpt = getAuthContext(authorization);
+        if (ctxOpt.isEmpty() || !isEnterpriseAdmin(ctxOpt.get())) {
+            return ResponseEntity.status(403).build();
+        }
+
+        log.info("Deleting identity provider: {}", id);
+        systemConfigService.removeProviderConfig(id);
+        return ResponseEntity.ok(Map.of("success", true));
+    }
+
+    @GetMapping("/tenant-quotas")
+    public ResponseEntity<Map<String, Object>> getTenantQuotas(
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+
+        Optional<AuthContext> ctxOpt = getAuthContext(authorization);
+        if (ctxOpt.isEmpty() || !isEnterpriseAdmin(ctxOpt.get())) {
+            return ResponseEntity.status(403).build();
+        }
+
+        var settings = systemConfigService.getSettings();
+        Map<String, Object> quotas = (Map<String, Object>) settings.getOrDefault("tenantQuotas", Map.of(
+            "messageLimit", 10000,
+            "messagePeriod", "monthly",
+            "maxAgents", 10,
+            "agentTTL", 30,
+            "dailyLLMCalls", 1000,
+            "minHeartbeatIntervalMs", 30000,
+            "defaultMaxTriggers", 50,
+            "minPollIntervalMinutes", 5,
+            "maxWebhookRatePerMinute", 60
+        ));
+        return ResponseEntity.ok(quotas);
+    }
+
+    @PatchMapping("/tenant-quotas")
+    public ResponseEntity<Map<String, Object>> updateTenantQuotas(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestBody Map<String, Object> request) {
+
+        Optional<AuthContext> ctxOpt = getAuthContext(authorization);
+        if (ctxOpt.isEmpty() || !isEnterpriseAdmin(ctxOpt.get())) {
+            return ResponseEntity.status(403).build();
+        }
+
+        log.info("Updating tenant quotas: {}", request);
+        systemConfigService.getSettings().put("tenantQuotas", request);
+        return ResponseEntity.ok(Map.of("success", true));
+    }
+
+    @GetMapping("/invitation-codes")
+    public ResponseEntity<Map<String, Object>> listInvitationCodes(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestParam(value = "tenant_id", required = false) String tenantId,
+            @RequestParam(value = "status", required = false) String status) {
+
+        Optional<AuthContext> ctxOpt = getAuthContext(authorization);
+        if (ctxOpt.isEmpty() || !isEnterpriseAdmin(ctxOpt.get())) {
+            return ResponseEntity.status(403).build();
+        }
+
+        var settings = systemConfigService.getSettings();
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> codes = (List<Map<String, Object>>) settings.getOrDefault("invitationCodes", new ArrayList<>());
+
+        List<Map<String, Object>> filtered = codes.stream()
+            .filter(c -> tenantId == null || tenantId.equals(c.get("tenantId")))
+            .filter(c -> status == null || status.equals(c.get("status")))
+            .toList();
+
+        return ResponseEntity.ok(Map.of(
+            "codes", filtered,
+            "total", filtered.size()
+        ));
+    }
+
+    @PostMapping("/invitation-codes")
+    public ResponseEntity<Map<String, Object>> createInvitationCode(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestBody Map<String, Object> request) {
+
+        Optional<AuthContext> ctxOpt = getAuthContext(authorization);
+        if (ctxOpt.isEmpty() || !isEnterpriseAdmin(ctxOpt.get())) {
+            return ResponseEntity.status(403).build();
+        }
+
+        String code = UUID.randomUUID().toString().substring(0, 12).toUpperCase();
+        Map<String, Object> entry = new HashMap<>();
+        entry.put("id", UUID.randomUUID().toString());
+        entry.put("code", code);
+        entry.put("tenantId", request.getOrDefault("tenantId", "tenant_default"));
+        entry.put("role", request.getOrDefault("role", "MEMBER"));
+        entry.put("maxUses", request.getOrDefault("maxUses", 1));
+        entry.put("usedCount", 0);
+        entry.put("status", "active");
+        entry.put("expiresAt", request.get("expiresAt"));
+        entry.put("createdAt", java.time.Instant.now().toString());
+        entry.put("createdBy", ctxOpt.get().getEmployeeId());
+
+        var settings = systemConfigService.getSettings();
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> codes = (List<Map<String, Object>>) settings.getOrDefault("invitationCodes", new ArrayList<>());
+        codes.add(entry);
+        settings.put("invitationCodes", codes);
+
+        log.info("Created invitation code: {} for tenant: {}", code, entry.get("tenantId"));
+        return ResponseEntity.ok(Map.of("success", true, "code", code, "entry", entry));
+    }
+
+    @DeleteMapping("/invitation-codes/{id}")
+    public ResponseEntity<Map<String, Object>> deleteInvitationCode(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @PathVariable String id) {
+
+        Optional<AuthContext> ctxOpt = getAuthContext(authorization);
+        if (ctxOpt.isEmpty() || !isEnterpriseAdmin(ctxOpt.get())) {
+            return ResponseEntity.status(403).build();
+        }
+
+        var settings = systemConfigService.getSettings();
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> codes = (List<Map<String, Object>>) settings.getOrDefault("invitationCodes", new ArrayList<>());
+
+        codes.removeIf(c -> id.equals(c.get("id")));
+        settings.put("invitationCodes", codes);
+
+        log.info("Deleted invitation code: {}", id);
+        return ResponseEntity.ok(Map.of("success", true));
+    }
+
+    @GetMapping("/invitation-codes/export")
+    public ResponseEntity<String> exportInvitationCodes(
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+
+        Optional<AuthContext> ctxOpt = getAuthContext(authorization);
+        if (ctxOpt.isEmpty() || !isEnterpriseAdmin(ctxOpt.get())) {
+            return ResponseEntity.status(403).build();
+        }
+
+        var settings = systemConfigService.getSettings();
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> codes = (List<Map<String, Object>>) settings.getOrDefault("invitationCodes", new ArrayList<>());
+
+        StringBuilder csv = new StringBuilder("id,code,tenantId,role,maxUses,usedCount,status,createdAt\n");
+        for (Map<String, Object> c : codes) {
+            csv.append(String.format("%s,%s,%s,%s,%s,%s,%s,%s\n",
+                c.get("id"), c.get("code"), c.get("tenantId"), c.get("role"),
+                c.get("maxUses"), c.get("usedCount"), c.get("status"), c.get("createdAt")));
+        }
+
+        return ResponseEntity.ok(csv.toString());
+    }
+
+    private Optional<AuthContext> getAuthContext(String authorization) {
+        if (authorization == null || !authorization.startsWith("Bearer ")) {
+            return Optional.empty();
+        }
+
+        String sessionId = authorization.substring(7);
+        Optional<AuthSession> sessionOpt = authService.validateSession(sessionId);
+
+        return sessionOpt.map(AuthSession::authContext);
+    }
+
+    private boolean isEnterpriseAdmin(AuthContext ctx) {
+        return ctx.getAccessLevel() == AccessLevel.FULL || ctx.isFounder();
+    }
+
+    public record DashboardOverview(
+        int departmentCount,
+        int digitalEmployeeCount,
+        int totalEmployeeCount,
+        double systemHealthScore,
+        List<DepartmentMetric> departments,
+        List<SystemAlert> alerts
+    ) {}
+
+    public record DepartmentMetric(
+        String code,
+        String name,
+        int memberCount,
+        double healthScore,
+        String status
+    ) {}
+
+    public record SystemAlert(
+        String level,
+        String title,
+        String message
+    ) {}
+
+    public record EmployeeSummary(
+        String employeeId,
+        String name,
+        String department,
+        String position,
+        String identity,
+        String accessLevel,
+        boolean active
+    ) {}
+
+    public record EmployeeDetail(
+        String employeeId,
+        String name,
+        String department,
+        String departmentName,
+        String position,
+        String identity,
+        String accessLevel,
+        boolean founder,
+        boolean active,
+        Object joinDate,
+        String voicePrintId,
+        String oauthProvider
+    ) {}
+
+    public record DepartmentSummary(
+        String code,
+        String name,
+        int memberCount,
+        String brain,
+        String managerId
+    ) {}
+
+    public record SystemStatus(
+        String status,
+        String version,
+        long usedMemoryMB,
+        long totalMemoryMB,
+        int availableProcessors,
+        int activeThreads,
+        int digitalEmployeeCount,
+        int departmentCount
+    ) {}
+
+    public record IdentityProviderInfo(
+        String id,
+        String name,
+        boolean apiKeyConfigured,
+        boolean enabled,
+        String baseUrl,
+        String type
+    ) {}
+
+    public record IdentityProviderRequest(
+        String providerId,
+        String apiKey,
+        String apiSecret,
+        String baseUrl,
+        Boolean enabled
+    ) {}
+
+    public record OAuth2ProviderRequest(
+        String providerId,
+        String clientId,
+        String clientSecret,
+        String authorizationUrl,
+        String baseUrl,
+        Boolean enabled
+    ) {}
+}

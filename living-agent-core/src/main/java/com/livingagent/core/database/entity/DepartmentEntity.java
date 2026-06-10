@@ -8,7 +8,7 @@ import java.time.Instant;
 public class DepartmentEntity {
 
     @Id
-    @Column(name = "department_id", length = 36)
+    @Column(name = "department_id", length = 64)
     private String departmentId;
     
     @Column(name = "name", length = 100)

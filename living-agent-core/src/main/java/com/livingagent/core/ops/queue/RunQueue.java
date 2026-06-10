@@ -312,6 +312,11 @@ public class RunQueue {
         log.info("RunQueue shutdown complete");
     }
 
+    @jakarta.annotation.PreDestroy
+    public void destroy() {
+        shutdown();
+    }
+
     private void startQueueProcessor() {
         scheduler.scheduleAtFixedRate(() -> {
             try {

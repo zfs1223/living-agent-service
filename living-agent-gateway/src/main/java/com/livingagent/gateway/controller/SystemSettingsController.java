@@ -1,9 +1,14 @@
 package com.livingagent.gateway.controller;
 
+import com.livingagent.core.security.AccessGateService;
 import com.livingagent.core.security.AccessLevel;
 import com.livingagent.core.security.AuthContext;
 import com.livingagent.core.security.auth.UnifiedAuthService;
 import com.livingagent.core.security.auth.UnifiedAuthService.AuthSession;
+import com.livingagent.core.tool.ToolRegistry;
+import com.livingagent.core.tool.impl.BuildTool;
+import com.livingagent.core.tool.impl.FileEditTool;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -15,18 +20,34 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 @RestController
-@RequestMapping("/api/chairman/settings")
+@RequestMapping(path = {"/api/enterprise/settings", "/api/enterprise/system-settings"})
 public class SystemSettingsController {
 
     private static final Logger log = LoggerFactory.getLogger(SystemSettingsController.class);
 
     private final UnifiedAuthService authService;
+    private final AccessGateService accessGateService;
+    private final ToolRegistry toolRegistry;
+
+    @org.springframework.beans.factory.annotation.Value("${model.default:qwen3.5:27b}")
+    private String defaultModelDefault;
+
+    @org.springframework.beans.factory.annotation.Value("${model.fallback:qwen3:0.6b}")
+    private String defaultModelFallback;
 
     private final Map<String, Object> systemSettings = new ConcurrentHashMap<>();
     private final List<SettingsChangeRecord> changeHistory = new CopyOnWriteArrayList<>();
+    private final List<SettingsVersion> versionHistory = new CopyOnWriteArrayList<>();
+    private static final int MAX_VERSION_HISTORY = 100;
 
-    public SystemSettingsController(UnifiedAuthService authService) {
+    public SystemSettingsController(UnifiedAuthService authService, AccessGateService accessGateService, ToolRegistry toolRegistry) {
         this.authService = authService;
+        this.accessGateService = accessGateService;
+        this.toolRegistry = toolRegistry;
+    }
+
+    @PostConstruct
+    public void init() {
         initDefaultSettings();
     }
 
@@ -36,8 +57,8 @@ public class SystemSettingsController {
         systemSettings.put("system.timezone", "Asia/Shanghai");
         systemSettings.put("system.language", "zh-CN");
         
-        systemSettings.put("model.default", "qwen3.5:27b");
-        systemSettings.put("model.fallback", "qwen3:0.6b");
+        systemSettings.put("model.default", defaultModelDefault);
+        systemSettings.put("model.fallback", defaultModelFallback);
         systemSettings.put("model.timeout", 30000);
         systemSettings.put("model.maxRetries", 3);
         
@@ -54,14 +75,28 @@ public class SystemSettingsController {
         
         systemSettings.put("knowledge.maxSize", 10000);
         systemSettings.put("knowledge.expirationDays", 365);
+        
+        systemSettings.put("company_intro.tenant_default", "");
+
+        // 工作区配置（FileEditTool 热配置）
+        systemSettings.put("workspace.root", System.getProperty("livingagent.workspace.root", "/app/workspace"));
+        systemSettings.put("workspace.writeEnabled", true);
+        systemSettings.put("workspace.allowedExtensions", ".java,.xml,.yml,.yaml,.properties,.json,.md,.sql,.ts,.tsx,.js,.jsx,.css,.html,.py,.sh,.ps1,.txt");
+
+        versionHistory.add(new SettingsVersion("v1", "Initial default settings", new HashMap<>(systemSettings), Instant.now(), "system"));
     }
 
     @GetMapping
     public ResponseEntity<Map<String, Object>> getAllSettings(
-            @RequestHeader(value = "Authorization", required = false) String authorization) {
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         
         Optional<AuthContext> ctxOpt = getAuthContext(authorization);
-        if (ctxOpt.isEmpty() || !isChairman(ctxOpt.get())) {
+        if (ctxOpt.isEmpty() || !isEnterprise(ctxOpt.get())) {
+            return ResponseEntity.status(403).build();
+        }
+        String effectiveEmployeeId = employeeId != null && !employeeId.isBlank() ? employeeId : ctxOpt.get().getEmployeeId();
+        if (!accessGateService.canRoute(effectiveEmployeeId, "brain", "AdminBrain")) {
             return ResponseEntity.status(403).build();
         }
         
@@ -71,10 +106,15 @@ public class SystemSettingsController {
     @GetMapping("/{category}")
     public ResponseEntity<Map<String, Object>> getSettingsByCategory(
             @PathVariable String category,
-            @RequestHeader(value = "Authorization", required = false) String authorization) {
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         
         Optional<AuthContext> ctxOpt = getAuthContext(authorization);
-        if (ctxOpt.isEmpty() || !isChairman(ctxOpt.get())) {
+        if (ctxOpt.isEmpty() || !isEnterprise(ctxOpt.get())) {
+            return ResponseEntity.status(403).build();
+        }
+        String effectiveEmployeeId = employeeId != null && !employeeId.isBlank() ? employeeId : ctxOpt.get().getEmployeeId();
+        if (!accessGateService.canRoute(effectiveEmployeeId, "brain", "AdminBrain")) {
             return ResponseEntity.status(403).build();
         }
         
@@ -97,7 +137,7 @@ public class SystemSettingsController {
             @RequestHeader(value = "Authorization", required = false) String authorization) {
         
         Optional<AuthContext> ctxOpt = getAuthContext(authorization);
-        if (ctxOpt.isEmpty() || !isChairman(ctxOpt.get())) {
+        if (ctxOpt.isEmpty() || !isEnterprise(ctxOpt.get())) {
             return ResponseEntity.status(403).build();
         }
         
@@ -119,7 +159,7 @@ public class SystemSettingsController {
             @RequestHeader(value = "Authorization", required = false) String authorization) {
         
         Optional<AuthContext> ctxOpt = getAuthContext(authorization);
-        if (ctxOpt.isEmpty() || !isChairman(ctxOpt.get())) {
+        if (ctxOpt.isEmpty() || !isEnterprise(ctxOpt.get())) {
             return ResponseEntity.status(403).build();
         }
         
@@ -169,11 +209,12 @@ public class SystemSettingsController {
             Map<String, Object> settings,
             String authorization) {
         Optional<AuthContext> ctxOpt = getAuthContext(authorization);
-        if (ctxOpt.isEmpty() || !isChairman(ctxOpt.get())) {
+        if (ctxOpt.isEmpty() || !isEnterprise(ctxOpt.get())) {
             return ResponseEntity.status(403).build();
         }
 
         AuthContext ctx = ctxOpt.get();
+        createSettingsVersion("Batch update", ctx.getEmployeeId());
         int updated = 0;
         int failed = 0;
         List<String> errors = new ArrayList<>();
@@ -216,7 +257,7 @@ public class SystemSettingsController {
             @RequestHeader(value = "Authorization", required = false) String authorization) {
         
         Optional<AuthContext> ctxOpt = getAuthContext(authorization);
-        if (ctxOpt.isEmpty() || !isChairman(ctxOpt.get())) {
+        if (ctxOpt.isEmpty() || !isEnterprise(ctxOpt.get())) {
             return ResponseEntity.status(403).build();
         }
         
@@ -244,7 +285,7 @@ public class SystemSettingsController {
             @RequestHeader(value = "Authorization", required = false) String authorization) {
         
         Optional<AuthContext> ctxOpt = getAuthContext(authorization);
-        if (ctxOpt.isEmpty() || !isChairman(ctxOpt.get())) {
+        if (ctxOpt.isEmpty() || !isEnterprise(ctxOpt.get())) {
             return ResponseEntity.status(403).build();
         }
         
@@ -280,7 +321,7 @@ public class SystemSettingsController {
             @RequestHeader(value = "Authorization", required = false) String authorization) {
         
         Optional<AuthContext> ctxOpt = getAuthContext(authorization);
-        if (ctxOpt.isEmpty() || !isChairman(ctxOpt.get())) {
+        if (ctxOpt.isEmpty() || !isEnterprise(ctxOpt.get())) {
             return ResponseEntity.status(403).build();
         }
         
@@ -301,14 +342,91 @@ public class SystemSettingsController {
         return ResponseEntity.ok(categories);
     }
 
+    @GetMapping("/notification_bar/public")
+    public ResponseEntity<ApiResponse<NotificationBarPublic>> getNotificationBarPublic() {
+        NotificationBarPublic data = new NotificationBarPublic(
+            "欢迎使用 Living Agent 企业管理平台",
+            "如有问题请联系管理员",
+            false,
+            ""
+        );
+        return ResponseEntity.ok(ApiResponse.ok(data));
+    }
+
+    @GetMapping("/versions")
+    public ResponseEntity<List<SettingsVersion>> getVersionHistory(
+            @RequestParam(defaultValue = "20") int limit,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        Optional<AuthContext> ctxOpt = getAuthContext(authorization);
+        if (ctxOpt.isEmpty() || !isEnterprise(ctxOpt.get())) {
+            return ResponseEntity.status(403).build();
+        }
+        List<SettingsVersion> history = new ArrayList<>(versionHistory);
+        history.sort(Comparator.comparing(SettingsVersion::createdAt));
+        if (history.size() > limit) {
+            history = history.subList(history.size() - limit, history.size());
+        }
+        return ResponseEntity.ok(history);
+    }
+
+    @PostMapping("/versions/{versionId}/rollback")
+    public ResponseEntity<BatchUpdateResult> rollbackToVersion(
+            @PathVariable String versionId,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        Optional<AuthContext> ctxOpt = getAuthContext(authorization);
+        if (ctxOpt.isEmpty() || !isEnterprise(ctxOpt.get())) {
+            return ResponseEntity.status(403).build();
+        }
+        AuthContext ctx = ctxOpt.get();
+
+        Optional<SettingsVersion> targetOpt = versionHistory.stream()
+                .filter(v -> v.versionId().equals(versionId))
+                .findFirst();
+
+        if (targetOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        createSettingsVersion("Rollback to " + versionId, ctx.getEmployeeId());
+        systemSettings.clear();
+        systemSettings.putAll(targetOpt.get().snapshot());
+
+        SettingsChangeRecord record = new SettingsChangeRecord(
+                UUID.randomUUID().toString(),
+                "system.rollback",
+                null,
+                versionId,
+                ctx.getEmployeeId(),
+                Instant.now(),
+                "Rollback executed"
+        );
+        changeHistory.add(record);
+
+        return ResponseEntity.ok(new BatchUpdateResult(systemSettings.size(), 0, List.of()));
+    }
+
+    private void createSettingsVersion(String reason, String changedBy) {
+        String versionId = "v" + (versionHistory.size() + 1);
+        versionHistory.add(new SettingsVersion(
+                versionId,
+                reason,
+                new HashMap<>(systemSettings),
+                Instant.now(),
+                changedBy
+        ));
+        if (versionHistory.size() > MAX_VERSION_HISTORY) {
+            versionHistory.remove(0);
+        }
+    }
+
     private Object getDefaultValue(String key) {
         Map<String, Object> defaults = new HashMap<>();
         defaults.put("system.name", "Living Agent Service");
         defaults.put("system.version", "1.0.0");
         defaults.put("system.timezone", "Asia/Shanghai");
         defaults.put("system.language", "zh-CN");
-        defaults.put("model.default", "qwen3.5:27b");
-        defaults.put("model.fallback", "qwen3:0.6b");
+        defaults.put("model.default", defaultModelDefault);
+        defaults.put("model.fallback", defaultModelFallback);
         defaults.put("model.timeout", 30000);
         defaults.put("model.maxRetries", 3);
         defaults.put("security.sessionTimeout", 3600);
@@ -321,6 +439,7 @@ public class SystemSettingsController {
         defaults.put("budget.alertThreshold", 0.8);
         defaults.put("knowledge.maxSize", 10000);
         defaults.put("knowledge.expirationDays", 365);
+        defaults.put("company_intro.tenant_default", "");
         
         return defaults.get(key);
     }
@@ -336,8 +455,73 @@ public class SystemSettingsController {
         return sessionOpt.map(AuthSession::authContext);
     }
 
-    private boolean isChairman(AuthContext ctx) {
+    private boolean isEnterprise(AuthContext ctx) {
         return ctx.getAccessLevel() == AccessLevel.FULL || ctx.isFounder();
+    }
+
+    // ==================== 工作区热配置 API ====================
+
+    @GetMapping("/workspace/config")
+    public ResponseEntity<Map<String, Object>> getWorkspaceConfig(
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        Optional<AuthContext> ctxOpt = getAuthContext(authorization);
+        if (ctxOpt.isEmpty() || !isEnterprise(ctxOpt.get())) {
+            return ResponseEntity.status(403).build();
+        }
+
+        Map<String, Object> config = new LinkedHashMap<>();
+        config.put("root", systemSettings.getOrDefault("workspace.root", "/app/workspace"));
+        config.put("writeEnabled", systemSettings.getOrDefault("workspace.writeEnabled", true));
+        config.put("allowedExtensions", systemSettings.getOrDefault("workspace.allowedExtensions", ""));
+        return ResponseEntity.ok(config);
+    }
+
+    @PutMapping("/workspace/config")
+    public ResponseEntity<Map<String, Object>> updateWorkspaceConfig(
+            @RequestBody Map<String, Object> request,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        Optional<AuthContext> ctxOpt = getAuthContext(authorization);
+        if (ctxOpt.isEmpty() || !isEnterprise(ctxOpt.get())) {
+            return ResponseEntity.status(403).build();
+        }
+
+        Map<String, Object> updated = new LinkedHashMap<>();
+
+        if (request.containsKey("root")) {
+            String newRoot = request.get("root").toString();
+            systemSettings.put("workspace.root", newRoot);
+            updated.put("root", newRoot);
+            log.info("Workspace root updated to: {} (by {})", newRoot, ctxOpt.get().getEmployeeId());
+
+            // 热同步到 FileEditTool
+            toolRegistry.get("file_edit").ifPresent(tool -> {
+                if (tool instanceof FileEditTool fileEditTool) {
+                    fileEditTool.setWorkspaceRoot(newRoot);
+                    log.info("FileEditTool workspace root hot-updated to: {}", newRoot);
+                }
+            });
+            // 热同步到 BuildTool
+            toolRegistry.get("build").ifPresent(tool -> {
+                if (tool instanceof BuildTool buildTool) {
+                    buildTool.setWorkspaceRoot(newRoot);
+                    log.info("BuildTool workspace root hot-updated to: {}", newRoot);
+                }
+            });
+        }
+
+        if (request.containsKey("writeEnabled")) {
+            boolean writeEnabled = Boolean.parseBoolean(request.get("writeEnabled").toString());
+            systemSettings.put("workspace.writeEnabled", writeEnabled);
+            updated.put("writeEnabled", writeEnabled);
+        }
+
+        if (request.containsKey("allowedExtensions")) {
+            String extensions = request.get("allowedExtensions").toString();
+            systemSettings.put("workspace.allowedExtensions", extensions);
+            updated.put("allowedExtensions", extensions);
+        }
+
+        return ResponseEntity.ok(updated);
     }
 
     public record SettingValue(String key, Object value, String type) {}
@@ -355,4 +539,34 @@ public class SystemSettingsController {
     public record BatchUpdateResult(int updated, int failed, List<String> errors) {}
 
     public record SettingCategory(String name, String displayName, int settingCount) {}
+
+    public record SettingsVersion(
+            String versionId,
+            String reason,
+            Map<String, Object> snapshot,
+            Instant createdAt,
+            String createdBy
+    ) {}
+
+    public record NotificationBarPublic(
+            String title,
+            String content,
+            boolean show,
+            String link
+    ) {}
+
+    public record ApiResponse<T>(
+            boolean success,
+            T data,
+            String error,
+            String errorDescription
+    ) {
+        public static <T> ApiResponse<T> ok(T data) {
+            return new ApiResponse<>(true, data, null, null);
+        }
+
+        public static <T> ApiResponse<T> err(String error, String description) {
+            return new ApiResponse<>(false, null, error, description);
+        }
+    }
 }

@@ -20,6 +20,7 @@ public class DigitalEmployee implements Employee {
     private final String departmentId;
     private final List<String> roles;
     private final String managerId;
+    private final EmployeeOrigin origin;
     
     private final List<String> capabilities;
     private final List<String> skills;
@@ -55,6 +56,7 @@ public class DigitalEmployee implements Employee {
         this.departmentId = builder.departmentId;
         this.roles = Collections.unmodifiableList(builder.roles);
         this.managerId = builder.managerId;
+        this.origin = builder.origin;
         this.capabilities = Collections.unmodifiableList(builder.capabilities);
         this.skills = Collections.unmodifiableList(builder.skills);
         this.tools = Collections.unmodifiableList(builder.tools);
@@ -160,6 +162,9 @@ public class DigitalEmployee implements Employee {
     
     @Override
     public boolean isDigital() { return true; }
+
+    @Override
+    public EmployeeOrigin getOrigin() { return origin; }
     
     @Override
     public HumanConfig getHumanConfig() { return null; }
@@ -231,6 +236,7 @@ public class DigitalEmployee implements Employee {
         private String departmentId;
         private List<String> roles = new ArrayList<>();
         private String managerId;
+        private EmployeeOrigin origin = EmployeeOrigin.PERSONAL;
         
         private List<String> capabilities = new ArrayList<>();
         private List<String> skills = new ArrayList<>();
@@ -306,6 +312,11 @@ public class DigitalEmployee implements Employee {
 
         public Builder managerId(String managerId) {
             this.managerId = managerId;
+            return this;
+        }
+
+        public Builder origin(EmployeeOrigin origin) {
+            this.origin = origin;
             return this;
         }
 

@@ -16,6 +16,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -33,6 +34,8 @@ public class SkillLoader {
 
     private final SkillVetter skillVetter;
     private final List<Skill> quarantinedSkillsCache = new ArrayList<>();
+    /** 目录扫描结果缓存，避免启动时重复 Files.walk */
+    private final Map<Path, SkillLoadResult> loadResultCache = new ConcurrentHashMap<>();
 
     @Autowired
     public SkillLoader(SkillVetter skillVetter) {
@@ -46,6 +49,13 @@ public class SkillLoader {
     public SkillLoadResult loadSkillsWithResult(Path skillsDir) {
         SkillLoadResult result = new SkillLoadResult();
         quarantinedSkillsCache.clear();
+        
+        // 检查缓存（使用目录的绝对路径+MTime作为缓存键，检测变更）
+        SkillLoadResult cached = loadResultCache.get(skillsDir.toAbsolutePath().normalize());
+        if (cached != null) {
+            log.debug("Returning cached skill load result for: {}", skillsDir);
+            return cached;
+        }
         
         if (!Files.exists(skillsDir)) {
             log.warn("Skills directory does not exist: {}", skillsDir);
@@ -105,7 +115,21 @@ public class SkillLoader {
 
         log.info("Loaded {} skills from {} ({} quarantined)", 
             result.getApprovedCount(), skillsDir, result.getQuarantinedCount());
+        // 缓存扫描结果，下次同一目录不再重复扫描
+        loadResultCache.put(skillsDir.toAbsolutePath().normalize(), result);
         return result;
+    }
+
+    /** 清除指定目录的缓存，强制下次重新扫描 */
+    public void invalidateSkillCache(Path skillsDir) {
+        loadResultCache.remove(skillsDir.toAbsolutePath().normalize());
+        log.info("Invalidated skill cache for: {}", skillsDir);
+    }
+
+    /** 清除所有缓存 */
+    public void clearAllCache() {
+        loadResultCache.clear();
+        log.info("Cleared all skill load caches");
     }
 
     public List<Skill> getQuarantinedSkills() {

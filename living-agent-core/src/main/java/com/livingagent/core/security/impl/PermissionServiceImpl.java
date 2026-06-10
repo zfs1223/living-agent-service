@@ -1,35 +1,79 @@
 package com.livingagent.core.security.impl;
 
 import com.livingagent.core.security.*;
+import com.livingagent.core.security.service.EnterpriseEmployeeService;
+import com.livingagent.core.database.repository.AccessAuditLogRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.stereotype.Component;
 
+import java.security.SecureRandom;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
+@Component
 public class PermissionServiceImpl implements PermissionService {
 
     private static final Logger log = LoggerFactory.getLogger(PermissionServiceImpl.class);
 
     private final EmployeeAuthService employeeAuthService;
+    private final EnterpriseEmployeeService enterpriseEmployeeService;
+    private final AccessAuditLogRepository auditLogRepository;
     private final Map<String, List<AccessAuditLog>> auditLogs = new ConcurrentHashMap<>();
     private final Map<String, String> sessionEmployeeMap = new ConcurrentHashMap<>();
 
-    public PermissionServiceImpl(EmployeeAuthService employeeAuthService) {
+    public PermissionServiceImpl(EmployeeAuthService employeeAuthService,
+                                  EnterpriseEmployeeService enterpriseEmployeeService,
+                                  AccessAuditLogRepository auditLogRepository) {
         this.employeeAuthService = employeeAuthService;
+        this.enterpriseEmployeeService = enterpriseEmployeeService;
+        this.auditLogRepository = auditLogRepository;
+    }
+
+    private Optional<SecurityIdentity> findEmployee(String employeeId) {
+        Optional<SecurityIdentity> employee = employeeAuthService.findById(employeeId);
+        if (employee.isPresent()) {
+            return employee;
+        }
+        
+        Optional<AuthContext> authContext = enterpriseEmployeeService.findById(employeeId);
+        if (authContext.isPresent()) {
+            SecurityIdentity converted = toEmployee(authContext.get());
+            return Optional.of(converted);
+        }
+        
+        return Optional.empty();
+    }
+    
+    private SecurityIdentity toEmployee(AuthContext ctx) {
+        SecurityIdentity employee = new SecurityIdentity();
+        employee.setEmployeeId(ctx.getEmployeeId());
+        employee.setName(ctx.getName());
+        employee.setPhone(ctx.getPhone());
+        employee.setEmail(ctx.getEmail());
+        employee.setDepartment(ctx.getDepartment() != null && !ctx.getDepartment().isBlank() ? ctx.getDepartment() : (ctx.isFounder() ? "管理部" : ""));
+        employee.setPosition(ctx.getPosition());
+        employee.setIdentity(ctx.getIdentity());
+        employee.setAccessLevel(ctx.getAccessLevel());
+        employee.setFounder(ctx.isFounder());
+        employee.setActive(ctx.isActive());
+        employee.setTenantId("tenant_default");
+        employee.setStatus("ACTIVE");
+        return employee;
     }
 
     @Override
-    public Optional<Employee> verifyByPhone(String phone, String verificationCode) {
+    public Optional<SecurityIdentity> verifyByPhone(String phone, String verificationCode) {
         log.info("Verifying employee by phone: {}", phone);
         
-        Optional<Employee> employeeOpt = employeeAuthService.findByPhone(phone);
+        Optional<SecurityIdentity> employeeOpt = employeeAuthService.findByPhone(phone);
         if (employeeOpt.isEmpty()) {
-            log.warn("Employee not found for phone: {}", phone);
+            log.warn("SecurityIdentity not found for phone: {}", phone);
             return Optional.empty();
         }
 
-        Employee employee = employeeOpt.get();
+        SecurityIdentity employee = employeeOpt.get();
         
         if (!validateVerificationCode(phone, verificationCode)) {
             recordAccess(employee.getEmployeeId(), "phone_verification", "verify", false);
@@ -37,21 +81,21 @@ public class PermissionServiceImpl implements PermissionService {
         }
 
         recordAccess(employee.getEmployeeId(), "phone_verification", "verify", true);
-        log.info("Employee verified by phone: {} -> {}", phone, employee.getName());
+        log.info("SecurityIdentity verified by phone: {} -> {}", phone, employee.getName());
         return Optional.of(employee);
     }
 
     @Override
-    public Optional<Employee> verifyByVoicePrint(String voicePrintId, float[] voiceVector) {
+    public Optional<SecurityIdentity> verifyByVoicePrint(String voicePrintId, float[] voiceVector) {
         log.info("Verifying employee by voice print: {}", voicePrintId);
         
-        Optional<Employee> employeeOpt = employeeAuthService.findByVoicePrintId(voicePrintId);
+        Optional<SecurityIdentity> employeeOpt = employeeAuthService.findByVoicePrintId(voicePrintId);
         if (employeeOpt.isEmpty()) {
-            log.warn("Employee not found for voice print: {}", voicePrintId);
+            log.warn("SecurityIdentity not found for voice print: {}", voicePrintId);
             return Optional.empty();
         }
 
-        Employee employee = employeeOpt.get();
+        SecurityIdentity employee = employeeOpt.get();
         
         if (!validateVoiceVector(voicePrintId, voiceVector)) {
             recordAccess(employee.getEmployeeId(), "voice_verification", "verify", false);
@@ -59,21 +103,21 @@ public class PermissionServiceImpl implements PermissionService {
         }
 
         recordAccess(employee.getEmployeeId(), "voice_verification", "verify", true);
-        log.info("Employee verified by voice: {} -> {}", voicePrintId, employee.getName());
+        log.info("SecurityIdentity verified by voice: {} -> {}", voicePrintId, employee.getName());
         return Optional.of(employee);
     }
 
     @Override
-    public Optional<Employee> verifyByOAuth(String provider, String oauthUserId, String accessToken) {
+    public Optional<SecurityIdentity> verifyByOAuth(String provider, String oauthUserId, String accessToken) {
         log.info("Verifying employee by OAuth: {} - {}", provider, oauthUserId);
         
-        Optional<Employee> employeeOpt = employeeAuthService.findByOAuth(provider, oauthUserId);
+        Optional<SecurityIdentity> employeeOpt = employeeAuthService.findByOAuth(provider, oauthUserId);
         if (employeeOpt.isEmpty()) {
-            log.warn("Employee not found for OAuth: {} - {}", provider, oauthUserId);
+            log.warn("SecurityIdentity not found for OAuth: {} - {}", provider, oauthUserId);
             return Optional.empty();
         }
 
-        Employee employee = employeeOpt.get();
+        SecurityIdentity employee = employeeOpt.get();
         
         if (!validateOAuthToken(provider, accessToken)) {
             recordAccess(employee.getEmployeeId(), "oauth_verification", "verify", false);
@@ -81,34 +125,34 @@ public class PermissionServiceImpl implements PermissionService {
         }
 
         recordAccess(employee.getEmployeeId(), "oauth_verification", "verify", true);
-        log.info("Employee verified by OAuth: {} - {} -> {}", provider, oauthUserId, employee.getName());
+        log.info("SecurityIdentity verified by OAuth: {} - {} -> {}", provider, oauthUserId, employee.getName());
         return Optional.of(employee);
     }
 
     @Override
-    public Optional<Employee> getEmployeeById(String employeeId) {
+    public Optional<SecurityIdentity> getEmployeeById(String employeeId) {
         return employeeAuthService.findById(employeeId);
     }
 
     @Override
-    public Optional<Employee> getEmployeeByPhone(String phone) {
+    public Optional<SecurityIdentity> getEmployeeByPhone(String phone) {
         return employeeAuthService.findByPhone(phone);
     }
 
     @Override
-    public Optional<Employee> getEmployeeByVoicePrintId(String voicePrintId) {
+    public Optional<SecurityIdentity> getEmployeeByVoicePrintId(String voicePrintId) {
         return employeeAuthService.findByVoicePrintId(voicePrintId);
     }
 
     @Override
     public boolean canAccessBrain(String employeeId, String brainName) {
-        Optional<Employee> employeeOpt = employeeAuthService.findById(employeeId);
+        Optional<SecurityIdentity> employeeOpt = findEmployee(employeeId);
         if (employeeOpt.isEmpty()) {
-            log.warn("Employee not found: {}", employeeId);
+            log.warn("SecurityIdentity not found: {}", employeeId);
             return false;
         }
 
-        Employee employee = employeeOpt.get();
+        SecurityIdentity employee = employeeOpt.get();
         boolean canAccess = employee.canAccessBrain(brainName);
         
         recordAccess(employeeId, "brain:" + brainName, "access", canAccess);
@@ -122,12 +166,12 @@ public class PermissionServiceImpl implements PermissionService {
 
     @Override
     public boolean canUseModel(String employeeId, String modelName) {
-        Optional<Employee> employeeOpt = employeeAuthService.findById(employeeId);
+        Optional<SecurityIdentity> employeeOpt = findEmployee(employeeId);
         if (employeeOpt.isEmpty()) {
             return false;
         }
 
-        Employee employee = employeeOpt.get();
+        SecurityIdentity employee = employeeOpt.get();
         boolean canUse = employee.canUseModel(modelName);
         
         recordAccess(employeeId, "model:" + modelName, "use", canUse);
@@ -137,12 +181,12 @@ public class PermissionServiceImpl implements PermissionService {
 
     @Override
     public boolean canExecuteTool(String employeeId, String toolName) {
-        Optional<Employee> employeeOpt = employeeAuthService.findById(employeeId);
+        Optional<SecurityIdentity> employeeOpt = findEmployee(employeeId);
         if (employeeOpt.isEmpty()) {
             return false;
         }
 
-        Employee employee = employeeOpt.get();
+        SecurityIdentity employee = employeeOpt.get();
         
         if (employee.isChatOnly()) {
             log.info("Chat-only user {} cannot execute tool {}", employeeId, toolName);
@@ -158,12 +202,12 @@ public class PermissionServiceImpl implements PermissionService {
 
     @Override
     public Set<String> getAccessibleBrains(String employeeId) {
-        Optional<Employee> employeeOpt = employeeAuthService.findById(employeeId);
+        Optional<SecurityIdentity> employeeOpt = employeeAuthService.findById(employeeId);
         if (employeeOpt.isEmpty()) {
             return Collections.emptySet();
         }
 
-        Employee employee = employeeOpt.get();
+        SecurityIdentity employee = employeeOpt.get();
         Set<String> brains = new HashSet<>(employee.getAccessLevel().getAllowedBrains());
         
         if (employee.getAllowedBrains() != null) {
@@ -175,9 +219,10 @@ public class PermissionServiceImpl implements PermissionService {
 
     @Override
     public Set<String> getAllowedModels(String employeeId) {
-        Optional<Employee> employeeOpt = employeeAuthService.findById(employeeId);
+        Optional<SecurityIdentity> employeeOpt = employeeAuthService.findById(employeeId);
         if (employeeOpt.isEmpty()) {
-            return Collections.singleton("Qwen3-0.6B");
+            log.warn("getAllowedModels: employee not found, returning empty set instead of hardcoded model");
+            return Collections.emptySet();
         }
 
         return employeeOpt.get().getAccessLevel().getAllowedModels();
@@ -185,7 +230,7 @@ public class PermissionServiceImpl implements PermissionService {
 
     @Override
     public AccessLevel getAccessLevel(String employeeId) {
-        Optional<Employee> employeeOpt = employeeAuthService.findById(employeeId);
+        Optional<SecurityIdentity> employeeOpt = employeeAuthService.findById(employeeId);
         if (employeeOpt.isEmpty()) {
             return AccessLevel.CHAT_ONLY;
         }
@@ -195,13 +240,13 @@ public class PermissionServiceImpl implements PermissionService {
 
     @Override
     public void updateAccessLevel(String employeeId, AccessLevel newLevel) {
-        Optional<Employee> employeeOpt = employeeAuthService.findById(employeeId);
+        Optional<SecurityIdentity> employeeOpt = employeeAuthService.findById(employeeId);
         if (employeeOpt.isEmpty()) {
             log.warn("Cannot update access level: employee not found: {}", employeeId);
             return;
         }
 
-        Employee employee = employeeOpt.get();
+        SecurityIdentity employee = employeeOpt.get();
         AccessLevel oldLevel = employee.getAccessLevel();
         employee.setAccessLevel(newLevel);
         employeeAuthService.updateEmployee(employee);
@@ -218,27 +263,48 @@ public class PermissionServiceImpl implements PermissionService {
         logEntry.setAction(action);
         logEntry.setGranted(granted);
         logEntry.setReason(granted ? "Access granted" : "Access denied");
-        
-        employeeAuthService.findById(employeeId).ifPresent(e -> logEntry.setEmployeeName(e.getName()));
-        
+
+        String employeeName = null;
+        Optional<SecurityIdentity> empOpt = employeeAuthService.findById(employeeId);
+        if (empOpt.isPresent()) {
+            employeeName = empOpt.get().getName();
+            logEntry.setEmployeeName(employeeName);
+        }
+
+        // 持久化到数据库
+        try {
+            auditLogRepository.save(logEntry);
+        } catch (Exception e) {
+            log.error("Failed to persist audit log to database, falling back to memory: {}", e.getMessage());
+        }
+
+        // 内存缓存兜底（异步持久化失败时可用）
         auditLogs.computeIfAbsent(employeeId, k -> new ArrayList<>()).add(logEntry);
-        
-        log.debug("Recorded access: employee={}, resource={}, action={}, granted={}",
-            employeeId, resource, action, granted);
+
+        log.info("AUDIT|employeeId={}|resource={}|action={}|granted={}|employeeName={}|reason={}",
+            employeeId, resource, action, granted, employeeName, logEntry.getReason());
     }
 
     @Override
     public List<AccessAuditLog> getAccessLogs(String employeeId, int limit) {
-        List<AccessAuditLog> logs = auditLogs.getOrDefault(employeeId, Collections.emptyList());
-        if (logs.size() <= limit) {
-            return new ArrayList<>(logs);
+        // 优先从数据库查询
+        try {
+            return auditLogRepository.findByEmployeeIdOrderByTimestampDesc(
+                employeeId, PageRequest.of(0, limit));
+        } catch (Exception e) {
+            log.warn("Failed to query audit logs from database, falling back to memory: {}", e.getMessage());
+            // 数据库不可用时降级到内存
+            List<AccessAuditLog> logs = auditLogs.getOrDefault(employeeId, Collections.emptyList());
+            if (logs.size() <= limit) {
+                return new ArrayList<>(logs);
+            }
+            return new ArrayList<>(logs.subList(logs.size() - limit, logs.size()));
         }
-        return new ArrayList<>(logs.subList(logs.size() - limit, logs.size()));
     }
 
     @Override
     public boolean isChatOnlyUser(String employeeId) {
-        Optional<Employee> employeeOpt = employeeAuthService.findById(employeeId);
+        Optional<SecurityIdentity> employeeOpt = employeeAuthService.findById(employeeId);
         if (employeeOpt.isEmpty()) {
             return true;
         }
@@ -247,12 +313,12 @@ public class PermissionServiceImpl implements PermissionService {
 
     @Override
     public String getRouteTarget(String employeeId) {
-        Optional<Employee> employeeOpt = employeeAuthService.findById(employeeId);
+        Optional<SecurityIdentity> employeeOpt = employeeAuthService.findById(employeeId);
         if (employeeOpt.isEmpty()) {
             return "Qwen3Neuron";
         }
 
-        Employee employee = employeeOpt.get();
+        SecurityIdentity employee = employeeOpt.get();
         
         if (employee.isChatOnly()) {
             return "Qwen3Neuron";
@@ -297,11 +363,13 @@ public class PermissionServiceImpl implements PermissionService {
     private final Map<String, Long> codeExpiryTimes = new ConcurrentHashMap<>();
     private static final long CODE_EXPIRY_MS = 5 * 60 * 1000;
 
+    private static final SecureRandom secureRandom = new SecureRandom();
+
     public void sendVerificationCode(String phone) {
-        String code = String.format("%06d", new Random().nextInt(1000000));
+        String code = String.format("%06d", secureRandom.nextInt(1000000));
         verificationCodes.put(phone, code);
         codeExpiryTimes.put(phone, System.currentTimeMillis() + CODE_EXPIRY_MS);
-        log.info("Verification code sent to {}: {}", phone, code);
+        log.info("Verification code sent to phone: {}", phone);
     }
 
     private boolean validateVerificationCode(String phone, String code) {
@@ -332,6 +400,9 @@ public class PermissionServiceImpl implements PermissionService {
     }
 
     private boolean validateVoiceVector(String voicePrintId, float[] voiceVector) {
+        // TODO: 实现真正的声纹向量相似度比对（如余弦相似度），当前仅检查非空是不安全的
+        log.warn("validateVoiceVector: current implementation only checks non-null/non-empty, which is insecure. " +
+                "Real vector similarity comparison (e.g., cosine similarity) must be implemented for voicePrintId={}", voicePrintId);
         return voiceVector != null && voiceVector.length > 0;
     }
 
@@ -352,15 +423,44 @@ public class PermissionServiceImpl implements PermissionService {
     }
     
     private boolean validateDingTalkToken(String accessToken) {
-        return accessToken.startsWith("dt_") && accessToken.length() > 10;
+        // TODO: 实现真正的钉钉OAuth Token校验，调用钉钉服务端API验证token有效性
+        log.warn("validateDingTalkToken: current implementation only checks prefix/length/format, which is insecure. " +
+                "Real OAuth provider validation must be implemented.");
+        return isValidTokenFormat(accessToken, "dt_");
     }
     
     private boolean validateFeishuToken(String accessToken) {
-        return accessToken.startsWith("fs_") && accessToken.length() > 10;
+        // TODO: 实现真正的飞书OAuth Token校验，调用飞书服务端API验证token有效性
+        log.warn("validateFeishuToken: current implementation only checks prefix/length/format, which is insecure. " +
+                "Real OAuth provider validation must be implemented.");
+        return isValidTokenFormat(accessToken, "fs_");
     }
     
     private boolean validateWeChatToken(String accessToken) {
-        return accessToken.startsWith("wx_") && accessToken.length() > 10;
+        // TODO: 实现真正的企业微信OAuth Token校验，调用企业微信服务端API验证token有效性
+        log.warn("validateWeChatToken: current implementation only checks prefix/length/format, which is insecure. " +
+                "Real OAuth provider validation must be implemented.");
+        return isValidTokenFormat(accessToken, "wx_");
+    }
+
+    private boolean isValidTokenFormat(String accessToken, String requiredPrefix) {
+        if (!accessToken.startsWith(requiredPrefix)) {
+            return false;
+        }
+        if (accessToken.length() < 20) {
+            log.warn("OAuth token with prefix '{}' is too short (min 20 chars required), got {} chars",
+                    requiredPrefix, accessToken.length());
+            return false;
+        }
+        // 检查Token中不能包含空格、换行等非法字符
+        for (int i = 0; i < accessToken.length(); i++) {
+            char c = accessToken.charAt(i);
+            if (Character.isWhitespace(c) || c == '\n' || c == '\r' || c == '\t') {
+                log.warn("OAuth token contains illegal whitespace character at position {}", i);
+                return false;
+            }
+        }
+        return true;
     }
 
     private boolean isToolAllowedForAccessLevel(String toolName, AccessLevel level) {

@@ -17,11 +17,11 @@ class DigitalEmployeeFeishuTest {
     private static final String APP_ID = "cli_a920321f3b7a5cc1";
     private static final String APP_SECRET = "gmU0opRuS3Aps30BWR84ghkv7ELrkncG";
 
-    private ChairmanFeishuTool tool;
+    private EnterpriseFeishuTool tool;
 
     @BeforeEach
     void setUp() {
-        tool = new ChairmanFeishuTool(APP_ID, APP_SECRET);
+        tool = new EnterpriseFeishuTool(APP_ID, APP_SECRET);
     }
 
     @Test
@@ -46,7 +46,7 @@ class DigitalEmployeeFeishuTest {
             "employee_type", 1,
             "gender", 1
         ));
-        ToolContext context = ToolContext.of("test-chairman", "test-session");
+        ToolContext context = ToolContext.of("test-enterprise", "test-session");
         
         ToolResult result = tool.execute(params, context);
         
@@ -81,7 +81,7 @@ class DigitalEmployeeFeishuTest {
             "employee_type", 1,
             "gender", 2
         ));
-        ToolContext context = ToolContext.of("test-chairman", "test-session");
+        ToolContext context = ToolContext.of("test-enterprise", "test-session");
         
         ToolResult result = tool.execute(params, context);
         
@@ -109,7 +109,7 @@ class DigitalEmployeeFeishuTest {
             "employee_type", 1,
             "gender", 1
         ));
-        ToolContext context = ToolContext.of("test-chairman", "test-session");
+        ToolContext context = ToolContext.of("test-enterprise", "test-session");
         
         ToolResult result = tool.execute(params, context);
         
@@ -137,7 +137,7 @@ class DigitalEmployeeFeishuTest {
             "employee_type", 1,
             "gender", 1
         ));
-        ToolContext context = ToolContext.of("test-chairman", "test-session");
+        ToolContext context = ToolContext.of("test-enterprise", "test-session");
         
         ToolResult result = tool.execute(params, context);
         
@@ -165,7 +165,7 @@ class DigitalEmployeeFeishuTest {
             "employee_type", 1,
             "gender", 2
         ));
-        ToolContext context = ToolContext.of("test-chairman", "test-session");
+        ToolContext context = ToolContext.of("test-enterprise", "test-session");
         
         ToolResult result = tool.execute(params, context);
         
@@ -193,7 +193,7 @@ class DigitalEmployeeFeishuTest {
             "employee_type", 1,
             "gender", 2
         ));
-        ToolContext context = ToolContext.of("test-chairman", "test-session");
+        ToolContext context = ToolContext.of("test-enterprise", "test-session");
         
         ToolResult result = tool.execute(params, context);
         
@@ -213,7 +213,7 @@ class DigitalEmployeeFeishuTest {
             "action", "get_department",
             "department_id", "0"
         ));
-        ToolContext context = ToolContext.of("test-chairman", "test-session");
+        ToolContext context = ToolContext.of("test-enterprise", "test-session");
         
         ToolResult result = tool.execute(params, context);
         

@@ -1,5 +1,6 @@
 package com.livingagent.core.brain;
 
+import com.livingagent.core.brain.prompt.InstructionFileLoader;
 import com.livingagent.core.channel.ChannelManager;
 import com.livingagent.core.channel.ChannelMessage;
 import com.livingagent.core.evolution.engine.EvolutionDecisionEngine;
@@ -29,6 +30,9 @@ public class BrainContext {
     private final Map<String, Object> state;
     private final ChannelManager channelManager;
     private final SkillRegistry skillRegistry;
+    private final InstructionFileLoader instructionFileLoader;
+    private final String employeeId;
+    private final String employeeCode;
     private List<ChatMessage> history;
 
     public record ChatMessage(String role, String content) {
@@ -39,22 +43,35 @@ public class BrainContext {
 
     public BrainContext(String brainId, String department, String sessionId,
                         Provider provider, Memory memory, ToolRegistry toolRegistry) {
-        this(brainId, department, sessionId, provider, memory, toolRegistry, null, null, null, null, null);
+        this(brainId, department, sessionId, provider, memory, toolRegistry, null, null, null, null, null, null, null, null);
     }
 
     public BrainContext(String brainId, String department, String sessionId,
                         Provider provider, Memory memory, ToolRegistry toolRegistry,
                         KnowledgeBase knowledgeBase, EvolutionDecisionEngine evolutionEngine,
                         BrainPersonality personality) {
-        this(brainId, department, sessionId, provider, memory, toolRegistry, 
-            knowledgeBase, evolutionEngine, personality, null, null);
+        this(brainId, department, sessionId, provider, memory, toolRegistry,
+            knowledgeBase, evolutionEngine, personality, null, null, null, null, null);
     }
 
     public BrainContext(String brainId, String department, String sessionId,
                         Provider provider, Memory memory, ToolRegistry toolRegistry,
                         KnowledgeBase knowledgeBase, EvolutionDecisionEngine evolutionEngine,
                         BrainPersonality personality, ChannelManager channelManager,
-                        SkillRegistry skillRegistry) {
+                        SkillRegistry skillRegistry,
+                        InstructionFileLoader instructionFileLoader, String employeeId) {
+        this(brainId, department, sessionId, provider, memory, toolRegistry,
+            knowledgeBase, evolutionEngine, personality, channelManager, skillRegistry,
+            instructionFileLoader, employeeId, null);
+    }
+
+    public BrainContext(String brainId, String department, String sessionId,
+                        Provider provider, Memory memory, ToolRegistry toolRegistry,
+                        KnowledgeBase knowledgeBase, EvolutionDecisionEngine evolutionEngine,
+                        BrainPersonality personality, ChannelManager channelManager,
+                        SkillRegistry skillRegistry,
+                        InstructionFileLoader instructionFileLoader, String employeeId,
+                        String employeeCode) {
         this.brainId = brainId;
         this.department = department;
         this.sessionId = sessionId;
@@ -66,6 +83,9 @@ public class BrainContext {
         this.personality = personality != null ? personality : BrainPersonality.getDefaultForBrain(brainId);
         this.channelManager = channelManager;
         this.skillRegistry = skillRegistry;
+        this.instructionFileLoader = instructionFileLoader;
+        this.employeeId = employeeId;
+        this.employeeCode = employeeCode;
         this.state = new ConcurrentHashMap<>();
         this.history = new java.util.ArrayList<>();
     }
@@ -81,6 +101,9 @@ public class BrainContext {
     public BrainPersonality getPersonality() { return personality; }
     public ChannelManager getChannelManager() { return channelManager; }
     public SkillRegistry getSkillRegistry() { return skillRegistry; }
+    public InstructionFileLoader getInstructionFileLoader() { return instructionFileLoader; }
+    public String getEmployeeId() { return employeeId; }
+    public String getEmployeeCode() { return employeeCode; }
     public Map<String, Object> getState() { return state; }
     public List<ChatMessage> getHistory() { return history; }
     
@@ -159,6 +182,9 @@ public class BrainContext {
         private BrainPersonality personality;
         private ChannelManager channelManager;
         private SkillRegistry skillRegistry;
+        private InstructionFileLoader instructionFileLoader;
+        private String employeeId;
+        private String employeeCode;
 
         public Builder brainId(String brainId) { this.brainId = brainId; return this; }
         public Builder department(String department) { this.department = department; return this; }
@@ -171,13 +197,17 @@ public class BrainContext {
         public Builder personality(BrainPersonality personality) { this.personality = personality; return this; }
         public Builder channelManager(ChannelManager channelManager) { this.channelManager = channelManager; return this; }
         public Builder skillRegistry(SkillRegistry skillRegistry) { this.skillRegistry = skillRegistry; return this; }
+        public Builder instructionFileLoader(InstructionFileLoader instructionFileLoader) { this.instructionFileLoader = instructionFileLoader; return this; }
+        public Builder employeeId(String employeeId) { this.employeeId = employeeId; return this; }
+        public Builder employeeCode(String employeeCode) { this.employeeCode = employeeCode; return this; }
 
         public BrainContext build() {
             return new BrainContext(
                 brainId, department, sessionId,
                 provider, memory, toolRegistry,
                 knowledgeBase, evolutionEngine, personality,
-                channelManager, skillRegistry
+                channelManager, skillRegistry,
+                instructionFileLoader, employeeId, employeeCode
             );
         }
     }

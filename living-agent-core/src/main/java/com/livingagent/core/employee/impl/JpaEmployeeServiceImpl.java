@@ -3,13 +3,14 @@ package com.livingagent.core.employee.impl;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.livingagent.core.database.entity.DepartmentEntity;
+import com.livingagent.core.database.entity.EnterpriseEmployeeEntity;
+import com.livingagent.core.database.repository.DepartmentRepository;
+import com.livingagent.core.database.repository.EnterpriseEmployeeRepository;
 import com.livingagent.core.employee.*;
-import com.livingagent.core.employee.entity.DigitalEmployeeEntity;
-import com.livingagent.core.employee.entity.EmployeeEntity;
-import com.livingagent.core.employee.entity.HumanEmployeeEntity;
-import com.livingagent.core.employee.repository.EmployeeRepository;
 import com.livingagent.core.neuron.NeuronRegistry;
 import com.livingagent.core.neuron.NeuronState;
+import com.livingagent.core.security.Department;
 import com.livingagent.core.util.IdUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,35 +23,45 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
+/**
+ * 统一使用 EnterpriseEmployeeEntity 的 EmployeeService 实现。
+ * 替代旧的 JpaEmployeeServiceImpl（使用 V1 employees 表）。
+ */
 @Transactional
 public class JpaEmployeeServiceImpl implements EmployeeService {
 
     private static final Logger log = LoggerFactory.getLogger(JpaEmployeeServiceImpl.class);
 
-    private final EmployeeRepository employeeRepository;
+    private final EnterpriseEmployeeRepository enterpriseEmployeeRepository;
+    private final DepartmentRepository departmentRepository;
     private final NeuronRegistry neuronRegistry;
     private final ObjectMapper objectMapper;
 
     private final Map<String, Employee> cache = new ConcurrentHashMap<>();
     private final Map<String, String> authIndex = new ConcurrentHashMap<>();
 
-    public JpaEmployeeServiceImpl(EmployeeRepository employeeRepository, NeuronRegistry neuronRegistry) {
-        this.employeeRepository = employeeRepository;
+    public JpaEmployeeServiceImpl(EnterpriseEmployeeRepository enterpriseEmployeeRepository,
+                                   DepartmentRepository departmentRepository,
+                                   NeuronRegistry neuronRegistry) {
+        this.enterpriseEmployeeRepository = enterpriseEmployeeRepository;
+        this.departmentRepository = departmentRepository;
         this.neuronRegistry = neuronRegistry;
         this.objectMapper = new ObjectMapper();
         loadCache();
     }
 
     private void loadCache() {
-        log.info("Loading employees from database into cache...");
-        List<EmployeeEntity> entities = employeeRepository.findAll();
-        for (EmployeeEntity entity : entities) {
+        log.info("Loading employees from enterprise_employees table into cache...");
+        List<EnterpriseEmployeeEntity> entities = enterpriseEmployeeRepository.findAll();
+        for (EnterpriseEmployeeEntity entity : entities) {
             Employee employee = toDomain(entity);
-            cache.put(entity.getId(), employee);
-            String authKey = employee.getAuthProvider() + ":" + employee.getAuthId();
-            authIndex.put(authKey, entity.getId());
+            cache.put(entity.getEmployeeId(), employee);
+            if (entity.getOauthProvider() != null && entity.getOauthUserId() != null) {
+                String authKey = entity.getOauthProvider() + ":" + entity.getOauthUserId();
+                authIndex.put(authKey, entity.getEmployeeId());
+            }
         }
-        log.info("Loaded {} employees from database", cache.size());
+        log.info("Loaded {} employees from enterprise_employees table", cache.size());
     }
 
     @Override
@@ -61,24 +72,56 @@ public class JpaEmployeeServiceImpl implements EmployeeService {
             throw new IllegalStateException("Employee already exists: " + employeeId);
         }
 
-        EmployeeEntity entity;
-        Employee employee;
+        EnterpriseEmployeeEntity entity = new EnterpriseEmployeeEntity();
+        entity.setEmployeeId(employeeId);
+        entity.setName(request.name());
+        entity.setDepartmentId(request.departmentId());
+        entity.setDepartmentName(request.department());
+        entity.setPosition(request.title());
+        entity.setStatus(EmployeeStatus.ACTIVE.name());
+        entity.setActive(true);
+        entity.setHireDate(LocalDate.now());
+        entity.setCreatedAt(Instant.now());
+        entity.setUpdatedAt(Instant.now());
 
         if (request.type() == IdUtils.EmployeeType.DIGITAL) {
-            entity = createDigitalEntity(employeeId, request);
+            entity.setEmployeeType("DIGITAL");
+            entity.setIdentity("digital_employee");
+            entity.setAccessLevel("DEPARTMENT");
+            entity.setBrainDomain(request.department());
+            entity.setMaxConcurrentTasks(5);
+            entity.setOrigin(request.origin() != null ? request.origin().name() : EmployeeOrigin.PERSONAL.name());
+            try {
+                entity.setSkills(objectMapper.writeValueAsString(request.skills()));
+                entity.setCapabilities(objectMapper.writeValueAsString(request.capabilities()));
+            } catch (JsonProcessingException e) {
+                log.warn("Failed to serialize skills/capabilities", e);
+            }
+        } else {
+            entity.setEmployeeType("HUMAN");
+            entity.setIdentity("human_employee");
+            entity.setOrigin(EmployeeOrigin.HUMAN.name());
+            entity.setOauthProvider(request.authProvider());
+            entity.setOauthUserId(request.authId());
+            entity.setEmail(request.email());
+            entity.setPhone(request.phone());
+            entity.setAccessLevel("CHAT_ONLY");
+        }
+
+        enterpriseEmployeeRepository.save(entity);
+
+        Employee employee;
+        if (request.type() == IdUtils.EmployeeType.DIGITAL) {
             employee = createDigitalEmployee(employeeId, request);
         } else {
-            entity = createHumanEntity(employeeId, request);
             employee = createHumanEmployee(employeeId, request);
         }
 
-        entity.setCreatedAt(Instant.now());
-        entity.setUpdatedAt(Instant.now());
-        employeeRepository.save(entity);
-
         cache.put(employeeId, employee);
-        String authKey = request.authProvider() + ":" + request.authId();
-        authIndex.put(authKey, employeeId);
+        if (request.authProvider() != null && request.authId() != null) {
+            String authKey = request.authProvider() + ":" + request.authId();
+            authIndex.put(authKey, employeeId);
+        }
 
         log.info("Created {} employee: {} ({})", request.type(), employeeId, request.name());
 
@@ -87,16 +130,13 @@ public class JpaEmployeeServiceImpl implements EmployeeService {
 
     private String generateEmployeeId(EmployeeCreationRequest request) {
         if (request.type() == IdUtils.EmployeeType.DIGITAL) {
-            String instance = String.format("%03d",
-                cache.values().stream()
-                    .filter(Employee::isDigital)
-                    .mapToInt(e -> 1)
-                    .sum() + 1);
-            return IdUtils.generateDigitalEmployeeId(
-                request.department(),
-                request.roles().isEmpty() ? "worker" : request.roles().get(0),
-                instance
-            );
+            if (request.suggestedEmployeeId() != null && !request.suggestedEmployeeId().isBlank()) {
+                return request.suggestedEmployeeId();
+            }
+            String domain = request.departmentId() != null ? request.departmentId() : toIdSegment(request.department());
+            String role = toIdSegment(request.name());
+            String instance = generateInstanceNumber(domain, role);
+            return IdUtils.generateDigitalEmployeeId(domain, role, instance);
         } else {
             IdUtils.AuthProvider provider;
             try {
@@ -111,36 +151,33 @@ public class JpaEmployeeServiceImpl implements EmployeeService {
         }
     }
 
-    private DigitalEmployeeEntity createDigitalEntity(String employeeId, EmployeeCreationRequest request) {
-        DigitalEmployeeEntity entity = new DigitalEmployeeEntity();
-        entity.setId(employeeId);
-        entity.setName(request.name());
-        entity.setDepartment(request.department());
-        entity.setStatus(EmployeeStatus.ACTIVE.name());
-        entity.setPosition(request.title());
-        entity.setHireDate(LocalDate.now());
-        entity.setBrainDomain(request.department());
-        entity.setMaxConcurrentTasks(5);
-        try {
-            entity.setSkills(objectMapper.writeValueAsString(request.skills()));
-            entity.setCapabilities(objectMapper.writeValueAsString(request.capabilities()));
-        } catch (JsonProcessingException e) {
-            log.warn("Failed to serialize skills/capabilities", e);
-        }
-        return entity;
+    private String generateInstanceNumber(String domain, String role) {
+        int maxInstance = cache.values().stream()
+            .filter(Employee::isDigital)
+            .mapToInt(e -> {
+                try {
+                    IdUtils.ParsedEmployeeId parsed = IdUtils.parseEmployeeId(e.getEmployeeId());
+                    if (domain.equals(parsed.getDepartment()) && role.equals(parsed.getRole())) {
+                        String inst = parsed.getInstance();
+                        return inst != null ? Integer.parseInt(inst) : 0;
+                    }
+                } catch (Exception ex) {
+                    // skip non-standard IDs
+                }
+                return 0;
+            })
+            .max()
+            .orElse(0);
+        return String.format("%03d", maxInstance + 1);
     }
 
-    private HumanEmployeeEntity createHumanEntity(String employeeId, EmployeeCreationRequest request) {
-        HumanEmployeeEntity entity = new HumanEmployeeEntity();
-        entity.setId(employeeId);
-        entity.setName(request.name());
-        entity.setDepartment(request.department());
-        entity.setStatus(EmployeeStatus.ACTIVE.name());
-        entity.setPosition(request.title());
-        entity.setHireDate(LocalDate.now());
-        entity.setEmail(request.email());
-        entity.setPhone(request.phone());
-        return entity;
+    private String toIdSegment(String text) {
+        if (text == null) return "unknown";
+        return text.replaceAll("([a-z])([A-Z])", "$1-$2")
+                   .toLowerCase()
+                   .replaceAll("[^a-z0-9\\u4e00-\\u9fff-]", "-")
+                   .replaceAll("-+", "-")
+                   .replaceAll("^-|-$", "");
     }
 
     private Employee createDigitalEmployee(String employeeId, EmployeeCreationRequest request) {
@@ -159,7 +196,8 @@ public class JpaEmployeeServiceImpl implements EmployeeService {
             .personality(request.personality())
             .subscribeChannels(request.subscribeChannels())
             .publishChannels(request.publishChannels())
-            .workflowBindings(request.workflowBindings());
+            .workflowBindings(request.workflowBindings())
+            .origin(request.origin());
 
         if (request.ttl() != null) {
             builder.expiresAt(Instant.now().plus(request.ttl()));
@@ -206,12 +244,10 @@ public class JpaEmployeeServiceImpl implements EmployeeService {
             updated = updateHumanEmployee((HumanEmployee) existing, request);
         }
 
-        Optional<EmployeeEntity> entityOpt = employeeRepository.findById(employeeId);
-        if (entityOpt.isPresent()) {
-            EmployeeEntity entity = entityOpt.get();
+        enterpriseEmployeeRepository.findByEmployeeId(employeeId).ifPresent(entity -> {
             updateEntityFromDomain(entity, updated);
-            employeeRepository.save(entity);
-        }
+            enterpriseEmployeeRepository.save(entity);
+        });
 
         cache.put(employeeId, updated);
         log.info("Updated employee: {}", employeeId);
@@ -219,9 +255,10 @@ public class JpaEmployeeServiceImpl implements EmployeeService {
         return updated;
     }
 
-    private void updateEntityFromDomain(EmployeeEntity entity, Employee employee) {
+    private void updateEntityFromDomain(EnterpriseEmployeeEntity entity, Employee employee) {
         entity.setName(employee.getName());
-        entity.setDepartment(employee.getDepartment());
+        entity.setDepartmentId(employee.getDepartmentId());
+        entity.setDepartmentName(employee.getDepartment());
         entity.setStatus(employee.getStatus().name());
         entity.setPosition(employee.getTitle());
         entity.setUpdatedAt(Instant.now());
@@ -287,10 +324,12 @@ public class JpaEmployeeServiceImpl implements EmployeeService {
             ((HumanEmployee) employee).setStatus(status);
         }
 
-        employeeRepository.findById(employeeId).ifPresent(entity -> {
+        enterpriseEmployeeRepository.findByEmployeeId(employeeId).ifPresent(entity -> {
             entity.setStatus(status.name());
+            // ✅ 基于新状态模型：工作动作状态+学习状态均为"在线"
+            entity.setActive(status.isOnline());
             entity.setUpdatedAt(Instant.now());
-            employeeRepository.save(entity);
+            enterpriseEmployeeRepository.save(entity);
         });
 
         log.info("Updated employee {} status to {}", employeeId, status);
@@ -312,7 +351,7 @@ public class JpaEmployeeServiceImpl implements EmployeeService {
         String authKey = employee.getAuthProvider() + ":" + employee.getAuthId();
         authIndex.remove(authKey);
 
-        employeeRepository.deleteById(employeeId);
+        enterpriseEmployeeRepository.deleteById(employeeId);
 
         log.info("Deleted employee: {}", employeeId);
     }
@@ -368,6 +407,16 @@ public class JpaEmployeeServiceImpl implements EmployeeService {
         String employeeId = authIndex.get(authKey);
         if (employeeId != null) {
             return Optional.ofNullable(cache.get(employeeId));
+        }
+
+        // 尝试从数据库查找
+        Optional<EnterpriseEmployeeEntity> entityOpt =
+            enterpriseEmployeeRepository.findByOauthProviderAndOauthUserId(authProvider, authId);
+        if (entityOpt.isPresent()) {
+            Employee employee = toDomain(entityOpt.get());
+            cache.put(employee.getEmployeeId(), employee);
+            authIndex.put(authKey, employee.getEmployeeId());
+            return Optional.of(employee);
         }
 
         return cache.values().stream()
@@ -511,47 +560,70 @@ public class JpaEmployeeServiceImpl implements EmployeeService {
             log.info("Terminated human employee: {} (reason: {})", employeeId, reason);
         }
 
-        employeeRepository.findById(employeeId).ifPresent(entity -> {
+        enterpriseEmployeeRepository.findByEmployeeId(employeeId).ifPresent(entity -> {
             entity.setStatus(EmployeeStatus.TERMINATED.name());
+            entity.setActive(false);
             entity.setUpdatedAt(Instant.now());
-            employeeRepository.save(entity);
+            enterpriseEmployeeRepository.save(entity);
         });
     }
 
-    private Employee toDomain(EmployeeEntity entity) {
-        if (entity instanceof DigitalEmployeeEntity digitalEntity) {
-            return toDigitalEmployee(digitalEntity);
-        } else if (entity instanceof HumanEmployeeEntity humanEntity) {
-            return toHumanEmployee(humanEntity);
+    private Employee toDomain(EnterpriseEmployeeEntity entity) {
+        if ("DIGITAL".equals(entity.getEmployeeType())) {
+            return toDigitalEmployee(entity);
+        } else {
+            return toHumanEmployee(entity);
         }
-        throw new IllegalArgumentException("Unknown entity type: " + entity.getClass());
     }
 
-    private DigitalEmployee toDigitalEmployee(DigitalEmployeeEntity entity) {
+    private DigitalEmployee toDigitalEmployee(EnterpriseEmployeeEntity entity) {
         List<String> skills = parseJsonList(entity.getSkills());
         List<String> capabilities = parseJsonList(entity.getCapabilities());
 
         return DigitalEmployee.builder()
-            .employeeId(entity.getId())
+            .employeeId(entity.getEmployeeId())
             .name(entity.getName())
             .title(entity.getPosition())
-            .department(entity.getDepartment())
+            .department(entity.getDepartmentName())
+            .departmentId(entity.getDepartmentId())
             .skills(skills)
             .capabilities(capabilities)
-            .status(EmployeeStatus.valueOf(entity.getStatus()))
+            .status(parseStatus(entity.getStatus()))
+            .origin(parseOrigin(entity.getOrigin()))
             .createdAt(entity.getCreatedAt())
             .build();
     }
 
-    private HumanEmployee toHumanEmployee(HumanEmployeeEntity entity) {
+    private HumanEmployee toHumanEmployee(EnterpriseEmployeeEntity entity) {
         return HumanEmployee.builder()
-            .employeeId(entity.getId())
+            .employeeId(entity.getEmployeeId())
             .name(entity.getName())
             .title(entity.getPosition())
-            .department(entity.getDepartment())
-            .status(EmployeeStatus.valueOf(entity.getStatus()))
+            .department(entity.getDepartmentName() != null ? entity.getDepartmentName() : "unassigned")
+            .departmentId(entity.getDepartmentId() != null ? entity.getDepartmentId() : "unassigned")
+            .authProvider(entity.getOauthProvider())
+            .authId(entity.getOauthUserId())
+            .status(parseStatus(entity.getStatus()))
             .createdAt(entity.getCreatedAt())
             .build();
+    }
+
+    private EmployeeStatus parseStatus(String status) {
+        if (status == null || status.isBlank()) return EmployeeStatus.ACTIVE;
+        try {
+            return EmployeeStatus.valueOf(status);
+        } catch (IllegalArgumentException e) {
+            return EmployeeStatus.ACTIVE;
+        }
+    }
+
+    private EmployeeOrigin parseOrigin(String origin) {
+        if (origin == null || origin.isBlank()) return EmployeeOrigin.PERSONAL;
+        try {
+            return EmployeeOrigin.valueOf(origin);
+        } catch (IllegalArgumentException e) {
+            return EmployeeOrigin.PERSONAL;
+        }
     }
 
     private List<String> parseJsonList(String json) {
@@ -580,5 +652,80 @@ public class JpaEmployeeServiceImpl implements EmployeeService {
         return (int) cache.values().stream()
             .filter(Employee::isHuman)
             .count();
+    }
+
+    @Override
+    public List<MemberSummary> getDepartmentMembersByCode(String departmentCode) {
+        if (departmentCode == null || departmentCode.isBlank()) {
+            return List.of();
+        }
+
+        try {
+            Optional<DepartmentEntity> deptOpt = departmentRepository.findByCode(departmentCode);
+            if (deptOpt.isEmpty()) {
+                return List.of();
+            }
+
+            String departmentId = deptOpt.get().getDepartmentId();
+
+            List<EnterpriseEmployeeEntity> employees = enterpriseEmployeeRepository
+                    .findActiveByDepartmentId(departmentId);
+
+            return employees.stream()
+                    .map(this::toMemberSummary)
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            log.error("Failed to get department members by code: {}", departmentCode, e);
+            return List.of();
+        }
+    }
+
+    @Override
+    public Optional<MemberSummary> getMemberSummary(String employeeId) {
+        if (employeeId == null || employeeId.isBlank()) {
+            return Optional.empty();
+        }
+
+        try {
+            return enterpriseEmployeeRepository.findByEmployeeId(employeeId)
+                    .map(this::toMemberSummary);
+        } catch (Exception e) {
+            log.error("Failed to get member summary for employee: {}", employeeId, e);
+            return Optional.empty();
+        }
+    }
+
+    private MemberSummary toMemberSummary(EnterpriseEmployeeEntity entity) {
+        String status = entity.isActive() ? "在线" : "离线";
+        String origin = "DIGITAL".equals(entity.getEmployeeType()) ? "digital" : "human";
+
+        String departmentCode = resolveDepartmentCode(entity.getDepartmentId(), entity.getDepartmentName());
+
+        return new MemberSummary(
+            entity.getEmployeeId(),
+            entity.getName(),
+            entity.getDepartmentName(),
+            departmentCode,
+            status,
+            origin,
+            entity.getPosition(),
+            entity.getAvatarUrl(),
+            entity.getAccessLevel() != null ? entity.getAccessLevel() : "UNKNOWN"
+        );
+    }
+
+    private String resolveDepartmentCode(String departmentId, String departmentName) {
+        if (departmentId != null) {
+            Optional<DepartmentEntity> deptOpt = departmentRepository.findById(departmentId);
+            if (deptOpt.isPresent()) {
+                return deptOpt.get().getCode();
+            }
+        }
+
+        if (departmentName != null && !departmentName.isBlank()) {
+            return Department.mapDepartmentToBrain(departmentName).toLowerCase().replace("brain", "");
+        }
+
+        return null;
     }
 }

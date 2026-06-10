@@ -29,6 +29,17 @@ public interface ApprovalService {
     
     List<ApprovalWorkflow> listWorkflows();
     
+    /** P1-4.2: 注册审批回调，审批完成时触发 */
+    void registerCallback(ApprovalCallback callback);
+    
+    /** P1-4.2: 审批回调接口 */
+    interface ApprovalCallback {
+        /** 审批通过时调用 */
+        void onApproved(ApprovalInstance instance);
+        /** 审批拒绝时调用 */
+        void onRejected(ApprovalInstance instance);
+    }
+    
     record CreateApprovalRequest(
         String workflowId,
         String businessType,

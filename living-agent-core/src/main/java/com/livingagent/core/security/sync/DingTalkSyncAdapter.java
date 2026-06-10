@@ -1,7 +1,7 @@
 package com.livingagent.core.security.sync;
 
 import com.livingagent.core.security.Department;
-import com.livingagent.core.security.Employee;
+import com.livingagent.core.security.SecurityIdentity;
 import com.livingagent.core.security.UserIdentity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -69,10 +69,10 @@ public class DingTalkSyncAdapter implements HrSyncAdapter {
     }
 
     @Override
-    public List<Employee> fetchEmployees() {
+    public List<SecurityIdentity> fetchEmployees() {
         log.info("Fetching employees from DingTalk");
         
-        List<Employee> employees = new ArrayList<>();
+        List<SecurityIdentity> employees = new ArrayList<>();
         
         try {
             String token = getAccessToken();
@@ -84,7 +84,7 @@ public class DingTalkSyncAdapter implements HrSyncAdapter {
             List<Map<String, Object>> userList = fetchUserList(token);
             
             for (Map<String, Object> user : userList) {
-                Employee employee = convertToEmployee(user);
+                SecurityIdentity employee = convertToEmployee(user);
                 if (employee != null) {
                     employees.add(employee);
                 }
@@ -137,9 +137,9 @@ public class DingTalkSyncAdapter implements HrSyncAdapter {
         List<String> errorList = new ArrayList<>();
         
         try {
-            List<Employee> employees = fetchEmployees();
+            List<SecurityIdentity> employees = fetchEmployees();
             
-            for (Employee emp : employees) {
+            for (SecurityIdentity emp : employees) {
                 try {
                     created++;
                 } catch (Exception e) {
@@ -173,7 +173,7 @@ public class DingTalkSyncAdapter implements HrSyncAdapter {
     }
 
     @Override
-    public Employee fetchEmployeeById(String employeeId) {
+    public SecurityIdentity fetchEmployeeById(String employeeId) {
         try {
             String token = getAccessToken();
             if (token == null) return null;
@@ -198,8 +198,8 @@ public class DingTalkSyncAdapter implements HrSyncAdapter {
     }
 
     @Override
-    public List<Employee> fetchEmployeesByDepartment(String departmentId) {
-        List<Employee> employees = new ArrayList<>();
+    public List<SecurityIdentity> fetchEmployeesByDepartment(String departmentId) {
+        List<SecurityIdentity> employees = new ArrayList<>();
         
         try {
             String token = getAccessToken();
@@ -221,7 +221,7 @@ public class DingTalkSyncAdapter implements HrSyncAdapter {
                 
                 if (userList != null) {
                     for (Map<String, Object> user : userList) {
-                        Employee emp = convertToEmployee(user);
+                        SecurityIdentity emp = convertToEmployee(user);
                         if (emp != null) {
                             employees.add(emp);
                         }
@@ -330,10 +330,10 @@ public class DingTalkSyncAdapter implements HrSyncAdapter {
         return allDepts;
     }
 
-    private Employee convertToEmployee(Map<String, Object> user) {
+    private SecurityIdentity convertToEmployee(Map<String, Object> user) {
         if (user == null) return null;
         
-        Employee employee = new Employee();
+        SecurityIdentity employee = new SecurityIdentity();
         
         String userId = getString(user, "userid");
         if (userId == null) {

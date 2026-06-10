@@ -1,0 +1,40 @@
+# 依赖
+node_modules/
+dist/
+out/
+
+# 日志
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# 编辑器
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# 环境
+.env
+.env.local
+.env.*.local
+
+# 运行时
+.cache/
+.tmp/
+
+# 桌面端特定
+release/
+*.exe
+*.dmg
+*.AppImage
+
+# 桌面端本地保存数据
+local-save/

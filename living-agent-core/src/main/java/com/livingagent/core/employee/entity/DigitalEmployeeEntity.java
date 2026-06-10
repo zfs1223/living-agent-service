@@ -1,5 +1,6 @@
 package com.livingagent.core.employee.entity;
 
+import jakarta.persistence.Column;
 import jakarta.persistence.DiscriminatorValue;
 import jakarta.persistence.Entity;
 import java.util.Map;
@@ -18,6 +19,9 @@ public class DigitalEmployeeEntity extends EmployeeEntity {
 
     private String capabilities;
 
+    @Column(length = 20)
+    private String origin;
+
     public String getModel() { return model; }
     public void setModel(String model) { this.model = model; }
 
@@ -32,4 +36,7 @@ public class DigitalEmployeeEntity extends EmployeeEntity {
 
     public String getCapabilities() { return capabilities; }
     public void setCapabilities(String capabilities) { this.capabilities = capabilities; }
+
+    public String getOrigin() { return origin; }
+    public void setOrigin(String origin) { this.origin = origin; }
 }

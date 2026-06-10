@@ -1,5 +1,6 @@
 package com.livingagent.gateway.controller;
 
+import com.livingagent.core.security.AccessGateService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -10,18 +11,28 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+@Deprecated
 @RestController
-@RequestMapping("/api/agents/{agentId}/tasks")
+@RequestMapping("/api/agents/{agentId:.+}/tasks")
 public class AgentTaskController {
 
     private static final Logger log = LoggerFactory.getLogger(AgentTaskController.class);
+    private final AccessGateService accessGateService;
+
+    public AgentTaskController(AccessGateService accessGateService) {
+        this.accessGateService = accessGateService;
+    }
 
     @GetMapping
     public ResponseEntity<ApiResponse<List<TaskInfo>>> listTasks(
             @PathVariable String agentId,
             @RequestParam(required = false) String status_filter,
-            @RequestParam(required = false) String type_filter
+            @RequestParam(required = false) String type_filter,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.debug("Listing tasks for agent: {}, status: {}, type: {}", agentId, status_filter, type_filter);
 
         List<TaskInfo> tasks = new ArrayList<>();
@@ -42,8 +53,12 @@ public class AgentTaskController {
     @PostMapping
     public ResponseEntity<ApiResponse<TaskInfo>> createTask(
             @PathVariable String agentId,
-            @RequestBody CreateTaskRequest request
+            @RequestBody CreateTaskRequest request,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.info("Creating task for agent: {}", agentId);
 
         TaskInfo task = new TaskInfo(
@@ -63,8 +78,12 @@ public class AgentTaskController {
     @GetMapping("/{taskId}")
     public ResponseEntity<ApiResponse<TaskInfo>> getTask(
             @PathVariable String agentId,
-            @PathVariable String taskId
+            @PathVariable String taskId,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.debug("Getting task: {} for agent: {}", taskId, agentId);
 
         TaskInfo task = new TaskInfo(
@@ -85,8 +104,12 @@ public class AgentTaskController {
     public ResponseEntity<ApiResponse<TaskInfo>> updateTask(
             @PathVariable String agentId,
             @PathVariable String taskId,
-            @RequestBody UpdateTaskRequest request
+            @RequestBody UpdateTaskRequest request,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.info("Updating task: {} for agent: {}", taskId, agentId);
 
         TaskInfo task = new TaskInfo(
@@ -106,8 +129,12 @@ public class AgentTaskController {
     @GetMapping("/{taskId}/logs")
     public ResponseEntity<ApiResponse<List<TaskLog>>> getTaskLogs(
             @PathVariable String agentId,
-            @PathVariable String taskId
+            @PathVariable String taskId,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.debug("Getting logs for task: {} of agent: {}", taskId, agentId);
 
         List<TaskLog> logs = new ArrayList<>();
@@ -124,8 +151,12 @@ public class AgentTaskController {
     @PostMapping("/{taskId}/trigger")
     public ResponseEntity<ApiResponse<Map<String, String>>> triggerTask(
             @PathVariable String agentId,
-            @PathVariable String taskId
+            @PathVariable String taskId,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.info("Triggering task: {} for agent: {}", taskId, agentId);
 
         return ResponseEntity.ok(ApiResponse.success(Map.of(

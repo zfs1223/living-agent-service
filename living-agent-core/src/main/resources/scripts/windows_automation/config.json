@@ -1,0 +1,34 @@
+{
+    "server": {
+        "host": "0.0.0.0",
+        "port": 8765
+    },
+    "registration": {
+        "server_url": "",
+        "heartbeat_interval": 60,
+        "tenant_id": "",
+        "user_id": "",
+        "description": ""
+    },
+    "applications": {
+        "kingdee_mini": {
+            "name": "金蝶KIS迷你版",
+            "exe_path": "C:\\Program Files\\Kingdee\\KIS\\mini.exe",
+            "backend": "win32",
+            "enabled": true
+        }
+    },
+    "security": {
+        "allowed_commands": [
+            "launch",
+            "login",
+            "menu_select",
+            "click",
+            "type_keys",
+            "get_text",
+            "screenshot",
+            "close"
+        ],
+        "max_execution_time": 300
+    }
+}

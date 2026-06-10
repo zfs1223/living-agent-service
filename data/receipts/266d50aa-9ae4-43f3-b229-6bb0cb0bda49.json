@@ -1,0 +1,58 @@
+[ {
+  "receiptId" : "8fa1888e-9bfc-47f5-a73a-45cc590d278a",
+  "executionId" : "266d50aa-9ae4-43f3-b229-6bb0cb0bda49",
+  "dispatchId" : "2e0a353b-afb8-47fa-a1da-d77511442464",
+  "assignmentId" : "e7bbb7c2-d37a-414d-8f8c-16e5d09419d7",
+  "employeeCode" : "T02",
+  "employeeNeuronId" : "neuron://tech/architect/001",
+  "status" : "COMPLETED",
+  "summary" : "任务执行完成（工具驱动）\n\n员工: 真构 (T02)\n任务类型: web_prototype\n使用工具: [llm_code_generation, file_write]\n产物文件:\n- index.html (html): data/artifacts/T02/e7bbb7c2-d37a-414d-8f8c-16e5d09419d7/index.html\n执行结果: Web 任务已完成，生成 1 个文件",
+  "receivedAt" : 1778724214.266467766,
+  "metadata" : {
+    "modelName" : "tool_executor",
+    "modelProvider" : "tool_executor",
+    "confidence" : 0.9,
+    "failureReason" : null,
+    "outcomeStatus" : "COMPLETED",
+    "needsHumanReview" : false,
+    "needsRetry" : false
+  }
+}, {
+  "receiptId" : "f14d8d76-97f3-4b89-b15f-16a445266e89",
+  "executionId" : "266d50aa-9ae4-43f3-b229-6bb0cb0bda49",
+  "dispatchId" : "f423e100-9d84-4f19-ab19-8b042b19f9a5",
+  "assignmentId" : "f69a6c51-5f96-4c57-966f-5161fdb11643",
+  "employeeCode" : "T09",
+  "employeeNeuronId" : "neuron://tech/frontend/001",
+  "status" : "COMPLETED",
+  "summary" : "任务执行完成（工具驱动）\n\n员工: 真绘 (T09)\n任务类型: web_prototype\n使用工具: [llm_code_generation, file_write]\n产物文件:\n- index.html (html): data/artifacts/T09/f69a6c51-5f96-4c57-966f-5161fdb11643/index.html\n执行结果: Web 任务已完成，生成 1 个文件",
+  "receivedAt" : 1778724214.288067074,
+  "metadata" : {
+    "modelName" : "tool_executor",
+    "modelProvider" : "tool_executor",
+    "confidence" : 0.9,
+    "failureReason" : null,
+    "outcomeStatus" : "COMPLETED",
+    "needsHumanReview" : false,
+    "needsRetry" : false
+  }
+}, {
+  "receiptId" : "3a9b2198-4cf2-4b57-b624-a1176bc78a96",
+  "executionId" : "266d50aa-9ae4-43f3-b229-6bb0cb0bda49",
+  "dispatchId" : "1213e656-89d9-46cc-bd4a-0846d089dbf3",
+  "assignmentId" : "36f1a4cf-ae21-4659-9923-93049ea2333b",
+  "employeeCode" : "T04",
+  "employeeNeuronId" : "neuron://tech/ops/001",
+  "status" : "COMPLETED",
+  "summary" : "任务执行完成（工具驱动）\n\n员工: 真稳 (T04)\n任务类型: web_prototype\n使用工具: [llm_code_generation, file_write]\n产物文件:\n- index.html (html): data/artifacts/T04/36f1a4cf-ae21-4659-9923-93049ea2333b/index.html\n执行结果: Web 任务已完成，生成 1 个文件",
+  "receivedAt" : 1778724214.302642090,
+  "metadata" : {
+    "modelName" : "tool_executor",
+    "modelProvider" : "tool_executor",
+    "confidence" : 0.9,
+    "failureReason" : null,
+    "outcomeStatus" : "COMPLETED",
+    "needsHumanReview" : false,
+    "needsRetry" : false
+  }
+} ]

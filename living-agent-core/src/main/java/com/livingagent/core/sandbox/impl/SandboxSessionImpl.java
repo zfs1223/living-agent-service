@@ -99,12 +99,17 @@ public class SandboxSessionImpl implements SandboxSession {
 
     @Override
     public CompletableFuture<ExecutionResult> executeCommand(String command, List<String> args) {
+        return executeCommand(command, args, Map.of());
+    }
+
+    @Override
+    public CompletableFuture<ExecutionResult> executeCommand(String command, List<String> args, Map<String, String> env) {
         return CompletableFuture.supplyAsync(() -> {
             state = SessionState.BUSY;
             lastActiveAt = Instant.now();
-            
+
             try {
-                String fullCommand = buildFullCommand(command, args);
+                String fullCommand = buildFullCommand(command, args, env);
                 return executeCommandInternal(fullCommand, DEFAULT_TIMEOUT_SECONDS);
             } finally {
                 state = SessionState.READY;
@@ -273,21 +278,45 @@ public class SandboxSessionImpl implements SandboxSession {
         };
     }
     
-    private String buildFullCommand(String command, List<String> args) {
-        StringBuilder sb = new StringBuilder(command);
+    private String buildFullCommand(String command, List<String> args, Map<String, String> env) {
+        StringBuilder sb = new StringBuilder();
+        
+        if (env != null && !env.isEmpty()) {
+            env.forEach((key, value) -> {
+                String safeKey = sanitizeEnvKey(key);
+                String escapedValue = escapeForShellSingleQuoted(value);
+                sb.append(safeKey).append("='").append(escapedValue).append("' ");
+            });
+        }
+        
+        sb.append(command);
         if (args != null) {
             for (String arg : args) {
-                sb.append(" ").append(escapeForShell(arg));
+                sb.append(" ").append(escapeForShellArg(arg));
             }
         }
         return sb.toString();
     }
     
+    private String sanitizeEnvKey(String key) {
+        if (key == null) {
+            return "";
+        }
+        return key.replaceAll("[^A-Za-z0-9_]+", "_");
+    }
+
+    private String escapeForShellArg(String s) {
+        if (s == null) return "''";
+        return "'" + escapeForShellSingleQuoted(s) + "'";
+    }
+
     private String escapeForShell(String s) {
         if (s == null) return "";
-        return s.replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("$", "\\$")
-                .replace("`", "\\`");
+        return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("$", "\\$").replace("`", "\\`");
+    }
+
+    private String escapeForShellSingleQuoted(String s) {
+        if (s == null) return "";
+        return s.replace("'", "'\"'\"'");
     }
 }

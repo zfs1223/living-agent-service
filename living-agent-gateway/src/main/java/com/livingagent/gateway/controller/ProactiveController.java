@@ -3,6 +3,7 @@ package com.livingagent.gateway.controller;
 import com.livingagent.core.proactive.suggestion.ProactiveSuggestionService;
 import com.livingagent.core.proactive.suggestion.ProactiveSuggestionService.Suggestion;
 import com.livingagent.core.proactive.suggestion.ProactiveSuggestionService.SuggestionType;
+import com.livingagent.core.security.AccessGateService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -20,15 +21,21 @@ public class ProactiveController {
     private static final Logger log = LoggerFactory.getLogger(ProactiveController.class);
 
     private final ProactiveSuggestionService suggestionService;
+    private final AccessGateService accessGateService;
 
-    public ProactiveController(ProactiveSuggestionService suggestionService) {
+    public ProactiveController(ProactiveSuggestionService suggestionService, AccessGateService accessGateService) {
         this.suggestionService = suggestionService;
+        this.accessGateService = accessGateService;
     }
 
     @GetMapping("/digest")
     public ResponseEntity<ApiResponse<DailyDigest>> getDailyDigest(
-            @RequestParam(required = false) String userId
+            @RequestParam(required = false) String userId,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.debug("Getting daily digest for user: {}", userId);
 
         String effectiveUserId = userId != null ? userId : "default";
@@ -47,8 +54,12 @@ public class ProactiveController {
 
     @GetMapping("/habits")
     public ResponseEntity<ApiResponse<List<HabitInfo>>> getHabits(
-            @RequestParam(required = false) String userId
+            @RequestParam(required = false) String userId,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.debug("Getting habits for user: {}", userId);
 
         String effectiveUserId = userId != null ? userId : "default";
@@ -65,8 +76,12 @@ public class ProactiveController {
     @PostMapping("/habits/{habitId}/checkin")
     public ResponseEntity<ApiResponse<CheckinResult>> checkinHabit(
             @PathVariable String habitId,
-            @RequestParam(required = false) String userId
+            @RequestParam(required = false) String userId,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.info("Habit checkin: {} for user: {}", habitId, userId);
 
         CheckinResult result = new CheckinResult(
@@ -82,8 +97,12 @@ public class ProactiveController {
 
     @PostMapping("/habits")
     public ResponseEntity<ApiResponse<HabitInfo>> createHabit(
-            @RequestBody CreateHabitRequest request
+            @RequestBody CreateHabitRequest request,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.info("Creating habit: {}", request.name());
 
         HabitInfo habit = new HabitInfo(
@@ -102,8 +121,12 @@ public class ProactiveController {
     @PutMapping("/habits/{id}")
     public ResponseEntity<ApiResponse<HabitInfo>> updateHabit(
             @PathVariable String id,
-            @RequestBody UpdateHabitRequest request
+            @RequestBody UpdateHabitRequest request,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.info("Updating habit: {}", id);
 
         HabitInfo habit = new HabitInfo(
@@ -120,7 +143,12 @@ public class ProactiveController {
     }
 
     @DeleteMapping("/habits/{id}")
-    public ResponseEntity<ApiResponse<Void>> deleteHabit(@PathVariable String id) {
+    public ResponseEntity<ApiResponse<Void>> deleteHabit(
+            @PathVariable String id,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.info("Deleting habit: {}", id);
 
         return ResponseEntity.ok(ApiResponse.success(null));
@@ -130,8 +158,12 @@ public class ProactiveController {
     public ResponseEntity<ApiResponse<List<NotificationInfo>>> getNotifications(
             @RequestParam(required = false) String userId,
             @RequestParam(defaultValue = "20") int limit,
-            @RequestParam(defaultValue = "false") boolean unreadOnly
+            @RequestParam(defaultValue = "false") boolean unreadOnly,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.debug("Getting notifications for user: {}", userId);
 
         String effectiveUserId = userId != null ? userId : "default";
@@ -176,8 +208,12 @@ public class ProactiveController {
     @PostMapping("/notifications/{id}/read")
     public ResponseEntity<ApiResponse<Void>> markNotificationRead(
             @PathVariable String id,
-            @RequestParam(required = false) String userId
+            @RequestParam(required = false) String userId,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.info("Marking notification as read: {}", id);
 
         String effectiveUserId = userId != null ? userId : "default";
@@ -188,8 +224,12 @@ public class ProactiveController {
 
     @PostMapping("/notifications/read-all")
     public ResponseEntity<ApiResponse<Void>> markAllNotificationsRead(
-            @RequestParam(required = false) String userId
+            @RequestParam(required = false) String userId,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.info("Marking all notifications as read for user: {}", userId);
 
         String effectiveUserId = userId != null ? userId : "default";
@@ -201,8 +241,12 @@ public class ProactiveController {
     @GetMapping("/meeting-notes")
     public ResponseEntity<ApiResponse<List<MeetingNote>>> getMeetingNotes(
             @RequestParam(required = false) String userId,
-            @RequestParam(defaultValue = "10") int limit
+            @RequestParam(defaultValue = "10") int limit,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.debug("Getting meeting notes for user: {}", userId);
 
         List<MeetingNote> notes = List.of();
@@ -211,7 +255,12 @@ public class ProactiveController {
     }
 
     @GetMapping("/meeting-notes/{id}")
-    public ResponseEntity<ApiResponse<MeetingNote>> getMeetingNote(@PathVariable String id) {
+    public ResponseEntity<ApiResponse<MeetingNote>> getMeetingNote(
+            @PathVariable String id,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.debug("Getting meeting note: {}", id);
 
         return ResponseEntity.status(404)
@@ -221,8 +270,12 @@ public class ProactiveController {
     @GetMapping("/analytics")
     public ResponseEntity<ApiResponse<AnalyticsData>> getAnalytics(
             @RequestParam(required = false) String userId,
-            @RequestParam(defaultValue = "7") int days
+            @RequestParam(defaultValue = "7") int days,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.debug("Getting analytics for user: {}, days: {}", userId, days);
 
         AnalyticsData analytics = new AnalyticsData(
@@ -253,8 +306,12 @@ public class ProactiveController {
     @GetMapping("/suggestions")
     public ResponseEntity<ApiResponse<List<SuggestionResponse>>> getSuggestions(
             @RequestParam(required = false) String userId,
-            @RequestParam(defaultValue = "5") int limit
+            @RequestParam(defaultValue = "5") int limit,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.debug("Getting suggestions for user: {}", userId);
 
         String effectiveUserId = userId != null ? userId : "default";
@@ -272,8 +329,12 @@ public class ProactiveController {
     @GetMapping("/predictions")
     public ResponseEntity<ApiResponse<List<PredictionInfo>>> getPredictions(
             @RequestParam(required = false) String userId,
-            @RequestParam(defaultValue = "10") int limit
+            @RequestParam(defaultValue = "10") int limit,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.debug("Getting predictions for user: {}", userId);
 
         List<PredictionInfo> predictions = List.of(

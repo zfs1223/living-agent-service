@@ -1,33 +1,63 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './stores';
-import { useEffect, useState, useRef } from 'react';
-import { authApi } from './services/api';
-import Login from './pages/Login';
-import ForgotPassword from './pages/ForgotPassword';
-import ResetPassword from './pages/ResetPassword';
-import CompanySetup from './pages/CompanySetup';
-import Layout from './pages/Layout';
-import Dashboard from './pages/Dashboard';
-import Plaza from './pages/Plaza';
-import AgentDetail from './pages/AgentDetail';
-import AgentCreate from './pages/AgentCreate';
-import Chat from './pages/Chat';
-import Messages from './pages/Messages';
-import EnterpriseSettings from './pages/EnterpriseSettings';
-import InvitationCodes from './pages/InvitationCodes';
-import AdminCompanies from './pages/AdminCompanies';
-import SSOEntry from './pages/SSOEntry';
-import Projects from './pages/Projects';
-import Approvals from './pages/Approvals';
-import DepartmentDetail from './pages/DepartmentDetail';
+import { Suspense, lazy, useEffect, useState, useRef } from 'react';
+import { authApi, enterpriseSettingsApi } from './services/api';
+import Toast from './components/Toast';
+
+const Login = lazy(() => import('./pages/Login'));
+const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
+const ResetPassword = lazy(() => import('./pages/ResetPassword'));
+const CompanySetup = lazy(() => import('./pages/CompanySetup'));
+const Layout = lazy(() => import('./pages/Layout'));
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Plaza = lazy(() => import('./pages/Plaza'));
+const AgentDetail = lazy(() => import('./pages/AgentDetail'));
+const AgentCreate = lazy(() => import('./pages/AgentCreate'));
+const Chat = lazy(() => import('./pages/Chat'));
+const Messages = lazy(() => import('./pages/Messages'));
+const EnterpriseSettings = lazy(() => import('./pages/EnterpriseSettings'));
+const InvitationCodes = lazy(() => import('./pages/InvitationCodes'));
+const AdminCompanies = lazy(() => import('./pages/AdminCompanies'));
+const SSOEntry = lazy(() => import('./pages/SSOEntry'));
+const Projects = lazy(() => import('./pages/Projects'));
+const Approvals = lazy(() => import('./pages/Approvals'));
+const DepartmentDetail = lazy(() => import('./pages/DepartmentDetail'));
+
+function getStoredTenantId() {
+    return localStorage.getItem('current_tenant_id') || '';
+}
+
+function hasCompany(user: any) {
+    const tenantId = user?.tenant_id || user?.tenantId || getStoredTenantId();
+    return typeof tenantId === 'string' && tenantId.trim().length > 0;
+}
+
+function SetupCompanyRoute({ children }: { children: React.ReactNode }) {
+    const token = useAuthStore((s) => s.token);
+    const user = useAuthStore((s) => s.user);
+
+    if (!token) return <Navigate to="/login" replace />;
+    if (!user) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: 'var(--text-tertiary)' }}>加载中...</div>;
+    if (hasCompany(user)) return <Navigate to="/" replace />;
+    return <>{children}</>;
+}
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
     const token = useAuthStore((s) => s.token);
     const user = useAuthStore((s) => s.user);
+
     if (!token) return <Navigate to="/login" replace />;
-    // Force company setup for users without a tenant
-    if (user && !user.tenant_id) return <Navigate to="/setup-company" replace />;
+    if (!user) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: 'var(--text-tertiary)' }}>加载中...</div>;
+    if (!hasCompany(user)) return <Navigate to="/setup-company" replace />;
     return <>{children}</>;
+}
+
+function HomeRedirect() {
+    const user = useAuthStore((s) => s.user);
+
+    if (user?.identity === 'INTERNAL_ENTERPRISE' || user?.access_level === 'FULL') return <Navigate to="/dashboard" replace />;
+    if (user?.department_code) return <Navigate to={`/departments/${encodeURIComponent(user.department_code)}/overview`} replace />;
+    return <Navigate to="/plaza" replace />;
 }
 
 /* ─── Notification Bar ─── */
@@ -40,9 +70,8 @@ function NotificationBar() {
     const [isMarquee, setIsMarquee] = useState(false);
 
     useEffect(() => {
-        fetch('/api/enterprise/system-settings/notification_bar/public')
-            .then(r => r.ok ? r.json() : null)
-            .then(d => { if (d) setConfig(d); })
+        enterpriseSettingsApi.getSetting('notification_bar', 'public')
+            .then((d: any) => { if (d) setConfig(d.value ?? d); })
             .catch(() => { });
     }, []);
 
@@ -120,18 +149,30 @@ export default function App() {
         const savedTheme = localStorage.getItem('theme') || 'dark';
         document.documentElement.setAttribute('data-theme', savedTheme);
 
+        if (token && user) {
+            // Token 和 user 都存在，说明会话有效，直接显示当前页面
+            setLoading(false);
+            return;
+        }
+
         if (token && !user) {
+            // 有 token 但无 user 信息（页面刷新场景），调用 /api/auth/me 恢复
             authApi.me()
                 .then((u: any) => {
+                    const tenantId = u.tenantId || u.tenant_id || getStoredTenantId();
+                    if (tenantId) {
+                        localStorage.setItem('current_tenant_id', tenantId);
+                    }
                     const mappedUser = {
                         id: u.id,
                         username: u.name || u.username,
                         email: u.email || '',
                         display_name: u.name || u.display_name,
                         role: 'org_admin' as const,
-                        tenant_id: u.tenantId || u.tenant_id,
+                        tenant_id: tenantId,
                         identity: u.identity,
                         access_level: u.accessLevel || u.access_level,
+                        department_code: u.department || undefined,
                         is_active: true,
                         created_at: new Date().toISOString(),
                     };
@@ -140,6 +181,7 @@ export default function App() {
                 .catch(() => useAuthStore.getState().logout())
                 .finally(() => setLoading(false));
         } else {
+            // 没有 token，直接显示登录页
             setLoading(false);
         }
     }, []);
@@ -156,32 +198,38 @@ export default function App() {
     return (
         <>
             <NotificationBar />
-            <Routes>
-                <Route path="/login" element={<Login />} />
-                <Route path="/forgot-password" element={<ForgotPassword />} />
-                <Route path="/reset-password" element={<ResetPassword />} />
-                <Route path="/sso/entry" element={<SSOEntry />} />
-                <Route path="/setup-company" element={<CompanySetup />} />
-                <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-                    <Route index element={<Navigate to="/plaza" replace />} />
-                    <Route path="dashboard" element={<Dashboard />} />
-                    <Route path="plaza" element={<Plaza />} />
-                    <Route path="agents/new" element={<AgentCreate />} />
-                    <Route path="agents/create" element={<AgentCreate />} />
-                    <Route path="agents/:id" element={<AgentDetail />} />
-                    <Route path="agents/:id/chat" element={<Chat />} />
-                    <Route path="chat" element={<Chat />} />
-                    <Route path="messages" element={<Messages />} />
-                    <Route path="enterprise" element={<EnterpriseSettings />} />
-                    <Route path="invitations" element={<InvitationCodes />} />
-                    <Route path="admin/platform-settings" element={<AdminCompanies />} />
-                    {/* Projects and Approvals */}
-                    <Route path="projects" element={<Projects />} />
-                    <Route path="approvals" element={<Approvals />} />
-                    {/* Department routes */}
-                    <Route path="departments/:code" element={<DepartmentDetail />} />
-                </Route>
-            </Routes>
+            <Toast />
+            <Suspense fallback={<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: 'var(--text-tertiary)' }}>加载中...</div>}>
+                <Routes>
+                    <Route path="/login" element={<Login />} />
+                    <Route path="/forgot-password" element={<ForgotPassword />} />
+                    <Route path="/reset-password" element={<ResetPassword />} />
+                    <Route path="/sso/entry" element={<SSOEntry />} />
+                    <Route path="/setup-company" element={<SetupCompanyRoute><CompanySetup /></SetupCompanyRoute>} />
+                    <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+                        <Route index element={<HomeRedirect />} />
+                        <Route path="dashboard" element={<Dashboard />} />
+                        <Route path="plaza" element={<Plaza />} />
+                        <Route path="agents/new" element={<AgentCreate />} />
+                        <Route path="agents/create" element={<AgentCreate />} />
+                        <Route path="agents/:id" element={<AgentDetail />} />
+                        <Route path="agents/:id/chat" element={<Chat />} />
+                        <Route path="chat" element={<Chat />} />
+                        <Route path="messages" element={<Messages />} />
+                        <Route path="enterprise" element={<EnterpriseSettings />} />
+                        <Route path="documents" element={<Navigate to="/enterprise" replace />} />
+                        <Route path="invitations" element={<InvitationCodes />} />
+                        <Route path="admin/platform-settings" element={<AdminCompanies />} />
+                        {/* Projects and Approvals */}
+                        <Route path="projects" element={<Projects />} />
+                        <Route path="approvals" element={<Approvals />} />
+                        {/* Department routes */}
+                        <Route path="departments/:code" element={<Navigate to="overview" replace />} />
+                        <Route path="departments/:code/overview" element={<DepartmentDetail />} />
+                        <Route path="departments/:code/tasks" element={<DepartmentDetail />} />
+                    </Route>
+                </Routes>
+            </Suspense>
         </>
     );
 }

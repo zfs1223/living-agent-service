@@ -1,5 +1,6 @@
 package com.livingagent.core.skill;
 
+import com.livingagent.core.security.AccessLevel;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -17,6 +18,13 @@ public interface SkillRegistry {
     List<Skill> getSkillsByCategory(String category);
     
     List<Skill> getAllSkills();
+
+    List<Skill> getSkillsByScope(String scope);
+
+    List<Skill> getSkillsByOwnerId(String ownerId);
+
+    /** 按 AccessLevel 过滤可见技能 */
+    List<Skill> getVisibleSkills(String userId, AccessLevel accessLevel, String departmentId);
     
     List<String> getSkillMetadataForBrain(String brain);
     

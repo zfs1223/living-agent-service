@@ -1,73 +1,15 @@
 /** API service layer */
 
 import type { Agent, TokenResponse, User, Task, ChatMessage } from '../types';
-
-const API_BASE = '/api';
-
-async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
-    const token = localStorage.getItem('token');
-    const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    };
-
-    const res = await fetch(`${API_BASE}${url}`, { ...options, headers });
-
-    if (!res.ok) {
-        // Auto-logout on expired/invalid token (but not on auth endpoints — let them show errors)
-        const isAuthEndpoint = url.startsWith('/auth/login')
-            || url.startsWith('/auth/register')
-            || url.startsWith('/auth/forgot-password')
-            || url.startsWith('/auth/reset-password');
-        if (res.status === 401 && !isAuthEndpoint) {
-            localStorage.removeItem('token');
-            localStorage.removeItem('user');
-            window.location.href = '/login';
-            throw new Error('Session expired');
-        }
-        const error = await res.json().catch(() => ({ detail: 'Request failed' }));
-        // Check for ApiResponse error format
-        if (error.success === false && error.error) {
-            throw new Error(error.errorDescription || error.error);
-        }
-        // Pydantic validation errors return detail as an array of objects
-        const fieldLabels: Record<string, string> = {
-            name: '名称',
-            role_description: '角色描述',
-            agent_type: '智能体类型',
-            primary_model_id: '主模型',
-            max_tokens_per_day: '每日 Token 上限',
-            max_tokens_per_month: '每月 Token 上限',
-        };
-        let message = '';
-        if (Array.isArray(error.detail)) {
-            message = error.detail
-                .map((e: any) => {
-                    const field = e.loc?.slice(-1)[0] || '';
-                    const label = fieldLabels[field] || field;
-                    return label ? `${label}: ${e.msg}` : e.msg;
-                })
-                .join('; ');
-        } else {
-            message = error.detail || `HTTP ${res.status}`;
-        }
-        throw new Error(message);
-    }
-
-    if (res.status === 204) return undefined as T;
-    const json = await res.json();
-    // Handle ApiResponse wrapper: { success: true, data: T, error: null, errorDescription: null }
-    if (json && typeof json === 'object' && 'success' in json && 'data' in json) {
-        return json.data as T;
-    }
-    return json as T;
-}
+import { API_BASE, request } from './apiBase';
+import { getToken } from '../stores';
+import type { OfficeDepartmentStatusResponse } from './officeExtendedApi';
 
 /** Legacy/Internal generic fetcher */
 export const fetchJson = request;
 
 async function uploadFile(url: string, file: File, extraFields?: Record<string, string>): Promise<any> {
-    const token = localStorage.getItem('token');
+    const token = getToken();
     const formData = new FormData();
     formData.append('file', file);
     if (extraFields) {
@@ -79,6 +21,7 @@ async function uploadFile(url: string, file: File, extraFields?: Record<string, 
         method: 'POST',
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: formData,
+        credentials: 'include', // 确保 HttpOnly Cookie 随请求自动发送
     });
     if (!res.ok) {
         const error = await res.json().catch(() => ({ detail: 'Upload failed' }));
@@ -99,7 +42,7 @@ export function uploadFileWithProgress(
 ): { promise: Promise<any>; abort: () => void } {
     const xhr = new XMLHttpRequest();
     const promise = new Promise<any>((resolve, reject) => {
-        const token = localStorage.getItem('token');
+        const token = getToken();
         const formData = new FormData();
         formData.append('file', file);
         if (extraFields) {
@@ -109,6 +52,7 @@ export function uploadFileWithProgress(
         }
         xhr.open('POST', `${API_BASE}${url}`);
         if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+        xhr.withCredentials = true; // 确保 HttpOnly Cookie 随请求自动发送
 
         // Upload phase: 0-100%
         xhr.upload.onprogress = (e) => {
@@ -162,7 +106,7 @@ export interface PhoneLoginResponse {
 
 export const authApi = {
     sendSmsCode: (data: { phone: string; type: string }) =>
-        request<{ success: boolean; message: string }>('/auth/sms/send', { method: 'POST', body: JSON.stringify(data) }),
+        request<{ success: boolean; message: string; expiresIn: number; code?: string }>('/auth/sms/send', { method: 'POST', body: JSON.stringify(data) }),
 
     phoneLogin: (data: { phone: string; code: string }) =>
         request<PhoneLoginResponse>('/auth/phone/login', { method: 'POST', body: JSON.stringify(data) }),
@@ -182,7 +126,44 @@ export interface RegistrationResult {
     identity: string;
     accessLevel: string;
     sessionId: string;
+    tenantId?: string;
 }
+
+export const creditApi = {
+    getBalance: () => request<any>('/credits/balance'),
+    getEmployeeBalance: (employeeId: string) => request<any>(`/credits/balance/${encodeURIComponent(employeeId)}`),
+    getHistory: (limit?: number) => request<any>(`/credits/history${limit ? `?limit=${limit}` : ''}`),
+    getLeaderboard: (department?: string, limit?: number) => {
+        const params = new URLSearchParams();
+        if (department) params.set('department', department);
+        if (limit) params.set('limit', limit.toString());
+        const query = params.toString();
+        return request<any>(`/credits/leaderboard${query ? `?${query}` : ''}`);
+    },
+    getStats: () => request<any>('/credits/stats'),
+};
+
+export const enterpriseSettingsApi = {
+    get: () => request<any>('/enterprise/settings'),
+    getByCategory: (category: string) => request<any>(`/enterprise/settings/${encodeURIComponent(category)}`),
+    getSetting: (category: string, key: string) => request<any>(`/enterprise/settings/${encodeURIComponent(category)}/${encodeURIComponent(key)}`),
+    updateSetting: (category: string, key: string, value: any) => request<any>(`/enterprise/settings/${encodeURIComponent(category)}/${encodeURIComponent(key)}`, { method: 'PUT', body: JSON.stringify({ value }) }),
+    batchUpdate: (data: any) => request<any>('/enterprise/settings/batch', { method: 'POST', body: JSON.stringify(data) }),
+    updateAll: (data: any) => request<any>('/enterprise/settings', { method: 'PUT', body: JSON.stringify(data) }),
+    getHistory: () => request<any[]>('/enterprise/settings/history'),
+    resetSetting: (category: string, key: string) => request<any>(`/enterprise/settings/${encodeURIComponent(category)}/${encodeURIComponent(key)}/reset`, { method: 'POST' }),
+    listCategories: () => request<string[]>('/enterprise/settings/categories'),
+    getVersions: () => request<any[]>('/enterprise/settings/versions'),
+    rollbackVersion: (versionId: string) => request<any>(`/enterprise/settings/versions/${encodeURIComponent(versionId)}/rollback`, { method: 'POST' }),
+};
+
+export const fixedEmployeeApi = {
+    getSummary: () => request<any>('/fixed-employees/summary'),
+    getAllDefinitions: () => request<any[]>('/fixed-employees/definitions'),
+    getDefinition: (code: string) => request<any>(`/fixed-employees/definitions/${encodeURIComponent(code)}`),
+    getDefinitionsByDepartment: (department: string) => request<any[]>(`/fixed-employees/definitions/by-department/${encodeURIComponent(department)}`),
+    getGroupedDefinitions: () => request<Record<string, any[]>>('/fixed-employees/grouped'),
+};
 
 // ─── System ─────────────────────────────────────────────
 export const systemApi = {
@@ -273,33 +254,90 @@ export const agentApi = {
 
     // 数字员工配置（仅董事长可访问）
     getConfig: (id: string) =>
-        request<any>(`/agents/${encodeURIComponent(id)}/config`),
+        request<any>(`/agents/config?id=${encodeURIComponent(id)}`),
 
     updateConfig: (id: string, config: any) =>
-        request<any>(`/agents/${encodeURIComponent(id)}/config`, { method: 'PUT', body: JSON.stringify(config) }),
+        request<any>(`/agents/config?id=${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(config) }),
 };
 
 // ─── Tasks ────────────────────────────────────────────
+// Note: AgentTaskController (/agents/{agentId}/tasks) is deprecated.
+// All task operations now use the unified /tasks API.
 export const taskApi = {
+    /** @deprecated Use globalTaskApi.list instead. AgentTaskController is deprecated. */
     list: (agentId: string, status?: string, type?: string) => {
         const params = new URLSearchParams();
-        if (status) params.set('status_filter', status);
-        if (type) params.set('type_filter', type);
-        return request<Task[]>(`/agents/${encodeURIComponent(agentId)}/tasks?${params}`);
+        if (status) params.set('status', status);
+        if (type) params.set('type', type);
+        return request<Task[]>(`/tasks?${params}`);
     },
 
+    /** @deprecated Use globalTaskApi.create instead. AgentTaskController is deprecated. */
     create: (agentId: string, data: any) =>
-        request<Task>(`/agents/${encodeURIComponent(agentId)}/tasks`, { method: 'POST', body: JSON.stringify(data) }),
+        request<Task>(`/tasks`, { method: 'POST', body: JSON.stringify(data) }),
 
+    /** @deprecated Use globalTaskApi.update instead. AgentTaskController is deprecated. */
     update: (agentId: string, taskId: string, data: Partial<Task>) =>
-        request<Task>(`/agents/${encodeURIComponent(agentId)}/tasks/${taskId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+        request<Task>(`/tasks/${taskId}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
+    /** @deprecated AgentTaskController is deprecated. */
     getLogs: (agentId: string, taskId: string) =>
-        request<{ id: string; task_id: string; content: string; created_at: string }[]>(`/agents/${encodeURIComponent(agentId)}/tasks/${taskId}/logs`),
+        request<{ id: string; task_id: string; content: string; created_at: string }[]>(`/tasks/${taskId}/logs`),
 
+    /** @deprecated AgentTaskController is deprecated. */
     trigger: (agentId: string, taskId: string) =>
-        request<any>(`/agents/${encodeURIComponent(agentId)}/tasks/${taskId}/trigger`, { method: 'POST' }),
+        request<any>(`/tasks/${taskId}/trigger`, { method: 'POST' }),
+
+    getPublicTasks: (department?: string) => {
+        const params = new URLSearchParams();
+        if (department) params.set('department', department);
+        return request<any[]>(`/tasks/public${params.toString() ? `?${params.toString()}` : ''}`);
+    },
+
+    claimTask: (taskId: string) =>
+        request<any>(`/tasks/${taskId}/claim`, { method: 'POST' }),
+
+    submitTask: (taskId: string, result: string) =>
+        request<any>(`/tasks/${taskId}/submit`, { method: 'POST', body: JSON.stringify({ result }) }),
+
+    getMyTasks: (status?: string) => {
+        const params = new URLSearchParams();
+        if (status) params.set('status', status);
+        return request<any[]>(`/tasks/my${params.toString() ? `?${params.toString()}` : ''}`);
+    },
+
+    // 员工执行历史 (数字员工可用)
+    getMyExecutions: (limit = 20) =>
+        request<ExecutionReceiptSummary[]>(`/tasks/executions/my?limit=${limit}`),
+
+    // 任务整体进展
+    getExecutionProgress: (executionId: string) =>
+        request<ExecutionProgress>(`/tasks/executions/${encodeURIComponent(executionId)}/progress`),
+
+    // 部门任务列表
+    getDepartmentExecutions: (department: string, limit = 50) =>
+        request<ExecutionReceiptSummary[]>(`/tasks/executions/department/${encodeURIComponent(department)}?limit=${limit}`),
 };
+
+export interface ExecutionReceiptSummary {
+    receiptId: string;
+    executionId: string;
+    employeeCode: string;
+    employeeNeuronId: string;
+    status: string;
+    summary: string;
+    completedAt: string;
+    modelName: string;
+    modelProvider: string;
+}
+
+export interface ExecutionProgress {
+    executionId: string;
+    totalCount: number;
+    completedCount: number;
+    failedCount: number;
+    receipts: ExecutionReceiptSummary[];
+}
 
 // ─── Files ────────────────────────────────────────────
 export const fileApi = {
@@ -332,7 +370,7 @@ export const fileApi = {
         }),
 
     downloadUrl: (agentId: string, path: string) => {
-        const token = localStorage.getItem('token');
+        const token = getToken();
         return `${API_BASE}/agents/${encodeURIComponent(agentId)}/files/download?path=${encodeURIComponent(path)}&token=${token}`;
     },
 };
@@ -362,23 +400,18 @@ export const enterpriseApi = {
         return request<any[]>(`/enterprise/llm-models${tid ? `?tenant_id=${tid}` : ''}`);
     },
     templates: () => request<any[]>('/agents/templates'),
-
     // Enterprise Knowledge Base
     kbFiles: (path: string = '') =>
         request<any[]>(`/enterprise/knowledge-base/files?path=${encodeURIComponent(path)}`),
-
     kbUpload: (file: File, subPath: string = '') =>
         uploadFile(`/enterprise/knowledge-base/upload?sub_path=${encodeURIComponent(subPath)}`, file),
-
     kbRead: (path: string) =>
         request<{ path: string; content: string }>(`/enterprise/knowledge-base/content?path=${encodeURIComponent(path)}`),
-
     kbWrite: (path: string, content: string) =>
         request(`/enterprise/knowledge-base/content?path=${encodeURIComponent(path)}`, {
             method: 'PUT',
             body: JSON.stringify({ content }),
         }),
-
     kbDelete: (path: string) =>
         request(`/enterprise/knowledge-base/content?path=${encodeURIComponent(path)}`, {
             method: 'DELETE',
@@ -395,13 +428,10 @@ export const activityApi = {
 export const messageApi = {
     inbox: (limit = 50) =>
         request<any[]>(`/messages/inbox?limit=${limit}`),
-
     unreadCount: () =>
         request<{ unread_count: number }>('/messages/unread-count'),
-
     markRead: (messageId: string) =>
         request<void>(`/messages/${messageId}/read`, { method: 'PUT' }),
-
     markAllRead: () =>
         request<void>('/messages/read-all', { method: 'PUT' }),
 };
@@ -437,7 +467,6 @@ export const skillApi = {
         request<any>(`/skills/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: string) =>
         request<void>(`/skills/${id}`, { method: 'DELETE' }),
-    // Path-based browse for FileBrowser
     browse: {
         list: (path: string) => request<any[]>(`/skills/browse/list?path=${encodeURIComponent(path)}`),
         read: (path: string) => request<{ content: string }>(`/skills/browse/read?path=${encodeURIComponent(path)}`),
@@ -446,7 +475,6 @@ export const skillApi = {
         delete: (path: string) =>
             request<any>(`/skills/browse/delete?path=${encodeURIComponent(path)}`, { method: 'DELETE' }),
     },
-    // ClawHub marketplace integration
     clawhub: {
         search: (q: string) => request<any[]>(`/skills/clawhub/search?q=${encodeURIComponent(q)}`),
         detail: (slug: string) => request<any>(`/skills/clawhub/detail/${slug}`),
@@ -456,7 +484,6 @@ export const skillApi = {
         request<any>('/skills/import-from-url', { method: 'POST', body: JSON.stringify({ url }) }),
     previewUrl: (url: string) =>
         request<any>('/skills/import-from-url/preview', { method: 'POST', body: JSON.stringify({ url }) }),
-    // Tenant-level settings
     settings: {
         getToken: () => request<{ configured: boolean; source: string; masked: string; clawhub_configured: boolean; clawhub_masked: string }>('/skills/settings/token'),
         setToken: (github_token: string) =>
@@ -464,7 +491,6 @@ export const skillApi = {
         setClawhubKey: (clawhub_key: string) =>
             request<any>('/skills/settings/token', { method: 'PUT', body: JSON.stringify({ clawhub_key }) }),
     },
-    // Agent-level import (writes to agent workspace)
     agentImport: {
         fromClawhub: (agentId: string, slug: string) =>
             request<any>(`/agents/${encodeURIComponent(agentId)}/files/import-from-clawhub`, { method: 'POST', body: JSON.stringify({ slug }) }),
@@ -504,16 +530,60 @@ export const departmentApi = {
 
     getMembers: (departmentId: string) =>
         request<any[]>(`/departments/${departmentId}/members`),
+
+    getChatHistory: (departmentId: string, limit = 50, options?: { userId?: string; start?: string; end?: string }) => {
+        const params = new URLSearchParams();
+        params.set('limit', String(limit));
+        if (options?.userId) params.set('userId', options.userId);
+        if (options?.start) params.set('start', options.start);
+        if (options?.end) params.set('end', options.end);
+        const query = params.toString();
+        return request<any[]>(`/departments/${departmentId}/chat-history${query ? `?${query}` : ''}`);
+    },
+
+    listConversations: (departmentCode: string) =>
+        request<any[]>(`/dept/${departmentCode}/conversations`),
+
+    getConversationHistory: (departmentCode: string, conversationId: string, limit = 100) =>
+        request<any[]>(`/dept/${departmentCode}/conversations/history?conversationId=${encodeURIComponent(conversationId)}&limit=${limit}`),
+
+    deleteConversation: (departmentCode: string, conversationId: string) =>
+        request<any>(`/dept/${departmentCode}/conversations?conversationId=${encodeURIComponent(conversationId)}`, { method: 'DELETE' }),
 };
 
-// ─── Projects ──────────────────────────────────────────
+export interface OfficeDepartmentAgentSnapshot {
+    id?: string;
+    agentId: string;
+    agentName?: string;
+    name?: string;
+    status?: string;
+    taskState?: 'pending' | 'running' | 'complete' | 'error';
+    fromZone?: string;
+    toZone?: string;
+    message?: string;
+    occurredAt?: number;
+    current_task?: string;
+    currentTask?: string;
+    updated_at?: string;
+    last_active_at?: string;
+}
+
+export interface OfficeDepartmentSnapshot {
+    department?: string;
+    departmentName?: string;
+    updatedAt?: number;
+    status?: string;
+    agents?: OfficeDepartmentAgentSnapshot[];
+    events?: any[];
+}
+
 export const projectApi = {
     list: (departmentId?: string, status?: string) => {
         const params = new URLSearchParams();
         if (departmentId) params.set('department_id', departmentId);
         if (status) params.set('status', status);
         const query = params.toString();
-        return request<any[]>(`/projects/${query ? `?${query}` : ''}`);
+        return request<any[]>(`/projects${query ? `?${query}` : ''}`);
     },
 
     get: (id: string) =>
@@ -548,7 +618,7 @@ export const approvalApi = {
         if (status) params.set('status', status);
         if (type) params.set('type', type);
         const query = params.toString();
-        return request<any[]>(`/approvals/${query ? `?${query}` : ''}`);
+        return request<any[]>(`/approvals${query ? `?${query}` : ''}`);
     },
 
     getMyPending: () =>
@@ -596,7 +666,6 @@ export const neuronApi = {
 
 // ─── WebSocket ─────────────────────────────────────────
 export const wsApi = {
-    // 统一使用 /ws/agent 端点，遵循项目规范
     chatUrl: (agentId: string, token: string, sessionId?: string) => {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         let url = `${protocol}//${window.location.host}/ws/agent?token=${token}&agentId=${encodeURIComponent(agentId)}`;
@@ -606,12 +675,12 @@ export const wsApi = {
 
     neuronUrl: (neuronId: string, token: string) => {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        return `${protocol}//${window.location.host}/ws/neuron/${neuronId}?token=${token}`;
+        return `${protocol}//${window.location.host}/ws/agent?token=${token}&agentId=${encodeURIComponent(neuronId)}`;
     },
 
     brainUrl: (brainId: string, token: string) => {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        return `${protocol}//${window.location.host}/ws/brain/${brainId}?token=${token}`;
+        return `${protocol}//${window.location.host}/ws/dept/${encodeURIComponent(brainId)}?token=${token}`;
     },
 
     agentUrl: (agentId: string, token: string, sessionId?: string) => {
@@ -621,19 +690,16 @@ export const wsApi = {
         return url;
     },
 
-    // 部门群聊 WebSocket
     deptUrl: (dept: string, token: string) => {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         return `${protocol}//${window.location.host}/ws/dept/${dept}?token=${token}`;
     },
 
-    // 董事长频道 WebSocket
     chairmanUrl: (token: string) => {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        return `${protocol}//${window.location.host}/ws/chairman?token=${token}`;
+        return `${protocol}//${window.location.host}/ws/enterprise?token=${token}`;
     },
 
-    // 访客对话 WebSocket
     publicUrl: (token: string) => {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         return `${protocol}//${window.location.host}/ws/public?token=${token}`;
@@ -867,8 +933,11 @@ export const globalTaskApi = {
     getPending: () =>
         request<any[]>('/tasks/pending'),
 
-    getByEmployee: (employeeId: string) =>
-        request<any[]>(`/tasks/employee/${employeeId}`),
+    getMyTasks: (status?: string) => {
+        const params = new URLSearchParams();
+        if (status) params.set('status', status);
+        return request<any[]>(`/tasks/my${params.toString() ? `?${params.toString()}` : ''}`);
+    },
 };
 
 // ─── Project Actions ─────────────────────────────────────
@@ -966,7 +1035,6 @@ export const proactiveExtendedApi = {
     getDigest: () =>
         request<any>('/proactive/digest'),
 
-    // Habits
     listHabits: () =>
         request<any[]>('/proactive/habits'),
 
@@ -982,7 +1050,6 @@ export const proactiveExtendedApi = {
     checkinHabit: (habitId: string) =>
         request<any>(`/proactive/habits/${habitId}/checkin`, { method: 'POST' }),
 
-    // Notifications
     listNotifications: () =>
         request<any[]>('/proactive/notifications'),
 
@@ -992,14 +1059,12 @@ export const proactiveExtendedApi = {
     markAllNotificationsRead: () =>
         request<any>('/proactive/notifications/read-all', { method: 'POST' }),
 
-    // Meeting Notes
     listMeetingNotes: () =>
         request<any[]>('/proactive/meeting-notes'),
 
     getMeetingNote: (id: string) =>
         request<any>(`/proactive/meeting-notes/${id}`),
 
-    // Analytics & Suggestions
     getAnalytics: () =>
         request<any>('/proactive/analytics'),
 
@@ -1034,7 +1099,7 @@ export const officeExtendedApi = {
         request<any[]>('/office/agents'),
 
     getAgent: (id: string) =>
-        request<any>(`/office/agents/${id}`),
+        request<any>(`/office/agents/${encodeURIComponent(id)}`),
 
     updateAgentState: (state: any) =>
         request<any>('/office/agent/state', { method: 'POST', body: JSON.stringify(state) }),
@@ -1043,7 +1108,7 @@ export const officeExtendedApi = {
         request<any[]>('/office/areas'),
 
     getDepartmentStatus: (department: string) =>
-        request<any>(`/office/department/${department}`),
+        request<OfficeDepartmentStatusResponse>(`/office/department/${encodeURIComponent(department)}`),
 
     getYesterdayMemo: () =>
         request<any>('/office/yesterday-memo'),
@@ -1075,7 +1140,6 @@ export const evolutionExtendedApi = {
     extractSignals: () =>
         request<any>('/admin/evolution/extract-signals', { method: 'POST' }),
 
-    // Skills management
     listSkills: () =>
         request<any[]>('/admin/skills'),
 
@@ -1103,7 +1167,6 @@ export const evolutionExtendedApi = {
     listBindings: () =>
         request<any[]>('/admin/bindings'),
 
-    // Hot reload
     getHotreloadStatus: () =>
         request<any>('/admin/hotreload/status'),
 

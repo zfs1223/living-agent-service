@@ -8,12 +8,14 @@ import com.livingagent.core.neuron.NeuronRegistry;
 import com.livingagent.core.channel.ChannelManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
 
+@Component
 public class HealthMonitorImpl implements HealthMonitor {
 
     private static final Logger log = LoggerFactory.getLogger(HealthMonitorImpl.class);
@@ -360,6 +362,20 @@ public class HealthMonitorImpl implements HealthMonitor {
         return activeAlerts.stream()
             .noneMatch(alert -> alert.getComponentName().equals(issue.getComponentName())
                 && alert.getMessage().equals(issue.getMessage()));
+    }
+
+    @jakarta.annotation.PreDestroy
+    public void destroy() {
+        scheduler.shutdown();
+        try {
+            if (!scheduler.awaitTermination(10, TimeUnit.SECONDS)) {
+                scheduler.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            scheduler.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+        log.info("HealthMonitor shutdown complete");
     }
 
     private static class HealthCheckResult {

@@ -35,6 +35,7 @@ export interface FileBrowserProps {
         newFolder?: boolean;
         edit?: boolean;
         delete?: boolean;
+        download?: boolean;
         directoryNavigation?: boolean;
     };
     fileFilter?: string[];
@@ -83,12 +84,16 @@ export default function FileBrowser({
         newFolder = false,
         edit = !readOnly,
         delete: canDelete = !readOnly,
+        download = true,
         directoryNavigation = false,
     } = features;
 
     // ─── State ─────────────────────────────────────────
     const [currentPath, setCurrentPath] = useState(rootPath);
     const [files, setFiles] = useState<FileItem[]>([]);
+    const isReadOnlyShared = (rootPath || '').toLowerCase().startsWith('shared');
+    const allowDownload = download && !readOnly && !isReadOnlyShared;
+    const allowWrite = !readOnly && !isReadOnlyShared;
     const [loading, setLoading] = useState(false);
     const [contentLoaded, setContentLoaded] = useState(false);
     const [viewing, setViewing] = useState<string | null>(singleFile || null);
@@ -351,7 +356,7 @@ export default function FileBrowser({
             <div className="card">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                     {title ? <h3>{title}</h3> : <div />}
-                    {edit && (
+                    {allowWrite && edit && (
                         !editing ? (
                             <button className="btn btn-secondary" onClick={() => { setEditContent(content); setEditing(true); }}>{t('agent.soul.editButton')}</button>
                         ) : (
@@ -411,12 +416,12 @@ export default function FileBrowser({
                             </div>
                         )
                     )}
-                    {api.downloadUrl && (
+                    {api.downloadUrl && allowDownload && (
                         <a href={api.downloadUrl(viewing)} download style={{ textDecoration: 'none' }}>
                             <button className="btn btn-secondary" style={{ padding: '4px 12px', fontSize: '12px' }}>⬇ {t('common.download', 'Download')}</button>
                         </a>
                     )}
-                    {canDelete && (
+                    {allowWrite && canDelete && (
                         <button className="btn btn-danger" style={{ padding: '4px 10px', fontSize: '12px' }}
                             onClick={() => setDeleteTarget({ path: viewing, name: viewing.split('/').pop() || viewing })}>×</button>
                     )}

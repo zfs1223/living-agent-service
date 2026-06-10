@@ -5,6 +5,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import com.livingagent.core.security.AccessGateService;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -16,9 +18,18 @@ public class ReceptionController {
     private static final Logger log = LoggerFactory.getLogger(ReceptionController.class);
     
     private static final String RECEPTIONIST_NAME = "前台小助手";
+    private final AccessGateService accessGateService;
+
+    public ReceptionController(AccessGateService accessGateService) {
+        this.accessGateService = accessGateService;
+    }
 
     @GetMapping("/status")
-    public ResponseEntity<ApiResponse<ReceptionStatus>> getStatus() {
+    public ResponseEntity<ApiResponse<ReceptionStatus>> getStatus(
+            @RequestHeader(value = "X-Visitor-Id", required = false) String visitorId) {
+        if (visitorId != null && !visitorId.isBlank() && !accessGateService.canRoute(visitorId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         ReceptionStatus status = new ReceptionStatus(
             true,
             "前台接待员在线，欢迎咨询",
@@ -32,6 +43,9 @@ public class ReceptionController {
             @RequestBody ChatRequest request,
             @RequestHeader(value = "X-Visitor-Id", required = false) String visitorId) {
         
+        if (visitorId != null && !visitorId.isBlank() && !accessGateService.canRoute(visitorId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         if (request.message() == null || request.message().isBlank()) {
             return ResponseEntity.badRequest()
                     .body(ApiResponse.error("invalid_message", "消息不能为空"));
@@ -67,7 +81,11 @@ public class ReceptionController {
     }
 
     @GetMapping("/visitors")
-    public ResponseEntity<ApiResponse<List<VisitorInfo>>> getVisitors() {
+    public ResponseEntity<ApiResponse<List<VisitorInfo>>> getVisitors(
+            @RequestHeader(value = "X-Visitor-Id", required = false) String visitorId) {
+        if (visitorId != null && !visitorId.isBlank() && !accessGateService.canRoute(visitorId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.debug("Getting visitor list");
         
         List<VisitorInfo> visitors = List.of(
@@ -79,7 +97,12 @@ public class ReceptionController {
     }
 
     @PostMapping("/check-in")
-    public ResponseEntity<ApiResponse<VisitorInfo>> checkIn(@RequestBody CheckInRequest request) {
+    public ResponseEntity<ApiResponse<VisitorInfo>> checkIn(
+            @RequestBody CheckInRequest request,
+            @RequestHeader(value = "X-Visitor-Id", required = false) String visitorId) {
+        if (visitorId != null && !visitorId.isBlank() && !accessGateService.canRoute(visitorId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.info("Visitor check-in: {}", request.name());
         
         VisitorInfo visitor = new VisitorInfo(

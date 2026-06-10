@@ -3,6 +3,7 @@ pub mod channel;
 pub mod security;
 pub mod memory;
 pub mod knowledge;
+pub mod compact;
 pub mod jni;
 
 pub use audio::{AudioProcessor, AudioConfig, VadDetector};

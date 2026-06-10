@@ -1,0 +1,20 @@
+[ {
+  "receiptId" : "ca96b02d-fecd-4034-863f-8bd43185b8ae",
+  "executionId" : "0c60a377-e627-412d-a0a8-03c21cbb2705",
+  "dispatchId" : "b6174181-11dd-48dd-ace5-caae99688aec",
+  "assignmentId" : "71211bcd-4aab-4978-b67c-cd6c45d82acb",
+  "employeeCode" : "T09",
+  "employeeNeuronId" : "neuron://tech/frontend/001",
+  "status" : "COMPLETED",
+  "summary" : "任务执行完成（工具驱动）\n\n员工: 真绘 (T09)\n任务类型: web_development\n使用工具: [file_write]\n产物文件:\n- index.html (html): data/artifacts/T09/71211bcd-4aab-4978-b67c-cd6c45d82acb/index.html\n执行结果: Web 任务已完成，生成 1 个文件",
+  "receivedAt" : 1778660103.663552017,
+  "metadata" : {
+    "modelName" : "tool_executor",
+    "modelProvider" : "tool_executor",
+    "confidence" : 0.9,
+    "failureReason" : null,
+    "outcomeStatus" : "COMPLETED",
+    "needsHumanReview" : false,
+    "needsRetry" : false
+  }
+} ]

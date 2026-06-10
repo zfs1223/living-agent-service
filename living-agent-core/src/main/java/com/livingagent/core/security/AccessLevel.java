@@ -10,18 +10,18 @@ public enum AccessLevel {
         false),
     
     LIMITED(1, "受限访问", 
-        Set.of("Qwen3.5-27B", "Qwen3-0.6B"), 
+        Set.of("Qwen3-0.6B", "Qwen3.5-2B"), 
         Set.of("AdminBrain", "CsBrain"), 
         true),
     
     DEPARTMENT(2, "部门访问", 
-        Set.of("Qwen3.5-27B", "Qwen3-0.6B", "BitNet-1.58-3B"), 
+        Set.of("Qwen3-0.6B", "Qwen3.5-2B"), 
         Set.of("TechBrain", "HrBrain", "FinanceBrain", "SalesBrain", 
                "CsBrain", "AdminBrain", "LegalBrain", "OpsBrain"), 
         true),
     
     FULL(3, "完全访问", 
-        Set.of("Qwen3.5-27B", "Qwen3-0.6B", "BitNet-1.58-3B"), 
+        Set.of("Qwen3-0.6B", "Qwen3.5-2B"), 
         Set.of("TechBrain", "HrBrain", "FinanceBrain", "SalesBrain", 
                "CsBrain", "AdminBrain", "LegalBrain", "OpsBrain", "MainBrain"), 
         true);

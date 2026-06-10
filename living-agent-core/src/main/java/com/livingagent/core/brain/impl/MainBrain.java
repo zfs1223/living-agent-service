@@ -2,14 +2,18 @@ package com.livingagent.core.brain.impl;
 
 import com.livingagent.core.brain.Brain;
 import com.livingagent.core.brain.BrainContext;
+import com.livingagent.core.brain.BrainOutputContract;
 import com.livingagent.core.channel.ChannelMessage;
 import com.livingagent.core.evolution.engine.EvolutionDecisionEngine;
 import com.livingagent.core.evolution.personality.BrainPersonality;
 import com.livingagent.core.evolution.signal.EvolutionSignal;
 import com.livingagent.core.knowledge.KnowledgeBase;
 import com.livingagent.core.knowledge.KnowledgeEntry;
-import com.livingagent.core.model.selector.MainBrainModelSelector;
+import com.livingagent.core.model.pool.BrainModelResolver;
+import com.livingagent.core.model.pool.ModelHealthRegistry;
+import com.livingagent.core.model.pool.ResolvedBrainModel;
 import com.livingagent.core.provider.Provider;
+import com.livingagent.core.provider.impl.ResolvedBrainModelProvider;
 import com.livingagent.core.security.*;
 import com.livingagent.core.tool.Tool;
 import org.slf4j.Logger;
@@ -52,7 +56,6 @@ public class MainBrain extends AbstractBrain {
     private final PermissionService permissionService;
     private final Map<String, CoordinationSession> activeSessions = new ConcurrentHashMap<>();
     private final Map<String, Integer> departmentRequestCounts = new ConcurrentHashMap<>();
-    private MainBrainModelSelector modelSelector;
 
     public MainBrain(List<Tool> tools, BrainRegistryImpl brainRegistry, PermissionService permissionService) {
         super(
@@ -65,15 +68,6 @@ public class MainBrain extends AbstractBrain {
         );
         this.brainRegistry = brainRegistry;
         this.permissionService = permissionService;
-    }
-
-    @Autowired(required = false)
-    public void setModelSelector(MainBrainModelSelector modelSelector) {
-        this.modelSelector = modelSelector;
-        if (modelSelector != null) {
-            log.info("MainBrain: Model selector enabled, current model: {}", 
-                modelSelector.getCurrentModel().getDisplayName());
-        }
     }
 
     @Override
@@ -108,6 +102,67 @@ public class MainBrain extends AbstractBrain {
             case "knowledge_query" -> handleKnowledgeQuery(message, userId);
             case "conflict_resolution" -> handleConflictResolution(message);
             default -> handleGeneralRequest(message, userId);
+        }
+    }
+
+    @Override
+    public BrainOutputContract processWithContract(ChannelMessage message) {
+        if (!running) {
+            log.warn("MainBrain received message but not running");
+            return BrainOutputContract.failed("MainBrain not running", null);
+        }
+
+        try {
+            state.set(BrainState.RUNNING);
+            lastOutputContract = null;
+            doProcess(message);
+
+            // 如果 doProcess 已通过 publishResponse/publishError 设置了 lastOutputContract，直接增强
+            if (lastOutputContract != null) {
+                String userId = message.getMetadata("user_id");
+                String requestType = determineRequestType(message);
+                List<String> involvedDepts = identifyDepartments(message);
+
+                BrainOutputContract.Builder enhanced = BrainOutputContract.builder()
+                    .status(lastOutputContract.status())
+                    .summary(lastOutputContract.summary())
+                    .plan(lastOutputContract.plan())
+                    .clarificationQuestions(lastOutputContract.clarificationQuestions())
+                    .blockingIssues(lastOutputContract.blockingIssues())
+                    .assignedWorkers(lastOutputContract.assignedWorkers())
+                    .riskLevel(lastOutputContract.riskLevel())
+                    .nextSteps(lastOutputContract.nextSteps())
+                    .conversationId(lastOutputContract.conversationId())
+                    .taskKey(lastOutputContract.taskKey())
+                    .executionId(lastOutputContract.executionId())
+                    .traceId(lastOutputContract.traceId())
+                    .artifacts(lastOutputContract.artifacts())
+                    .metadata(lastOutputContract.metadata());
+
+                // 增强：添加 MainBrain 特有信息
+                Map<String, Object> enhancedMeta = new LinkedHashMap<>(lastOutputContract.metadata());
+                enhancedMeta.put("requestType", requestType);
+                enhancedMeta.put("involvedDepartments", involvedDepts);
+                if (userId != null) {
+                    enhancedMeta.put("userId", userId);
+                }
+                enhanced.metadata(Map.copyOf(enhancedMeta));
+
+                if (!involvedDepts.isEmpty()) {
+                    enhanced.assignedWorkers(involvedDepts.stream()
+                        .map(dept -> "department://" + dept)
+                        .toList());
+                }
+
+                lastOutputContract = enhanced.build();
+            }
+
+            return lastOutputContract;
+        } catch (Exception e) {
+            log.error("Error processing message in MainBrain", e);
+            state.set(BrainState.ERROR);
+            handleProcessingError(message, e);
+            return BrainOutputContract.failed("MainBrain processing error: " + e.getMessage(), null);
         }
     }
 
@@ -273,7 +328,7 @@ public class MainBrain extends AbstractBrain {
         }
 
         String lowerContent = content.toLowerCase();
-        
+
         if (lowerContent.contains("技术") || lowerContent.contains("开发") || lowerContent.contains("代码")) {
             departments.add("tech");
         }
@@ -315,14 +370,293 @@ public class MainBrain extends AbstractBrain {
     private void forwardToDepartment(CoordinationSession session, String department, ChannelMessage original) {
         log.info("Forwarding request to department: {}", department);
         departmentRequestCounts.merge(department, 1, Integer::sum);
+
+        // 实际转发：将消息发布到目标部门大脑的输入通道
+        try {
+            if (brainRegistry != null) {
+                Optional<Brain> deptBrain = brainRegistry.getByDepartment(department);
+                if (deptBrain.isPresent()) {
+                    Brain targetBrain = deptBrain.get();
+                    // 构建转发消息，携带协调会话元数据
+                    ChannelMessage forwardMessage = ChannelMessage.text(
+                        OUTPUT_CHANNEL,                           // sourceChannel
+                        getId(),                                  // sourceNeuronId
+                        targetBrain.getSubscribedChannels().get(0), // targetChannel
+                        original.getSessionId(),
+                        original.getContent()
+                    );
+                    // 添加协调元数据
+                    forwardMessage.addMetadata("coordination_session_id", session.sessionId);
+                    forwardMessage.addMetadata("forwarded_by", getId());
+                    forwardMessage.addMetadata("original_user_id", original.getMetadata("user_id"));
+                    forwardMessage.addMetadata("original_department", original.getMetadata("department"));
+
+                    // 发布到目标大脑的输入通道
+                    publish(targetBrain.getSubscribedChannels().get(0), forwardMessage);
+                    log.info("Successfully forwarded message to department {} brain {} via channel {}",
+                        department, targetBrain.getId(), targetBrain.getSubscribedChannels().get(0));
+                } else {
+                    log.warn("No brain found for department: {}, skipping forward", department);
+                }
+            }
+        } catch (Exception e) {
+            log.error("Failed to forward message to department {}: {}", department, e.getMessage(), e);
+        }
+    }
+
+    private Provider ensureProvider() {
+        Provider provider = getProvider();
+        if (provider != null) {
+            return provider;
+        }
+        if (getBrainModelResolver() == null) {
+            log.warn("MainBrain has no BrainModelResolver, cannot create provider");
+            return null;
+        }
+        ResolvedBrainModel resolved = getBrainModelResolver().resolve(getId());
+        if (resolved == null) {
+            log.warn("MainBrain could not resolve model from BrainModelResolver");
+            return null;
+        }
+        provider = new ResolvedBrainModelProvider(resolved);
+        updateProvider(provider);
+        log.info("MainBrain provider initialized: providerId={}, model={}",
+            resolved.getProviderId(), resolved.getModelName());
+        return provider;
+    }
+
+    public String callLlm(String systemPrompt, String userMessage) {
+        return callLlm(systemPrompt, userMessage, getMaxTokensFromModel(), getTemperatureFromModel());
+    }
+
+    public String callLlm(String systemPrompt, String userMessage, int maxTokens, double temperature) {
+        return callLlmWithTools(systemPrompt, userMessage, maxTokens, temperature, true);
+    }
+
+    /**
+     * 带工具调用的 LLM 调用方法。
+     * 
+     * @param systemPrompt 系统提示
+     * @param userMessage 用户消息
+     * @param maxTokens 最大 token 数
+     * @param temperature 温度参数
+     * @param enableTools 是否启用工具调用
+     * @return LLM 响应内容
+     */
+    public String callLlmWithTools(String systemPrompt, String userMessage, int maxTokens, double temperature, boolean enableTools) {
+        Provider provider = ensureProvider();
+        if (provider == null) {
+            log.warn("MainBrain.callLlm: Provider not available");
+            return null;
+        }
+
+        String modelId = getDefaultModel();
+        ResolvedBrainModel resolvedModel = getCurrentModel();
+        if (resolvedModel != null) {
+            modelId = resolvedModel.getModelName();
+            if (maxTokens <= 0) maxTokens = resolvedModel.getMaxTokens();
+            if (temperature < 0) temperature = resolvedModel.getTemperature();
+            log.debug("MainBrain.callLlm using resolved model: {} (maxTokens: {}, temperature: {})",
+                modelId, maxTokens, temperature);
+        }
+
+        List<Provider.ChatMessage> history = new ArrayList<>();
+        history.add(Provider.ChatMessage.system(systemPrompt));
+        history.add(Provider.ChatMessage.user(userMessage != null ? userMessage : ""));
+
+        // 获取工具 schema（如果启用工具调用）
+        List<com.livingagent.core.tool.ToolSchema> toolSchemas = enableTools ? getToolSchemas() : List.of();
+
+        // 最大工具迭代次数：对于复杂任务（如代码探索、多文件分析）需要更多迭代
+        // 当达到限制时，会强制让 LLM 给出最终响应而不是返回错误
+        int maxToolIterations = 20;
+        int toolIteration = 0;
+        
+        try {
+            while (toolIteration < maxToolIterations) {
+                Provider.ChatRequest request = new Provider.ChatRequest(
+                    history,
+                    toolSchemas,
+                    modelId,
+                    temperature,
+                    maxTokens
+                );
+
+                Provider.ChatResponse response = provider.chat(request).join();
+                log.debug("MainBrain.callLlm iteration {}: model={}, tokens(prompt={}, completion={}), hasToolCalls={}",
+                    toolIteration, modelId, response.promptTokens(), response.completionTokens(), response.hasToolCalls());
+
+                // 如果没有工具调用，返回最终响应
+                if (!response.hasToolCalls()) {
+                    return response.content();
+                }
+
+                // 处理工具调用
+                List<Provider.ToolCallData> toolCalls = response.toolCalls();
+                log.info("MainBrain executing {} tool calls (iteration {})", toolCalls.size(), toolIteration);
+
+                // 将助手响应（包含工具调用）添加到历史
+                history.add(Provider.ChatMessage.assistantWithTools(response.content(), toolCalls));
+
+                // 执行每个工具调用
+                List<Provider.ToolResultData> toolResults = new ArrayList<>();
+                for (Provider.ToolCallData toolCall : toolCalls) {
+                    String toolName = toolCall.name();
+                    String toolArgs = toolCall.arguments();
+                    
+                    log.info("MainBrain executing tool: {} (args: {})", toolName, toolArgs);
+                    
+                    String resultContent = executeToolCall(toolName, toolArgs);
+                    toolResults.add(new Provider.ToolResultData(toolCall.id(), resultContent));
+                }
+
+                // 将工具结果添加到历史
+                history.add(Provider.ChatMessage.toolResult(toolResults));
+
+                toolIteration++;
+            }
+
+            // 达到最大迭代次数，强制让 LLM 基于当前历史给出最终响应（不再允许工具调用）
+            log.info("MainBrain reached max tool iterations ({}), forcing final response", maxToolIterations);
+            Provider.ChatRequest finalRequest = new Provider.ChatRequest(
+                history,
+                List.of(), // 不再允许工具调用
+                modelId,
+                temperature,
+                maxTokens
+            );
+            Provider.ChatResponse finalResponse = provider.chat(finalRequest).join();
+            return finalResponse.content() != null ? finalResponse.content() : "已完成工具调用，但未能生成最终响应。";
+            
+        } catch (Exception e) {
+            log.error("MainBrain.callLlm failed: {}", e.getMessage());
+            ResolvedBrainModel failedModel = getCurrentModel();
+            if (failedModel != null && failedModel.getModelId() != null) {
+                ModelHealthRegistry registry = getModelHealthRegistry();
+                if (registry != null) {
+                    registry.recordFailure(failedModel.getModelId().toString(), failedModel.getProviderId(),
+                        "callLlm failed: " + e.getMessage());
+                    log.info("[BrainTrace] brain={} event=model_failure_recorded model={} provider={} error={}",
+                        id, failedModel.getModelName(), failedModel.getProviderId(), e.getMessage());
+                }
+            }
+            ResolvedBrainModel fallbackModel = tryFallbackModel(failedModel);
+            if (fallbackModel != null) {
+                log.info("MainBrain.callLlm retrying with fallback model: {}", fallbackModel.getModelName());
+                try {
+                    Provider fallbackProvider = new ResolvedBrainModelProvider(fallbackModel);
+                    List<Provider.ChatMessage> retryHistory = new ArrayList<>();
+                    retryHistory.add(Provider.ChatMessage.system(systemPrompt));
+                    retryHistory.add(Provider.ChatMessage.user(userMessage != null ? userMessage : ""));
+                    Provider.ChatRequest retryRequest = new Provider.ChatRequest(
+                        retryHistory, List.of(), fallbackModel.getModelName(), temperature, maxTokens);
+                    Provider.ChatResponse retryResponse = fallbackProvider.chat(retryRequest).join();
+                    if (retryResponse.content() != null && !retryResponse.content().isBlank()) {
+                        if (fallbackModel.getModelId() != null) {
+                            ModelHealthRegistry reg = getModelHealthRegistry();
+                            if (reg != null) {
+                                reg.recordSuccess(fallbackModel.getModelId().toString(), fallbackModel.getProviderId(), 0);
+                            }
+                        }
+                        return retryResponse.content();
+                    }
+                } catch (Exception retryEx) {
+                    log.error("MainBrain.callLlm fallback also failed: {}", retryEx.getMessage());
+                    if (fallbackModel.getModelId() != null) {
+                        ModelHealthRegistry reg = getModelHealthRegistry();
+                        if (reg != null) {
+                            reg.recordFailure(fallbackModel.getModelId().toString(), fallbackModel.getProviderId(),
+                                "fallback also failed: " + retryEx.getMessage());
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+    }
+
+    /**
+     * 工具别名映射：LLM 可能将子操作名误认为独立工具名，此处做别名解析。
+     * 例如 FileEditTool 的 search_code 子操作可能被 LLM 当成独立工具调用。
+     */
+    private static final Map<String, String> TOOL_ALIAS_MAP = Map.of(
+        "search_code", "file_edit"
+    );
+
+    private String resolveToolName(String toolName) {
+        String resolved = TOOL_ALIAS_MAP.getOrDefault(toolName, toolName);
+        if (!resolved.equals(toolName)) {
+            log.info("MainBrain: Tool alias resolved: {} -> {}", toolName, resolved);
+        }
+        return resolved;
+    }
+
+    /**
+     * 执行工具调用。
+     */
+    private String executeToolCall(String toolName, String argumentsJson) {
+        try {
+            String resolvedToolName = resolveToolName(toolName);
+            Optional<Tool> toolOpt = tools.stream()
+                .filter(t -> t.getName().equals(resolvedToolName))
+                .findFirst();
+            
+            if (toolOpt.isEmpty()) {
+                log.warn("MainBrain: Tool not found: {}", toolName);
+                return "错误：工具 '" + toolName + "' 不存在";
+            }
+            
+            Tool tool = toolOpt.get();
+            
+            // 解析参数
+            Map<String, Object> args = new java.util.HashMap<>();
+            if (argumentsJson != null && !argumentsJson.isBlank()) {
+                try {
+                    args = new com.fasterxml.jackson.databind.ObjectMapper()
+                        .readValue(argumentsJson, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
+                } catch (Exception e) {
+                    log.warn("Failed to parse tool arguments as JSON, using raw string: {}", e.getMessage());
+                    args.put("input", argumentsJson);
+                }
+            }
+
+            // 别名解析时自动注入 action 参数（LLM 调用子操作名时不会传 action 字段）
+            if (!resolvedToolName.equals(toolName) && !args.containsKey("action")) {
+                args.put("action", toolName);
+                log.info("MainBrain: Auto-injected action={} for aliased tool call {} -> {}",
+                    toolName, toolName, resolvedToolName);
+            }
+            
+            // 执行工具
+            com.livingagent.core.tool.Tool.ToolParams params = com.livingagent.core.tool.Tool.ToolParams.of(args);
+            com.livingagent.core.tool.ToolContext context = new com.livingagent.core.tool.ToolContext(
+                null,  // neuronId
+                null,  // sessionId
+                null,  // securityPolicy
+                java.time.Duration.ofSeconds(60),  // timeout
+                false, // sandboxed
+                null   // workingDirectory
+            );
+            
+            com.livingagent.core.tool.ToolResult result = tool.execute(params, context);
+            
+            if (result.success()) {
+                Object data = result.data();
+                if (data != null) {
+                    return data.toString();
+                }
+                return "工具执行成功";
+            } else {
+                return "工具执行失败: " + result.error();
+            }
+            
+        } catch (Exception e) {
+            log.error("MainBrain tool execution failed: tool={}, error={}", toolName, e.getMessage());
+            return "工具执行异常: " + e.getMessage();
+        }
     }
 
     private String executeWithLLM(ChannelMessage message, String context) {
-        Provider provider = getProvider();
-        if (provider == null) {
-            return "LLM服务暂时不可用";
-        }
-
         String systemPrompt = String.format(SYSTEM_PROMPT,
             personality.getRigor(),
             personality.getCreativity(),
@@ -330,34 +664,8 @@ public class MainBrain extends AbstractBrain {
             personality.getObedience()
         );
 
-        List<Provider.ChatMessage> history = new ArrayList<>();
-        history.add(Provider.ChatMessage.system(systemPrompt));
-        history.add(Provider.ChatMessage.user(extractText(message)));
-
-        String modelId = "qwen3.5-27b";
-        int contextLength = 4096;
-        
-        if (modelSelector != null) {
-            modelId = modelSelector.getEffectiveModelId();
-            contextLength = modelSelector.getCurrentModel().getContextLength();
-            log.debug("Using model from selector: {} (context: {})", modelId, contextLength);
-        }
-
-        Provider.ChatRequest request = new Provider.ChatRequest(
-            history,
-            List.of(),
-            modelId,
-            0.7,
-            contextLength
-        );
-
-        try {
-            Provider.ChatResponse response = provider.chat(request).join();
-            return response.content();
-        } catch (Exception e) {
-            log.error("LLM execution failed", e);
-            return "处理请求时发生错误: " + e.getMessage();
-        }
+        String result = callLlm(systemPrompt, extractText(message));
+        return result != null ? result : "LLM服务暂时不可用";
     }
 
     private String formatCoordinationResponse(CoordinationSession session) {
@@ -407,7 +715,7 @@ public class MainBrain extends AbstractBrain {
         publish(OUTPUT_CHANNEL, response);
     }
 
-    private String extractText(ChannelMessage message) {
+    protected String extractText(ChannelMessage message) {
         Object payload = message.getPayload();
         return payload != null ? payload.toString() : null;
     }

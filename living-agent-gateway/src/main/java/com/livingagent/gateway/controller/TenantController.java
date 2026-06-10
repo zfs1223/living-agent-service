@@ -1,5 +1,6 @@
 package com.livingagent.gateway.controller;
 
+import com.livingagent.core.security.AccessGateService;
 import com.livingagent.core.security.AuthContext;
 import com.livingagent.core.security.UserIdentity;
 import com.livingagent.core.security.AccessLevel;
@@ -7,6 +8,8 @@ import com.livingagent.core.security.service.EnterpriseEmployeeService;
 import com.livingagent.core.security.auth.UnifiedAuthService;
 import com.livingagent.core.security.auth.UnifiedAuthService.AuthResult;
 import com.livingagent.core.security.auth.UnifiedAuthService.AuthSession;
+import com.livingagent.gateway.service.SystemConfigService;
+import com.livingagent.gateway.service.SystemConfigService.TenantInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -23,31 +26,39 @@ public class TenantController {
 
     private final EnterpriseEmployeeService employeeService;
     private final UnifiedAuthService authService;
+    private final SystemConfigService configService;
+    private final AccessGateService accessGateService;
 
     public TenantController(
             EnterpriseEmployeeService employeeService,
-            UnifiedAuthService authService
+            UnifiedAuthService authService,
+            SystemConfigService configService,
+            AccessGateService accessGateService
     ) {
         this.employeeService = employeeService;
         this.authService = authService;
+        this.configService = configService;
+        this.accessGateService = accessGateService;
     }
 
     @GetMapping("/registration-config")
     public ResponseEntity<ApiResponse<RegistrationConfig>> getRegistrationConfig() {
         RegistrationConfig config = new RegistrationConfig(true);
-        return ResponseEntity.ok(ApiResponse.success(config));
+        return ResponseEntity.ok(ApiResponse.ok(config));
     }
 
     @PostMapping("/self-create")
     public ResponseEntity<ApiResponse<TenantCreateResult>> selfCreateTenant(
             @RequestBody TenantCreateRequest request,
-            @RequestHeader(value = "Authorization", required = false) String authorization
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         log.info("Self-create tenant request: {}", request.name());
 
         AuthContext currentUser = null;
+        String sessionId = null;
         if (authorization != null && authorization.startsWith("Bearer ")) {
-            String sessionId = authorization.substring(7);
+            sessionId = authorization.substring(7);
             Optional<AuthSession> sessionOpt = authService.validateSession(sessionId);
             if (sessionOpt.isPresent()) {
                 currentUser = sessionOpt.get().authContext();
@@ -56,10 +67,26 @@ public class TenantController {
 
         if (currentUser == null) {
             return ResponseEntity.status(401)
-                    .body(ApiResponse.error("unauthorized", "请先登录"));
+                    .body(ApiResponse.err("unauthorized", "请先登录"));
         }
 
         String tenantId = "tenant_" + UUID.randomUUID().toString().substring(0, 8);
+
+        // Persist tenant to SystemConfigService
+        configService.createTenantWithCompany(tenantId, request.name(), currentUser.getEmployeeId());
+
+        // Also update system config company name
+        com.livingagent.gateway.service.SystemConfigService.SystemConfigUpdateRequest updateReq =
+            new com.livingagent.gateway.service.SystemConfigService.SystemConfigUpdateRequest(
+                request.name(), null, null, null
+            );
+        configService.updateSystemConfig(updateReq);
+
+        if (sessionId != null) {
+            authService.updateSessionTenantId(sessionId, tenantId);
+        }
+        
+        employeeService.updateTenantId(currentUser.getEmployeeId(), tenantId);
 
         TenantCreateResult result = new TenantCreateResult(
                 tenantId,
@@ -68,20 +95,22 @@ public class TenantController {
                 "admin_" + UUID.randomUUID().toString().substring(0, 8)
         );
 
-        log.info("Tenant created: {} by user: {}", request.name(), currentUser.getName());
-        return ResponseEntity.ok(ApiResponse.success(result));
+        log.info("Tenant created and persisted: {} by user: {}", request.name(), currentUser.getName());
+        return ResponseEntity.ok(ApiResponse.ok(result));
     }
 
     @PostMapping("/join")
     public ResponseEntity<ApiResponse<TenantJoinResult>> joinTenant(
             @RequestBody TenantJoinRequest request,
-            @RequestHeader(value = "Authorization", required = false) String authorization
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         log.info("Join tenant request with code: {}", request.invitation_code());
 
         AuthContext currentUser = null;
+        String sessionId = null;
         if (authorization != null && authorization.startsWith("Bearer ")) {
-            String sessionId = authorization.substring(7);
+            sessionId = authorization.substring(7);
             Optional<AuthSession> sessionOpt = authService.validateSession(sessionId);
             if (sessionOpt.isPresent()) {
                 currentUser = sessionOpt.get().authContext();
@@ -90,75 +119,128 @@ public class TenantController {
 
         if (currentUser == null) {
             return ResponseEntity.status(401)
-                    .body(ApiResponse.error("unauthorized", "请先登录"));
+                    .body(ApiResponse.err("unauthorized", "请先登录"));
         }
 
+        String tenantId = "tenant_" + request.invitation_code();
+        
+        // Persist tenant to SystemConfigService
+        configService.createTenantWithCompany(tenantId, "示例公司", currentUser.getEmployeeId());
+        
+        if (sessionId != null) {
+            authService.updateSessionTenantId(sessionId, tenantId);
+        }
+        
+        employeeService.updateTenantId(currentUser.getEmployeeId(), tenantId);
+
         TenantJoinResult result = new TenantJoinResult(
-                "tenant_joined",
+                tenantId,
                 "示例公司",
                 currentUser.getEmployeeId()
         );
 
-        log.info("User {} joined tenant", currentUser.getName());
-        return ResponseEntity.ok(ApiResponse.success(result));
+        log.info("User {} joined tenant {}", currentUser.getName(), tenantId);
+        return ResponseEntity.ok(ApiResponse.ok(result));
     }
 
     @GetMapping("/resolve-by-domain")
     public ResponseEntity<ApiResponse<TenantInfo>> resolveByDomain(
-            @RequestParam String domain
+            @RequestParam String domain,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         log.info("Resolve tenant by domain: {}", domain);
+
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
+        }
 
         TenantInfo info = new TenantInfo(
                 "tenant_default",
                 "Living Agent",
-                domain
+                "Living Agent",
+                "智能企业管理平台",
+                "https://living-agent.example.com",
+                java.time.Instant.now(),
+                true,
+                "system"
         );
 
-        return ResponseEntity.ok(ApiResponse.success(info));
+        return ResponseEntity.ok(ApiResponse.ok(info));
     }
 
     @GetMapping("/{tenantId}")
-    public ResponseEntity<ApiResponse<TenantDetail>> getTenant(@PathVariable String tenantId) {
+    public ResponseEntity<ApiResponse<TenantDetail>> getTenant(
+            @PathVariable String tenantId,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
+        }
         log.info("Getting tenant: {}", tenantId);
+
+        TenantInfo info = configService.getTenant(tenantId);
+        if (info == null) {
+            return ResponseEntity.notFound().build();
+        }
 
         TenantDetail detail = new TenantDetail(
                 tenantId,
-                "Living Agent 企业",
-                "Living Agent Enterprise",
-                "智能企业管理平台",
-                "https://living-agent.example.com",
-                Instant.now(),
-                true
+                info.name(),
+                info.nameEn(),
+                info.description(),
+                info.website(),
+                info.createdAt(),
+                info.active()
         );
 
-        return ResponseEntity.ok(ApiResponse.success(detail));
+        return ResponseEntity.ok(ApiResponse.ok(detail));
     }
 
     @PutMapping("/{tenantId}")
     public ResponseEntity<ApiResponse<TenantDetail>> updateTenant(
             @PathVariable String tenantId,
-            @RequestBody Map<String, Object> request
+            @RequestBody Map<String, Object> request,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
+        }
         log.info("Updating tenant: {}", tenantId);
+
+        String name = (String) request.getOrDefault("name", "Living Agent 企业");
+        TenantInfo updated = configService.updateTenant(tenantId, name);
+        if (updated == null) {
+            return ResponseEntity.notFound().build();
+        }
+
+        // Also update system config company name for consistency
+        com.livingagent.gateway.service.SystemConfigService.SystemConfigUpdateRequest updateReq =
+            new com.livingagent.gateway.service.SystemConfigService.SystemConfigUpdateRequest(
+                name, null, null, null
+            );
+        configService.updateSystemConfig(updateReq);
 
         TenantDetail detail = new TenantDetail(
                 tenantId,
-                (String) request.getOrDefault("name", "Living Agent 企业"),
-                (String) request.getOrDefault("name_en", "Living Agent Enterprise"),
-                (String) request.getOrDefault("description", "智能企业管理平台"),
-                (String) request.getOrDefault("website", "https://living-agent.example.com"),
-                Instant.now(),
-                true
+                updated.name(),
+                updated.nameEn(),
+                updated.description(),
+                updated.website(),
+                updated.createdAt(),
+                updated.active()
         );
 
-        return ResponseEntity.ok(ApiResponse.success(detail));
+        return ResponseEntity.ok(ApiResponse.ok(detail));
     }
 
     // Admin endpoints
     @GetMapping("/admin/companies")
-    public ResponseEntity<ApiResponse<List<CompanyInfo>>> listCompanies() {
+    public ResponseEntity<ApiResponse<List<CompanyInfo>>> listCompanies(
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         log.debug("Listing all companies (admin)");
+
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
+        }
 
         List<CompanyInfo> companies = List.of(
                 new CompanyInfo("tenant_001", "示例公司1", true),
@@ -166,20 +248,31 @@ public class TenantController {
                 new CompanyInfo("tenant_003", "示例公司3", false)
         );
 
-        return ResponseEntity.ok(ApiResponse.success(companies));
+        return ResponseEntity.ok(ApiResponse.ok(companies));
     }
 
     @PostMapping("/admin/companies/{id}/toggle")
-    public ResponseEntity<ApiResponse<CompanyInfo>> toggleCompany(@PathVariable String id) {
+    public ResponseEntity<ApiResponse<CompanyInfo>> toggleCompany(
+            @PathVariable String id,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         log.info("Toggling company: {}", id);
 
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
+        }
+
         CompanyInfo company = new CompanyInfo(id, "示例公司", true);
-        return ResponseEntity.ok(ApiResponse.success(company));
+        return ResponseEntity.ok(ApiResponse.ok(company));
     }
 
     @GetMapping("/admin/platform-settings")
-    public ResponseEntity<ApiResponse<PlatformSettings>> getPlatformSettings() {
+    public ResponseEntity<ApiResponse<PlatformSettings>> getPlatformSettings(
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         log.debug("Getting platform settings (admin)");
+
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
+        }
 
         PlatformSettings settings = new PlatformSettings(
                 true,
@@ -187,7 +280,7 @@ public class TenantController {
                 "v1.0.0"
         );
 
-        return ResponseEntity.ok(ApiResponse.success(settings));
+        return ResponseEntity.ok(ApiResponse.ok(settings));
     }
 
     public record ApiResponse<T>(
@@ -196,11 +289,11 @@ public class TenantController {
             String error,
             String errorDescription
     ) {
-        public static <T> ApiResponse<T> success(T data) {
+        public static <T> ApiResponse<T> ok(T data) {
             return new ApiResponse<>(true, data, null, null);
         }
 
-        public static <T> ApiResponse<T> error(String error, String description) {
+        public static <T> ApiResponse<T> err(String error, String description) {
             return new ApiResponse<>(false, null, error, description);
         }
     }
@@ -222,12 +315,6 @@ public class TenantController {
             String tenant_id,
             String tenant_name,
             String user_id
-    ) {}
-
-    public record TenantInfo(
-            String tenant_id,
-            String name,
-            String domain
     ) {}
 
     public record TenantDetail(

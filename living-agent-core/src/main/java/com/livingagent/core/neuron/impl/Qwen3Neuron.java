@@ -114,6 +114,7 @@ public class Qwen3Neuron implements Neuron {
     @Override
     public void subscribe(Channel channel) {
         subscribedChannelIds.add(channel.getId());
+        channel.subscribe(this.neuronId);
         log.info("Qwen3Neuron {} subscribed to channel: {}", neuronId, channel.getId());
     }
     
@@ -143,7 +144,7 @@ public class Qwen3Neuron implements Neuron {
     @Override
     public void start() {
         if (running.compareAndSet(false, true)) {
-            state = NeuronState.ACTIVE;
+            state = NeuronState.IDLE;
             executionThread = new Thread(this::executionLoop, "qwen3-neuron-" + neuronId);
             executionThread.setDaemon(true);
             executionThread.start();
@@ -167,20 +168,26 @@ public class Qwen3Neuron implements Neuron {
     
     @Override
     public void onMessage(ChannelMessage message) {
+        log.info("Qwen3Neuron {} onMessage called, inputQueue={}, messageType={}", 
+            neuronId, inputQueue != null ? "SET" : "NULL", message.getType());
         if (inputQueue != null) {
-            inputQueue.offer(message);
+            boolean offered = inputQueue.offer(message);
+            log.info("Qwen3Neuron {} message offered to queue: {}", neuronId, offered);
+        } else {
+            log.warn("Qwen3Neuron {} inputQueue is NULL! Message dropped. This should not happen!", neuronId);
         }
     }
     
     private void executionLoop() {
-        log.info("Qwen3Neuron {} execution loop started", neuronId);
+        log.info("Qwen3Neuron {} execution loop started, inputQueue={}", neuronId, inputQueue != null ? "SET" : "NULL");
         
         while (running.get()) {
             try {
-                ChannelMessage message = inputQueue != null ? 
+                ChannelMessage message = inputQueue != null ?
                     inputQueue.poll(1000, java.util.concurrent.TimeUnit.MILLISECONDS) : null;
                 
                 if (message != null) {
+                    log.info("Qwen3Neuron {} polled message from queue, processing...", neuronId);
                     processMessage(message);
                 }
             } catch (InterruptedException e) {
@@ -202,18 +209,28 @@ public class Qwen3Neuron implements Neuron {
         try {
             String type = message.getType().name();
             Object payloadObj = message.getPayload();
-            String sessionId = message.getSessionId();
+            String coordinatorSessionId = message.getSessionId();
+            String originalSessionId = coordinatorSessionId;
             
-            log.debug("Qwen3Neuron processing message: type={}, sessionId={}", type, sessionId);
+            log.debug("Qwen3Neuron processing message: type={}, sessionId={}", type, coordinatorSessionId);
             
             if ("TEXT".equals(type) && payloadObj instanceof String text) {
-                handleChatRequest(sessionId, text);
+                handleChatRequest(originalSessionId, text);
             } else if ("TEXT".equals(type) && payloadObj instanceof Map) {
                 @SuppressWarnings("unchecked")
                 Map<String, Object> payload = (Map<String, Object>) payloadObj;
                 String userInput = (String) payload.get("userInput");
+                
+                @SuppressWarnings("unchecked")
+                Map<String, Object> userContext = (Map<String, Object>) payload.get("userContext");
+                if (userContext != null && userContext.get("originalSessionId") != null) {
+                    originalSessionId = (String) userContext.get("originalSessionId");
+                    log.debug("Qwen3Neuron using originalSessionId={} from userContext (coordinatorSessionId={})", 
+                        originalSessionId, coordinatorSessionId);
+                }
+                
                 if (userInput != null) {
-                    handleChatRequest(sessionId, userInput);
+                    handleChatRequest(originalSessionId, userInput);
                 }
             } else {
                 log.warn("Unknown message type: {}", type);
@@ -222,7 +239,7 @@ public class Qwen3Neuron implements Neuron {
             long latency = System.currentTimeMillis() - startTime;
             totalLatencyMs.addAndGet(latency);
             totalRequests.incrementAndGet();
-            state = NeuronState.ACTIVE;
+            state = NeuronState.IDLE;
         }
     }
     
@@ -230,7 +247,7 @@ public class Qwen3Neuron implements Neuron {
         if (config.isEnableIntentClassification()) {
             ChatIntentClassifier.ClassificationResult classification = intentClassifier.classify(userInput);
             
-            log.debug("Intent classification: intent={}, confidence={}, reason={}", 
+            log.info("Qwen3Neuron intent classification: intent={}, confidence={}, reason={}", 
                 classification.getIntent(), classification.getConfidence(), classification.getReason());
             
             if (!classification.shouldUseChatNeuron()) {
@@ -240,8 +257,7 @@ public class Qwen3Neuron implements Neuron {
             }
             
             if (classification.getIntent() == ChatIntentClassifier.ChatIntent.GREETING) {
-                handleGreeting(sessionId, userInput);
-                return;
+                log.info("Qwen3Neuron GREETING intent detected, routing to LLM model instead of hardcoded response");
             }
         }
         
@@ -279,10 +295,16 @@ public class Qwen3Neuron implements Neuron {
     private void handleGenerate(String sessionId, String prompt) {
         List<Map<String, String>> history = sessionHistories.computeIfAbsent(sessionId, k -> new ArrayList<>());
         
-        String fullPrompt = config.buildPromptWithContext(prompt, history);
-        
-        modelManager.generateText(sessionId, fullPrompt, history)
+        log.info("Qwen3Neuron handleGenerate: calling modelManager.processChatWithIntent for session={}, prompt='{}'", sessionId, prompt);
+
+        modelManager.processChatWithIntent(sessionId, prompt, history)
             .thenAccept(response -> {
+                log.info("Qwen3Neuron handleGenerate: received response - success={}, text={}, error={}, model={}", 
+                    response.isSuccess(), 
+                    response.getText() != null ? response.getText().substring(0, Math.min(response.getText().length(), 50)) + "..." : "NULL",
+                    response.getError(),
+                    response.getModel());
+                
                 updateHistory(sessionId, prompt, response.getText());
                 publishResponse(sessionId, response);
             })
@@ -341,15 +363,21 @@ public class Qwen3Neuron implements Neuron {
     
     private void publishResponse(String sessionId, ModelResponse response) {
         if (outputChannel != null) {
+            String responseText = response.getText();
+            if (responseText == null || responseText.isEmpty()) {
+                log.warn("Qwen3Neuron received null/empty response from model for session {}", sessionId);
+                responseText = "抱歉，我暂时无法生成回复。";
+            }
             ChannelMessage message = ChannelMessage.text(
                 neuronId,
                 neuronId,
                 outputChannel.getId(),
                 sessionId,
-                response.getText()
+                responseText
             );
             outputChannel.publish(message);
-            log.debug("Qwen3Neuron published response to channel: {}", outputChannel.getId());
+            context.publish(outputChannel.getId(), message);
+            log.info("Qwen3Neuron published response to channel: {}, textLength={}", outputChannel.getId(), responseText.length());
         }
     }
     
@@ -363,6 +391,8 @@ public class Qwen3Neuron implements Neuron {
                 error
             );
             outputChannel.publish(message);
+            context.publish(outputChannel.getId(), message);
+            log.info("Qwen3Neuron published error to channel: {}", outputChannel.getId());
         }
     }
     

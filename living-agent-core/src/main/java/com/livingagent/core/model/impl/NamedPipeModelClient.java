@@ -7,11 +7,13 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.nio.file.StandardOpenOption;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,6 +40,7 @@ public class NamedPipeModelClient implements ModelClient {
     private final AtomicBoolean connected;
     private final String daemonPath;
     private final int timeoutMs;
+    private final Object controlPipeLock = new Object();
     
     public NamedPipeModelClient() {
         this("/opt/dialogue-service", DEFAULT_TIMEOUT_MS, "/tmp");
@@ -151,7 +154,7 @@ public class NamedPipeModelClient implements ModelClient {
     public CompletableFuture<ModelResponse> sendControlRequest(ModelRequest request) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                return writeToPipe(controlRequestPipe, controlResponsePipe, request);
+                return writeControlRequest(request);
             } catch (Exception e) {
                 log.error("Error sending control request: {}", e.getMessage());
                 return ModelResponse.failure("Control communication error: " + e.getMessage());
@@ -159,6 +162,92 @@ public class NamedPipeModelClient implements ModelClient {
         });
     }
     
+    private ModelResponse writeControlRequest(ModelRequest request) throws IOException {
+        synchronized (controlPipeLock) {
+            Path requestPath = Paths.get(controlRequestPipe);
+            if (!Files.exists(requestPath)) {
+                throw new IOException("Request pipe not found: " + controlRequestPipe);
+            }
+
+            String requestId = request.getRequestId();
+            if (requestId == null || requestId.isBlank()) {
+                requestId = UUID.randomUUID().toString();
+                request.setRequestId(requestId);
+            }
+
+            String responsePipePath = sessionPipePrefix + "_control_response_" + requestId;
+            Path responsePath = Paths.get(responsePipePath);
+            try {
+                Files.deleteIfExists(responsePath);
+                new ProcessBuilder("mkfifo", responsePipePath).start().waitFor(5, TimeUnit.SECONDS);
+
+                Map<String, Object> params = request.getParams();
+                if (params == null) {
+                    params = new java.util.HashMap<>();
+                    request.setParams(params);
+                }
+                params.put("control_response_pipe", responsePipePath);
+
+                String jsonRequest = objectMapper.writeValueAsString(request);
+                log.debug("Sending control request: {}", jsonRequest);
+
+                try (BufferedWriter requestWriter = Files.newBufferedWriter(
+                        requestPath,
+                        StandardCharsets.UTF_8,
+                        StandardOpenOption.WRITE)) {
+                    requestWriter.write(jsonRequest);
+                    requestWriter.newLine();
+                    requestWriter.flush();
+                }
+
+                String responseLine = readLineWithTimeout(responsePath, timeoutMs);
+
+                if (responseLine == null || responseLine.isEmpty()) {
+                    throw new IOException("Empty response from daemon");
+                }
+
+                log.debug("Received control response: {}", responseLine);
+                JsonNode responseNode = objectMapper.readTree(responseLine);
+
+                String responseRequestId = responseNode.path("requestId").asText("");
+                if (!responseRequestId.isBlank() && !requestId.equals(responseRequestId)) {
+                    throw new IOException("Mismatched response requestId: expected " + requestId + ", got " + responseRequestId);
+                }
+
+                return parseResponse(responseNode);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IOException("Interrupted while creating control response pipe", e);
+            } finally {
+                try {
+                    Files.deleteIfExists(responsePath);
+                } catch (Exception ignored) {
+                }
+            }
+        }
+    }
+
+    private String readLineWithTimeout(Path path, int timeoutMillis) throws IOException {
+        long deadline = System.currentTimeMillis() + timeoutMillis;
+        while (System.currentTimeMillis() < deadline) {
+            try (BufferedReader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
+                String line = reader.readLine();
+                if (line != null && !line.isBlank()) {
+                    return line;
+                }
+            } catch (IOException e) {
+                // FIFO 暂无写端或瞬态问题，重试到超时
+            }
+            try {
+                Thread.sleep(20);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IOException("Interrupted while waiting pipe response", e);
+            }
+        }
+        throw new IOException("Timed out waiting response from daemon");
+    }
+
     private ModelResponse writeToPipe(String requestPipePath, String responsePipePath, ModelRequest request) 
             throws IOException, TimeoutException {
         
@@ -175,48 +264,57 @@ public class NamedPipeModelClient implements ModelClient {
         String jsonRequest = objectMapper.writeValueAsString(request);
         log.debug("Sending request: {}", jsonRequest);
         
-        try (RandomAccessFile requestPipe = new RandomAccessFile(requestPipePath, "rw");
-             RandomAccessFile responsePipe = new RandomAccessFile(responsePipePath, "r")) {
-            
-            requestPipe.write((jsonRequest + "\n").getBytes(StandardCharsets.UTF_8));
-            
-            String responseLine = responsePipe.readLine();
-            if (responseLine == null || responseLine.isEmpty()) {
-                throw new IOException("Empty response from daemon");
-            }
-            
-            log.debug("Received response: {}", responseLine);
-            
-            JsonNode responseNode = objectMapper.readTree(responseLine);
-            ModelResponse response = new ModelResponse();
-            response.setSuccess(responseNode.path("success").asBoolean(false));
-            
-            if (responseNode.has("error")) {
-                response.setError(responseNode.get("error").asText());
-            }
-            
-            if (responseNode.has("model")) {
-                response.setModel(responseNode.get("model").asText());
-            }
-            
-            JsonNode dataNode = responseNode.path("data");
-            if (dataNode.isObject()) {
-                response.setData(objectMapper.convertValue(dataNode, 
-                    new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {}));
-            } else {
-                Map<String, Object> data = new java.util.HashMap<>();
-                responseNode.fields().forEachRemaining(entry -> {
-                    if (!entry.getKey().equals("success") && 
-                        !entry.getKey().equals("error") && 
-                        !entry.getKey().equals("model")) {
-                        data.put(entry.getKey(), objectMapper.convertValue(entry.getValue(), Object.class));
-                    }
-                });
-                response.setData(data);
-            }
-            
-            return response;
+        // 关键修复：先写请求，再打开响应管道读取，避免FIFO双端打开顺序导致阻塞
+        try (BufferedWriter requestWriter = Files.newBufferedWriter(
+                requestPath,
+                StandardCharsets.UTF_8,
+                java.nio.file.StandardOpenOption.WRITE)) {
+            requestWriter.write(jsonRequest);
+            requestWriter.newLine();
+            requestWriter.flush();
         }
+
+        String responseLine = readLineWithTimeout(responsePath, timeoutMs);
+
+        if (responseLine == null || responseLine.isEmpty()) {
+            throw new IOException("Empty response from daemon");
+        }
+
+        log.debug("Received response: {}", responseLine);
+
+        JsonNode responseNode = objectMapper.readTree(responseLine);
+        return parseResponse(responseNode);
+    }
+
+    private ModelResponse parseResponse(JsonNode responseNode) {
+        ModelResponse response = new ModelResponse();
+        response.setSuccess(responseNode.path("success").asBoolean(false));
+
+        if (responseNode.has("error")) {
+            response.setError(responseNode.get("error").asText());
+        }
+
+        if (responseNode.has("model")) {
+            response.setModel(responseNode.get("model").asText());
+        }
+
+        JsonNode dataNode = responseNode.path("data");
+        if (dataNode.isObject()) {
+            response.setData(objectMapper.convertValue(dataNode,
+                new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {}));
+        } else {
+            Map<String, Object> data = new java.util.HashMap<>();
+            responseNode.fields().forEachRemaining(entry -> {
+                if (!entry.getKey().equals("success") &&
+                    !entry.getKey().equals("error") &&
+                    !entry.getKey().equals("model")) {
+                    data.put(entry.getKey(), objectMapper.convertValue(entry.getValue(), Object.class));
+                }
+            });
+            response.setData(data);
+        }
+
+        return response;
     }
     
     @Override

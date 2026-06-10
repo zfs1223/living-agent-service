@@ -8,14 +8,19 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.time.Instant;
 
 public class FounderService {
 
     private static final Logger log = LoggerFactory.getLogger(FounderService.class);
 
+    private static final long CACHE_TTL_MS = 10000;
+
     private final FounderCheckStrategy checkStrategy;
     private final AtomicBoolean founderExists = new AtomicBoolean(false);
     private final AtomicBoolean initialized = new AtomicBoolean(false);
+    private volatile long lastRefreshTime = 0;
+    private volatile Boolean cachedFounderStatus = null;
 
     public FounderService(FounderCheckStrategy checkStrategy) {
         this.checkStrategy = checkStrategy;
@@ -25,13 +30,13 @@ public class FounderService {
         if (initialized.get()) {
             return;
         }
-        founderExists.set(checkStrategy.hasFounder());
+        refreshFromDatabase();
         initialized.set(true);
         log.info("FounderService initialized, founder exists: {}", founderExists.get());
     }
 
     public boolean isFirstUser() {
-        initialize();
+        refreshFromDatabase();
         if (founderExists.get()) {
             return false;
         }
@@ -45,17 +50,33 @@ public class FounderService {
     }
 
     public boolean hasFounder() {
-        initialize();
+        refreshFromDatabase();
         return founderExists.get();
     }
 
     public void refreshFromDatabase() {
-        founderExists.set(checkStrategy.hasFounder());
-        log.info("Founder status refreshed from database: {}", founderExists.get());
+        long now = Instant.now().toEpochMilli();
+        if (now - lastRefreshTime < CACHE_TTL_MS && cachedFounderStatus != null) {
+            log.debug("Founder status from cache: {}", cachedFounderStatus);
+            return;
+        }
+
+        boolean newStatus = checkStrategy.hasFounder();
+        boolean statusChanged = (cachedFounderStatus == null || cachedFounderStatus != newStatus);
+
+        founderExists.set(newStatus);
+        cachedFounderStatus = newStatus;
+        lastRefreshTime = now;
+
+        if (statusChanged) {
+            log.info("Founder status changed: {}", newStatus);
+        } else {
+            log.debug("Founder status refreshed from database: {}", newStatus);
+        }
     }
 
     public void assignFounderRole(AuthContext authContext) {
-        authContext.setIdentity(UserIdentity.INTERNAL_CHAIRMAN);
+        authContext.setIdentity(UserIdentity.INTERNAL_ENTERPRISE);
         authContext.setAccessLevel(AccessLevel.FULL);
         authContext.setFounder(true);
         founderExists.set(true);

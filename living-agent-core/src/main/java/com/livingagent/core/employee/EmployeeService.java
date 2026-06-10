@@ -50,6 +50,35 @@ public interface EmployeeService {
     
     void terminateEmployee(String employeeId, String reason);
 
+    /**
+     * 按部门代码查询成员摘要列表（从数据库加载）
+     * @param departmentCode 部门代码（如 "tech"）
+     * @return 成员摘要列表
+     */
+    List<MemberSummary> getDepartmentMembersByCode(String departmentCode);
+
+    /**
+     * 根据员工ID查询成员摘要（从数据库加载）
+     * @param employeeId 员工ID
+     * @return 成员摘要
+     */
+    Optional<MemberSummary> getMemberSummary(String employeeId);
+
+    /**
+     * 成员摘要记录
+     */
+    record MemberSummary(
+        String employeeId,
+        String name,
+        String departmentName,
+        String departmentCode,
+        String status,
+        String origin,
+        String position,
+        String avatarUrl,
+        String accessLevel
+    ) {}
+
     record EmployeeCreationRequest(
         IdUtils.EmployeeType type,
         String authProvider,
@@ -70,8 +99,14 @@ public interface EmployeeService {
         List<String> publishChannels,
         List<WorkflowBinding> workflowBindings,
         String email,
-        String phone
-    ) {}
+        String phone,
+        EmployeeOrigin origin,
+        String suggestedEmployeeId
+    ) {
+        public EmployeeOrigin origin() {
+            return origin != null ? origin : EmployeeOrigin.PERSONAL;
+        }
+    }
 
     record EmployeeUpdateRequest(
         String name,

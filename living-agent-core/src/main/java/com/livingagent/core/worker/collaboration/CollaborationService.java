@@ -4,6 +4,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+/**
+ * 工人层协作会话服务 —— 数字员工之间的多向协作管理。
+ *
+ * <p><b>层次边界</b>：本接口属于 worker 层，负责"员工之间如何协作"。
+ * 与 {@code brain.collaboration.LeadOrchestrator}（大脑层，负责"大脑如何指挥员工"）职责不同：
+ * <ul>
+ *   <li>worker/collaboration：员工 ↔ 员工，多向协作，基于内存会话和7种协作类型</li>
+ *   <li>brain/collaboration：大脑 → 员工，单向指挥，基于 Channel 通道系统和 TaskDagService</li>
+ * </ul>
+ * 工人层的协作会话管理使用本接口，大脑层的任务编排使用 LeadOrchestrator。</p>
+ */
 public interface CollaborationService {
 
     CollaborationSession createSession(CollaborationRequest request);

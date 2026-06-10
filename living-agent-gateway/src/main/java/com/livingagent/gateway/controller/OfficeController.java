@@ -5,6 +5,7 @@ import com.livingagent.core.employee.EmployeeService;
 import com.livingagent.core.employee.EmployeeStatus;
 import com.livingagent.core.neuron.NeuronRegistry;
 import com.livingagent.core.brain.BrainRegistry;
+import com.livingagent.core.security.AccessGateService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -22,19 +23,26 @@ public class OfficeController {
     private final EmployeeService employeeService;
     private final NeuronRegistry neuronRegistry;
     private final BrainRegistry brainRegistry;
+    private final AccessGateService accessGateService;
 
     public OfficeController(
             EmployeeService employeeService,
             NeuronRegistry neuronRegistry,
-            BrainRegistry brainRegistry
+            BrainRegistry brainRegistry,
+            AccessGateService accessGateService
     ) {
         this.employeeService = employeeService;
         this.neuronRegistry = neuronRegistry;
         this.brainRegistry = brainRegistry;
+        this.accessGateService = accessGateService;
     }
 
     @GetMapping
-    public ResponseEntity<ApiResponse<List<OfficeInfo>>> listOffices() {
+    public ResponseEntity<ApiResponse<List<OfficeInfo>>> listOffices(
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.debug("Listing offices");
         
         List<OfficeInfo> offices = List.of(
@@ -46,7 +54,12 @@ public class OfficeController {
     }
 
     @PostMapping
-    public ResponseEntity<ApiResponse<OfficeInfo>> createOffice(@RequestBody CreateOfficeRequest request) {
+    public ResponseEntity<ApiResponse<OfficeInfo>> createOffice(
+            @RequestBody CreateOfficeRequest request,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.info("Creating office: {}", request.name());
         
         OfficeInfo office = new OfficeInfo(
@@ -61,7 +74,11 @@ public class OfficeController {
     }
 
     @GetMapping("/status")
-    public ResponseEntity<ApiResponse<OfficeStatusResponse>> getOfficeStatus() {
+    public ResponseEntity<ApiResponse<OfficeStatusResponse>> getOfficeStatus(
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.debug("Getting office status");
 
         List<Employee> digitalEmployees = employeeService.listDigitalEmployees();
@@ -73,8 +90,10 @@ public class OfficeController {
 
         for (Employee emp : digitalEmployees) {
             switch (emp.getStatus()) {
-                case ACTIVE, ONLINE -> activeCount++;
-                case OFFLINE, AWAY -> dormantCount++;
+                case ACTIVE, WORKING -> activeCount++;  // ✅ 工作状态
+                case IDLE -> dormantCount++;            // ✅ 空闲休息（显示为休眠数）
+                case BUSY -> activeCount++;             // ✅ 协作也算活跃
+                case OFFLINE, DORMANT -> dormantCount++;
                 case LEARNING -> learningCount++;
                 default -> {}
             }
@@ -98,8 +117,12 @@ public class OfficeController {
     @GetMapping("/agents")
     public ResponseEntity<ApiResponse<List<AgentInfo>>> getAgents(
             @RequestParam(required = false) String department,
-            @RequestParam(required = false) String status
+            @RequestParam(required = false) String status,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.debug("Getting agents, department: {}, status: {}", department, status);
 
         List<Employee> employees;
@@ -126,7 +149,12 @@ public class OfficeController {
     }
 
     @GetMapping("/agents/{id}")
-    public ResponseEntity<ApiResponse<AgentInfo>> getAgent(@PathVariable String id) {
+    public ResponseEntity<ApiResponse<AgentInfo>> getAgent(
+            @PathVariable String id,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.debug("Getting agent: {}", id);
 
         Optional<Employee> employeeOpt = employeeService.getEmployee(id);
@@ -141,8 +169,12 @@ public class OfficeController {
 
     @PostMapping("/agent/state")
     public ResponseEntity<ApiResponse<AgentInfo>> updateAgentState(
-            @RequestBody UpdateAgentStateRequest request
+            @RequestBody UpdateAgentStateRequest request,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.info("Updating agent state: {} -> {}", request.agentId(), request.status());
 
         Optional<Employee> employeeOpt = employeeService.getEmployee(request.agentId());
@@ -161,7 +193,11 @@ public class OfficeController {
     }
 
     @GetMapping("/areas")
-    public ResponseEntity<ApiResponse<List<OfficeArea>>> getAreas() {
+    public ResponseEntity<ApiResponse<List<OfficeArea>>> getAreas(
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.debug("Getting office areas");
 
         List<OfficeArea> areas = new ArrayList<>();
@@ -190,8 +226,12 @@ public class OfficeController {
 
     @GetMapping("/department/{department}")
     public ResponseEntity<ApiResponse<DepartmentDetail>> getDepartmentStatus(
-            @PathVariable String department
+            @PathVariable String department,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.debug("Getting department status: {}", department);
 
         List<Employee> employees = employeeService.listByDepartment(department);
@@ -210,7 +250,7 @@ public class OfficeController {
                 getDepartmentDisplayName(department),
                 employees.size(),
                 statusCounts.getOrDefault(EmployeeStatus.ACTIVE, 0L).intValue(),
-                statusCounts.getOrDefault(EmployeeStatus.AWAY, 0L).intValue(),
+                statusCounts.getOrDefault(EmployeeStatus.IDLE, 0L).intValue(),
                 statusCounts.getOrDefault(EmployeeStatus.LEARNING, 0L).intValue(),
                 agents
         );
@@ -219,7 +259,11 @@ public class OfficeController {
     }
 
     @GetMapping("/yesterday-memo")
-    public ResponseEntity<ApiResponse<YesterdayMemo>> getYesterdayMemo() {
+    public ResponseEntity<ApiResponse<YesterdayMemo>> getYesterdayMemo(
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.debug("Getting yesterday memo");
 
         YesterdayMemo memo = new YesterdayMemo(

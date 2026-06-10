@@ -1,6 +1,6 @@
 package com.livingagent.core.autonomous.incentive;
 
-import com.livingagent.core.autonomous.evolution.EvolutionManager;
+import com.livingagent.core.evolution.EvolutionManager;
 
 public interface EvolutionTracker {
 

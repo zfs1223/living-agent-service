@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../stores';
-import { agentApi } from '../services/api';
+import { agentApi, fetchJson } from '../services/api';
 import ConfirmModal from '../components/ConfirmModal';
 
 /* ────── Inline SVG Icons (monochrome, matching Dashboard) ────── */
@@ -79,31 +79,8 @@ const Icons = {
 
 /* ────── Helpers ────── */
 
-const fetchJson = async <T,>(url: string): Promise<T> => {
-    const token = localStorage.getItem('token');
-    const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
-    if (!res.ok) throw new Error('Failed to fetch');
-    const json = await res.json();
-    if (json && typeof json === 'object' && 'success' in json && 'data' in json) {
-        return json.data as T;
-    }
-    return json as T;
-};
-
-const postJson = async (url: string, body: any) => {
-    const token = localStorage.getItem('token');
-    const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify(body),
-    });
-    if (!res.ok) throw new Error('Failed to post');
-    const json = await res.json();
-    if (json && typeof json === 'object' && 'success' in json && 'data' in json) {
-        return json.data;
-    }
-    return json;
-};
+const postJson = async (url: string, body: any) =>
+    fetchJson(url, { method: 'POST', body: JSON.stringify(body) });
 
 // Auto-detect URLs, #hashtags, and @mentions in text
 const linkifyContent = (text: string) => {
@@ -224,9 +201,9 @@ function Avatar({ name, isAgent, size = 32 }: { name: string; isAgent: boolean; 
 function StatsBar({ stats }: { stats: PlazaStats }) {
     const { t } = useTranslation();
     const items = [
-        { icon: Icons.post, label: t('plaza.totalPosts', 'Posts'), value: stats.total_posts },
-        { icon: Icons.comment, label: t('plaza.totalComments', 'Comments'), value: stats.total_comments },
-        { icon: Icons.fire, label: t('plaza.todayPosts', 'Today'), value: stats.today_posts },
+        { icon: Icons.post, label: t('plaza.totalPosts', '帖子'), value: stats.total_posts },
+        { icon: Icons.comment, label: t('plaza.totalComments', '评论'), value: stats.total_comments },
+        { icon: Icons.fire, label: t('plaza.todayPosts', '今日'), value: stats.today_posts },
     ];
 
     return (
@@ -501,13 +478,13 @@ export default function Plaza() {
 
     const { data: posts = [], isLoading } = useQuery<Post[]>({
         queryKey: ['plaza-posts', tenantId],
-        queryFn: () => fetchJson(`/api/plaza/posts?limit=50${tenantId ? `&tenant_id=${tenantId}` : ''}`),
+        queryFn: () => fetchJson(`/plaza/posts?limit=50${tenantId ? `&tenant_id=${tenantId}` : ''}`),
         refetchInterval: 15000,
     });
 
     const { data: stats } = useQuery<PlazaStats>({
         queryKey: ['plaza-stats', tenantId],
-        queryFn: () => fetchJson(`/api/plaza/stats${tenantId ? `?tenant_id=${tenantId}` : ''}`),
+        queryFn: () => fetchJson(`/plaza/stats${tenantId ? `?tenant_id=${tenantId}` : ''}`),
         refetchInterval: 30000,
     });
 
@@ -519,7 +496,7 @@ export default function Plaza() {
 
     const { data: users = [] } = useQuery<any[]>({
         queryKey: ['users-for-plaza', tenantId],
-        queryFn: () => fetchJson(`/api/org/users${tenantId ? `?tenant_id=${tenantId}` : ''}`),
+        queryFn: () => fetchJson(`/org/users${tenantId ? `?tenant_id=${tenantId}` : ''}`),
         refetchInterval: 60000,
     });
 
@@ -530,16 +507,16 @@ export default function Plaza() {
 
     const { data: postDetails } = useQuery<Post>({
         queryKey: ['plaza-post-detail', expandedPost],
-        queryFn: () => fetchJson(`/api/plaza/posts/${expandedPost}`),
+        queryFn: () => fetchJson(`/plaza/posts/${expandedPost}`),
         enabled: !!expandedPost,
     });
 
     const createPost = useMutation({
-        mutationFn: (content: string) => postJson('/api/plaza/posts', {
+        mutationFn: (content: string) => postJson('/plaza/posts', {
             content,
             author_id: user?.id,
             author_type: 'human',
-            author_name: user?.display_name || 'Anonymous',
+            author_name: user?.display_name || '匿名用户',
             tenant_id: tenantId || undefined,
         }),
         onSuccess: () => {
@@ -551,11 +528,11 @@ export default function Plaza() {
 
     const addComment = useMutation({
         mutationFn: ({ postId, content }: { postId: string; content: string }) =>
-            postJson(`/api/plaza/posts/${postId}/comments`, {
+            postJson(`/plaza/posts/${postId}/comments`, {
                 content,
                 author_id: user?.id,
                 author_type: 'human',
-                author_name: user?.display_name || 'Anonymous',
+                author_name: user?.display_name || '匿名用户',
             }),
         onSuccess: (_, vars) => {
             setNewComment('');
@@ -566,16 +543,13 @@ export default function Plaza() {
 
     const likePost = useMutation({
         mutationFn: (postId: string) =>
-            postJson(`/api/plaza/posts/${postId}/like?author_id=${user?.id}&author_type=human`, {}),
+            postJson(`/plaza/posts/${postId}/like?author_id=${user?.id}&author_type=human`, {}),
         onSuccess: () => queryClient.invalidateQueries({ queryKey: ['plaza-posts'] }),
     });
 
     const deletePost = useMutation({
         mutationFn: (postId: string) =>
-            fetch(`/api/plaza/posts/${postId}`, {
-                method: 'DELETE',
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-            }).then(r => { if (!r.ok) throw new Error('Delete failed'); return r.json(); }),
+            fetchJson(`/plaza/posts/${postId}`, { method: 'DELETE' }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['plaza-posts'] });
             queryClient.invalidateQueries({ queryKey: ['plaza-stats'] });
@@ -587,7 +561,7 @@ export default function Plaza() {
     const timeAgo = (dateStr: string) => {
         const diff = Date.now() - new Date(dateStr).getTime();
         const mins = Math.floor(diff / 60000);
-        if (mins < 1) return t('plaza.justNow', 'just now');
+        if (mins < 1) return t('plaza.justNow', '刚刚');
         if (mins < 60) return `${mins}m`;
         const hours = Math.floor(mins / 60);
         if (hours < 24) return `${hours}h`;
@@ -610,22 +584,37 @@ export default function Plaza() {
     const runningAgents = agents.filter((a: Agent) => a.status === 'running');
 
     return (
-        <div>
-            {/* ─── Header ─── */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
             <div style={{
-                display: 'flex', justifyContent: 'space-between',
-                alignItems: 'center', marginBottom: '24px',
+                borderRadius: '24px',
+                padding: '22px',
+                background: 'linear-gradient(135deg, rgba(249,115,22,0.12), rgba(12,18,28,0.84) 48%, rgba(5,6,10,0.96))',
+                border: '1px solid rgba(255,255,255,0.08)',
+                boxShadow: '0 24px 60px rgba(0,0,0,0.18)',
             }}>
-                <div>
-                    <h1 style={{
-                        fontSize: 'var(--text-xl)', fontWeight: 600, margin: 0,
-                        letterSpacing: '-0.02em', marginBottom: '2px',
-                    }}>
-                        {t('plaza.title', 'Agent Plaza')}
-                    </h1>
-                    <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)', margin: 0 }}>
-                        {t('plaza.subtitle', 'Where agents and humans share insights, ideas, and updates.')}
-                    </p>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '18px', alignItems: 'flex-start' }}>
+                    <div style={{ maxWidth: '760px' }}>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '6px 10px', borderRadius: '999px', background: 'rgba(255,255,255,0.08)', color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '14px' }}>
+                            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--success)', boxShadow: '0 0 18px rgba(249,115,22,0.85)' }} />
+                            {t('plaza.badge', '开放协作空间')}
+                        </div>
+                        <h1 style={{ fontSize: '28px', fontWeight: 700, margin: 0, letterSpacing: '-0.04em', color: 'var(--text-primary)' }}>
+                            {t('plaza.title', '员工广场')}
+                        </h1>
+                        <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '10px 0 0', lineHeight: 1.75, maxWidth: '68ch' }}>
+                            {t('plaza.subtitle', '数字员工与人类分享见解、想法和动态的地方。')}
+                        </p>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '10px', minWidth: '320px' }}>
+                        <div style={{ padding: '12px 14px', borderRadius: '16px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{t('plaza.totalPosts', '帖子')}</div>
+                            <div style={{ fontSize: '22px', fontWeight: 700, marginTop: '6px' }}>{stats?.total_posts || 0}</div>
+                        </div>
+                        <div style={{ padding: '12px 14px', borderRadius: '16px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{t('plaza.onlineAgents', '在线员工')}</div>
+                            <div style={{ fontSize: '22px', fontWeight: 700, marginTop: '6px' }}>{runningAgents.length}</div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -633,7 +622,7 @@ export default function Plaza() {
             {stats && <StatsBar stats={stats} />}
 
             {/* ─── Two-Column Layout ─── */}
-            <div style={{ display: 'flex', gap: '24px', alignItems: 'flex-start' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 260px', gap: '24px', alignItems: 'flex-start' }}>
                 {/* ─── Main Feed ─── */}
                 <div style={{ flex: 1, minWidth: 0 }}>
                     {/* Composer */}
@@ -648,7 +637,7 @@ export default function Plaza() {
                                 value={newPost}
                                 onChange={setNewPost}
                                 mentionables={mentionables}
-                                placeholder={t('plaza.writeSomething', "What's on your mind?")}
+                                placeholder={t('plaza.writeSomething', '有什么想分享的？')}
                                 maxLength={500}
                                 multiline
                             />
@@ -658,7 +647,7 @@ export default function Plaza() {
                             alignItems: 'center', marginTop: '10px', paddingLeft: '42px',
                         }}>
                             <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
-                                {newPost.length}/500 · {t('plaza.hashtagTip', 'Use #hashtags and @mentions')}
+                                {newPost.length}/500 · {t('plaza.hashtagTip', '使用 #话题 和 @提及')}
                             </span>
                             <button
                                 className={`btn ${newPost.trim() ? 'btn-primary' : 'btn-secondary'}`}
@@ -666,7 +655,7 @@ export default function Plaza() {
                                 disabled={!newPost.trim() || createPost.isPending}
                                 style={{ height: '30px', fontSize: 'var(--text-xs)', padding: '0 14px' }}
                             >
-                                {t('plaza.publish', 'Publish')}
+                                {t('plaza.publish', '发布')}
                             </button>
                         </div>
                     </div>
@@ -677,7 +666,7 @@ export default function Plaza() {
                             textAlign: 'center', padding: '60px',
                             color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)',
                         }}>
-                            {t('plaza.loading', 'Loading...')}
+                            {t('plaza.loading', '加载中...')}
                         </div>
                     ) : posts.length === 0 ? (
                         <div style={{
@@ -690,7 +679,7 @@ export default function Plaza() {
                                 {Icons.post}
                             </div>
                             <div style={{ fontSize: 'var(--text-sm)' }}>
-                                {t('plaza.empty', 'No posts yet. Be the first to share!')}
+                                {t('plaza.empty', '暂无帖子，来做第一个分享吧！')}
                             </div>
                         </div>
                     ) : (
@@ -773,7 +762,7 @@ export default function Plaza() {
                                             <button
                                                 className="delete-btn"
                                                 onClick={() => setDeleteModalPostId(post.id)}
-                                                title={t('plaza.deletePost', 'Delete post')}
+                                                title={t('plaza.deletePost', '删除帖子')}
                                             >
                                                 <span style={{ display: 'flex', marginRight: '4px' }}>{Icons.trash}</span>
                                             </button>
@@ -826,7 +815,7 @@ export default function Plaza() {
                                                         }
                                                     }}
                                                     mentionables={mentionables}
-                                                    placeholder={t('plaza.writeComment', 'Write a comment...')}
+                                                    placeholder={t('plaza.writeComment', '写评论...')}
                                                     maxLength={300}
                                                     style={{ height: '32px' }}
                                                 />
@@ -841,7 +830,7 @@ export default function Plaza() {
                                                     }}
                                                 >
                                                     <span style={{ display: 'flex' }}>{Icons.send}</span>
-                                                    {t('plaza.send', 'Send')}
+                                                    {t('plaza.send', '发送')}
                                                 </button>
                                             </div>
                                         </div>
@@ -862,7 +851,7 @@ export default function Plaza() {
                     {runningAgents.length > 0 && (
                         <SidebarSection
                             icon={<span style={{ color: 'var(--status-running)' }}>{Icons.dot}</span>}
-                            title={`${t('plaza.onlineAgents', 'Online Agents')} (${runningAgents.length})`}
+                            title={`${t('plaza.onlineAgents', '在线员工')} (${runningAgents.length})`}
                         >
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                                 {runningAgents.slice(0, 12).map((a: Agent) => (
@@ -893,7 +882,7 @@ export default function Plaza() {
 
                     {/* Leaderboard */}
                     {stats && stats.top_contributors.length > 0 && (
-                        <SidebarSection icon={Icons.trophy} title={t('plaza.topContributors', 'Top Contributors')}>
+                        <SidebarSection icon={Icons.trophy} title={t('plaza.topContributors', '活跃贡献者')}>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                 {stats.top_contributors.map((c, i) => (
                                     <div key={c.name} style={{
@@ -928,7 +917,7 @@ export default function Plaza() {
 
                     {/* Trending Tags */}
                     {trendingTags.length > 0 && (
-                        <SidebarSection icon={Icons.hash} title={t('plaza.trendingTags', 'Trending Topics')}>
+                        <SidebarSection icon={Icons.hash} title={t('plaza.trendingTags', '热门话题')}>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
                                 {trendingTags.map(({ tag, count }) => (
                                     <span key={tag} style={{
@@ -950,12 +939,12 @@ export default function Plaza() {
                     )}
 
                     {/* Tips */}
-                    <SidebarSection icon={Icons.info} title={t('plaza.tips', 'Tips')}>
+                    <SidebarSection icon={Icons.info} title={t('plaza.tips', '提示')}>
                         <div style={{
                             fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)',
                             lineHeight: 1.6,
                         }}>
-                            {t('plaza.tipsContent', 'Agents autonomously share their work progress and discoveries here. Use **bold**, `code`, and #hashtags in your posts.')}
+                            {t('plaza.tipsContent', '数字员工会在此自主分享工作进展和发现。发帖时可使用 **粗体**、`代码` 和 #话题标签。')}
                         </div>
                     </SidebarSection>
                 </div>
@@ -965,10 +954,10 @@ export default function Plaza() {
             <style>{styles}</style>
             <ConfirmModal
                 open={!!deleteModalPostId}
-                title={t('plaza.deleteConfirmTitle', 'Delete Post')}
-                message={t('plaza.deleteConfirmMessage', 'Are you sure you want to delete this post? This action cannot be undone.')}
-                confirmLabel={t('plaza.delete', 'Delete')}
-                cancelLabel={t('plaza.cancel', 'Cancel')}
+                title={t('plaza.deleteConfirmTitle', '删除帖子')}
+                message={t('plaza.deleteConfirmMessage', '确定要删除这条帖子吗？此操作不可撤销。')}
+                confirmLabel={t('plaza.delete', '删除')}
+                cancelLabel={t('plaza.cancel', '取消')}
                 danger
                 onConfirm={() => {
                     if (deleteModalPostId) {

@@ -97,57 +97,72 @@ public class ChannelManagerImpl implements ChannelManager {
         Channel channel = channels.get(channelId);
         if (channel != null) {
             channel.publish(message);
+            // deliverToSubscribers 内部已调用 deliverToExternalSubscribers，不再重复调用
             deliverToSubscribers(channel, message);
-            deliverToExternalSubscribers(channelId, message);
         } else {
             List<ChannelSubscriber> subscribers = externalSubscribers.get(channelId);
             if (subscribers != null && !subscribers.isEmpty()) {
                 deliverToExternalSubscribers(channelId, message);
             } else {
-                log.warn("Channel not found and no external subscribers: {}", channelId);
+                log.warn("Message dropped: channel not found and no subscribers: channelId={}, contentType={}",
+                    channelId, message.getContent() != null ? message.getContent().getClass().getSimpleName() : "null");
             }
         }
     }
 
     private void deliverToSubscribers(Channel channel, ChannelMessage message) {
         if (neuronRegistry == null) {
-            log.warn("NeuronRegistry not set, cannot deliver message to subscribers");
+            log.warn("NeuronRegistry not set, skipping internal subscriber delivery");
+            // 即使内部注册表不可用，仍需投递给外部订阅者
+            deliverToExternalSubscribers(channel.getId(), message);
             return;
         }
         
         List<String> subscribers = channel.getSubscribers();
+        java.util.concurrent.atomic.AtomicInteger internalCount = new java.util.concurrent.atomic.AtomicInteger(0);
+        int externalCount = externalSubscribers.getOrDefault(channel.getId(), List.of()).size();
+        
         for (String neuronId : subscribers) {
-            neuronRegistry.get(neuronId).ifPresent(neuron -> {
+            neuronRegistry.get(neuronId).ifPresentOrElse(neuron -> {
                 try {
-                    if (neuron.getState() == NeuronState.RUNNING || 
+                    if (neuron.getState() == NeuronState.RUNNING ||
                         neuron.getState() == NeuronState.PROCESSING ||
-                        neuron.getState() == NeuronState.IDLE) {
+                        neuron.getState() == NeuronState.IDLE ||
+                        neuron.getState() == NeuronState.ACTIVE) {
                         neuron.onMessage(message);
+                        internalCount.incrementAndGet();
                     } else {
-                        log.debug("Skipping neuron {} in state {}", neuronId, neuron.getState());
+                        log.debug("Skipping internal subscriber {} in state {}", neuronId, neuron.getState());
                     }
                 } catch (Exception e) {
-                    log.error("Error delivering message to neuron {}: {}", neuronId, e.getMessage());
+                    log.error("Error delivering message to internal subscriber {}: {}", neuronId, e.getMessage(), e);
                 }
+            }, () -> {
+                log.warn("Internal subscriber {} NOT FOUND in registry for channel {}", neuronId, channel.getId());
             });
         }
         
-        log.debug("Delivered message {} to {} subscribers", message.getId(), subscribers.size());
+        deliverToExternalSubscribers(channel.getId(), message);
+        
+        log.info("Channel delivery: channel={}, internalDelivered={}, externalDelivered={}, totalSubscribers={}", 
+            channel.getId(), internalCount.get(), externalCount, subscribers.size());
     }
     
     private void deliverToExternalSubscribers(String channelId, ChannelMessage message) {
         List<ChannelSubscriber> subscribers = externalSubscribers.get(channelId);
-        if (subscribers != null) {
+        if (subscribers != null && !subscribers.isEmpty()) {
+            int delivered = 0;
             for (ChannelSubscriber subscriber : subscribers) {
                 try {
                     subscriber.onMessage(message);
+                    delivered++;
                 } catch (Exception e) {
                     log.error("Error delivering message to external subscriber {} on channel {}: {}", 
                         subscriber.getSubscriberId(), channelId, e.getMessage());
                 }
             }
-            log.debug("Delivered message {} to {} external subscribers on channel {}", 
-                message.getId(), subscribers.size(), channelId);
+            log.debug("Delivered message {} to {}/{} external subscribers on channel {}", 
+                message.getId(), delivered, subscribers.size(), channelId);
         }
     }
 

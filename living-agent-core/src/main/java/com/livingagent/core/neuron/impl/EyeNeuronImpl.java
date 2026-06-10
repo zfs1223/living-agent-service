@@ -5,9 +5,12 @@ import com.livingagent.core.channel.ChannelMessage;
 import com.livingagent.core.neuron.*;
 import com.livingagent.core.tool.Tool;
 import com.livingagent.core.model.ModelManager;
+import com.livingagent.core.model.pool.BrainModelResolver;
+import com.livingagent.core.model.pool.ResolvedBrainModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
@@ -20,9 +23,15 @@ public class EyeNeuronImpl implements EyeNeuron {
     private static final String NEURON_ID = "eye-neuron";
     private static final String NEURON_NAME = "视觉神经元";
     private static final String NEURON_DESCRIPTION = "处理图像理解、OCR、视觉问答等任务";
-    private static final String MODEL_ID = "qwen3.5-27b";
     
     private final ModelManager modelManager;
+    
+    @Autowired(required = false)
+    private BrainModelResolver brainModelResolver;
+    
+    @Value("${eye-neuron.model.default:qwen3.5-27b}")
+    private String defaultModelId;
+    
     private NeuronState state = NeuronState.INITIALIZING;
     private NeuronContext context;
     private final Map<String, Object> stateData = new HashMap<>();
@@ -37,6 +46,23 @@ public class EyeNeuronImpl implements EyeNeuron {
         this.subscribedChannels.add("image-processing");
         this.publishChannels.add("visual-output");
         this.state = NeuronState.ACTIVE;
+    }
+    
+    /**
+     * 动态获取视觉模型ID，优先从 BrainModelResolver 获取，降级到配置默认值
+     */
+    private String getModelId() {
+        if (brainModelResolver != null) {
+            try {
+                ResolvedBrainModel resolved = brainModelResolver.resolve("eye-neuron");
+                if (resolved != null && resolved.getModelName() != null && !resolved.getModelName().isEmpty()) {
+                    return resolved.getModelName();
+                }
+            } catch (Exception e) {
+                log.warn("EyeNeuron failed to resolve model from BrainModelResolver: {}", e.getMessage());
+            }
+        }
+        return defaultModelId;
     }
     
     @Override
@@ -112,6 +138,7 @@ public class EyeNeuronImpl implements EyeNeuron {
     @Override
     public void subscribe(Channel channel) {
         subscribedChannels.add(channel.getId());
+        channel.subscribe(NEURON_ID);
     }
     
     @Override
@@ -195,7 +222,7 @@ public class EyeNeuronImpl implements EyeNeuron {
             result.setPrompt(prompt);
             result.setDescription(response);
             result.setConfidence(0.9);
-            result.setModelUsed(MODEL_ID);
+            result.setModelUsed(getModelId());
             result.setProcessingTimeMs(System.currentTimeMillis() - startTime);
             
             return result;
@@ -377,7 +404,7 @@ public class EyeNeuronImpl implements EyeNeuron {
     
     private String callVisionModel(String imageUrl, String prompt) {
         try {
-            return modelManager.chatWithImage(MODEL_ID, prompt, imageUrl);
+            return modelManager.chatWithImage(getModelId(), prompt, imageUrl);
         } catch (Exception e) {
             log.error("Failed to call vision model", e);
             throw new RuntimeException("Vision model call failed", e);

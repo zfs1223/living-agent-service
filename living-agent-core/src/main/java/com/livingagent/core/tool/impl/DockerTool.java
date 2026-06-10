@@ -1,6 +1,8 @@
 package com.livingagent.core.tool.impl;
 
 import com.livingagent.core.security.SecurityPolicy;
+import com.livingagent.core.security.bash.BashSecurityValidator;
+import com.livingagent.core.security.bash.BashValidationResult;
 import com.livingagent.core.tool.*;
 
 import java.io.BufferedReader;
@@ -14,6 +16,7 @@ public class DockerTool implements Tool {
     private static final String DEPARTMENT = "devops";
     
     private ToolStats stats = ToolStats.empty(NAME);
+    private final BashSecurityValidator bashSecurityValidator = new BashSecurityValidator();
 
     @Override
     public String getName() {
@@ -62,10 +65,16 @@ public class DockerTool implements Tool {
     @Override
     public ToolResult execute(ToolParams params, ToolContext context) {
         long startTime = System.currentTimeMillis();
-        
+
         String action = params.getString("action");
         if (action == null) {
             return ToolResult.failure("action parameter is required");
+        }
+
+        ToolResult validationError = validateCommandParameters(params, context);
+        if (validationError != null) {
+            stats = stats.recordCall(false, System.currentTimeMillis() - startTime);
+            return validationError;
         }
 
         if (!isDockerAvailable()) {
@@ -104,6 +113,24 @@ public class DockerTool implements Tool {
         if (action == null) {
             throw new IllegalArgumentException("action parameter is required");
         }
+    }
+
+    private ToolResult validateCommandParameters(ToolParams params, ToolContext context) {
+        String command = params.getString("command");
+        if (command == null || command.isBlank()) {
+            return null;
+        }
+
+        BashValidationResult result = bashSecurityValidator.validate(command);
+        if (result.shouldDeny()) {
+            return ToolResult.failure("Command denied by bash policy: " + result.reason());
+        }
+
+        if (result.shouldAsk() && (context == null || !context.sandboxed())) {
+            return ToolResult.failure("Command requires sandboxed context: " + result.reason());
+        }
+
+        return null;
     }
 
     @Override

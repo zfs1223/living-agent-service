@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 @Entity
 @Table(name = "knowledge_entries", indexes = {
@@ -16,8 +17,8 @@ import java.util.Map;
 public class KnowledgeEntryEntity {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    @Column(name = "id", nullable = false, columnDefinition = "uuid")
+    private UUID id;
 
     @Column(name = "entry_id", unique = true, length = 64)
     private String entryId;
@@ -76,6 +77,9 @@ public class KnowledgeEntryEntity {
     @Column(name = "promoted_from", length = 256)
     private String promotedFrom;
 
+    @Column(name = "status", length = 20)
+    private String status;
+
     @Column(name = "expires_at")
     private Instant expiresAt;
 
@@ -107,6 +111,7 @@ public class KnowledgeEntryEntity {
     private Map<String, String> metadata = new HashMap<>();
 
     public KnowledgeEntryEntity() {
+        this.id = UUID.randomUUID();
         this.entryId = java.util.UUID.randomUUID().toString();
         this.knowledgeType = "FACT";
         this.importance = "MEDIUM";
@@ -115,12 +120,13 @@ public class KnowledgeEntryEntity {
         this.relevance = 1.0;
         this.accessCount = 0;
         this.verified = false;
+        this.status = "DRAFT";
         this.createdAt = Instant.now();
         this.updatedAt = Instant.now();
     }
 
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
+    public UUID getId() { return id; }
+    public void setId(UUID id) { this.id = id; }
 
     public String getEntryId() { return entryId; }
     public void setEntryId(String entryId) { this.entryId = entryId; }
@@ -178,6 +184,9 @@ public class KnowledgeEntryEntity {
 
     public String getPromotedFrom() { return promotedFrom; }
     public void setPromotedFrom(String promotedFrom) { this.promotedFrom = promotedFrom; }
+
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
 
     public Instant getExpiresAt() { return expiresAt; }
     public void setExpiresAt(Instant expiresAt) { this.expiresAt = expiresAt; }

@@ -7,7 +7,7 @@ public class DetectedChange {
     private String changeId;
     private String employeeId;
     private String employeeName;
-    private EmployeeService.ChangeType changeType;
+    private AuthEmployeeService.ChangeType changeType;
     private ChangeStatus status;
     private String detectedFrom;
     private String details;
@@ -34,8 +34,8 @@ public class DetectedChange {
     public String getEmployeeName() { return employeeName; }
     public void setEmployeeName(String employeeName) { this.employeeName = employeeName; }
 
-    public EmployeeService.ChangeType getChangeType() { return changeType; }
-    public void setChangeType(EmployeeService.ChangeType changeType) { this.changeType = changeType; }
+    public AuthEmployeeService.ChangeType getChangeType() { return changeType; }
+    public void setChangeType(AuthEmployeeService.ChangeType changeType) { this.changeType = changeType; }
 
     public ChangeStatus getStatus() { return status; }
     public void setStatus(ChangeStatus status) { this.status = status; }

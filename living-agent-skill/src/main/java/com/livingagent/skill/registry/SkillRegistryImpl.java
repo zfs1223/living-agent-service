@@ -1,5 +1,6 @@
 package com.livingagent.skill.registry;
 
+import com.livingagent.core.security.AccessLevel;
 import com.livingagent.core.skill.Skill;
 import com.livingagent.core.skill.SkillRegistry;
 import com.livingagent.skill.loader.SkillLoader;
@@ -96,14 +97,19 @@ public class SkillRegistryImpl implements SkillRegistry {
         if (skill == null || skill.getName() == null) {
             return;
         }
-        
+
+        // P1-5.1: 强制设置 scope 默认值
+        if (skill.getScope() == null || skill.getScope().isBlank()) {
+            skill.setScope("global");
+        }
+
         skillsByName.put(skill.getName(), skill);
-        
+
         String brain = skill.getTargetBrain();
         if (brain != null) {
             skillsByBrain.computeIfAbsent(brain, k -> new ArrayList<>()).add(skill);
         }
-        
+
         String category = skill.getCategory();
         if (category != null) {
             skillsByCategory.computeIfAbsent(category, k -> new ArrayList<>()).add(skill);
@@ -133,6 +139,69 @@ public class SkillRegistryImpl implements SkillRegistry {
     @Override
     public List<Skill> getAllSkills() {
         return new ArrayList<>(skillsByName.values());
+    }
+
+    @Override
+    public List<Skill> getSkillsByScope(String scope) {
+        return skillsByName.values().stream()
+                .filter(skill -> scope.equals(skill.getScope()))
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<Skill> getSkillsByOwnerId(String ownerId) {
+        return skillsByName.values().stream()
+                .filter(skill -> ownerId.equals(skill.getOwnerId()))
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<Skill> getVisibleSkills(String userId, AccessLevel accessLevel, String departmentId) {
+        if (accessLevel == AccessLevel.CHAT_ONLY) {
+            return Collections.emptyList();
+        }
+
+        return skillsByName.values().stream()
+                .filter(skill -> {
+                    String scope = skill.getScope();
+                    String owner = skill.getOwnerId();
+                    String skillDept = skill.getDepartmentId();
+
+                    // global 技能对所有非 CHAT_ONLY 用户可见
+                    if ("global".equals(scope)) return true;
+
+                    // personal 技能仅自己可见
+                    if ("personal".equals(scope)) return userId != null && userId.equals(owner);
+
+                    // private:{employeeId} 格式的个人技能
+                    if (scope != null && scope.startsWith("private:")) {
+                        String scopeOwnerId = scope.substring("private:".length());
+                        return userId != null && userId.equals(scopeOwnerId);
+                    }
+
+                    // evolved 技能：FULL 可见全部，DEPARTMENT 仅见本部门
+                    if ("evolved".equals(scope)) {
+                        if (accessLevel == AccessLevel.FULL) return true;
+                        if (accessLevel == AccessLevel.DEPARTMENT && departmentId != null && departmentId.equals(skillDept)) return true;
+                        return false;
+                    }
+
+                    // department:{departmentName} 格式的部门技能
+                    if (scope != null && scope.startsWith("department:")) {
+                        String scopeDept = scope.substring("department:".length());
+                        if (accessLevel == AccessLevel.FULL) return true;
+                        if (accessLevel == AccessLevel.DEPARTMENT && departmentId != null && departmentId.equals(scopeDept)) return true;
+                        return false;
+                    }
+
+                    // LIMITED 用户可见 global 和自己的 personal
+                    if (accessLevel == AccessLevel.LIMITED) {
+                        return "global".equals(scope);
+                    }
+
+                    return true;
+                })
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -172,6 +241,9 @@ public class SkillRegistryImpl implements SkillRegistry {
         
         try {
             log.info("Starting atomic skill reload...");
+            
+            // 清除 SkillLoader 扫描缓存，确保重新扫描最新文件
+            skillLoader.clearAllCache();
             
             Map<String, Skill> newSkillsByName = new ConcurrentHashMap<>();
             Map<String, List<Skill>> newSkillsByBrain = new ConcurrentHashMap<>();

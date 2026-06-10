@@ -1,0 +1,17 @@
+[ {
+  "receiptId" : "8e291589-9476-4e21-b3a8-062595f7104c",
+  "executionId" : "db5032b9-7db5-4458-8f73-1c530bd3daa0",
+  "dispatchId" : "d4952eaf-5287-415f-92d8-a106f951cb51",
+  "assignmentId" : "8b00802d-e538-4599-891b-acdf0ed77bb5",
+  "employeeCode" : "T09",
+  "employeeNeuronId" : "neuron://tech/frontend/001",
+  "status" : "COMPLETED",
+  "summary" : "任务执行完成（真绘/技术部）：类型=web_prototype, 目标=开发一个红色小球跳动的简单游戏网页\n（注：模型调用暂不可用，此为降级摘要，将在模型恢复后自动重新处理）",
+  "receivedAt" : 1778469801.495048209,
+  "metadata" : {
+    "department" : "tech",
+    "employeeName" : "真绘",
+    "title" : "前端工程师",
+    "taskType" : "web_prototype"
+  }
+} ]

@@ -112,7 +112,15 @@ public class SkillBindingService {
 
     public void installAndBindSkill(String skillName, String source, String neuronId) {
         log.info("Installing skill {} from {} for neuron {}", skillName, source, neuronId);
-        
+
+        // P1-5.1: 个人添加的技能设置 scope 为 personal
+        skillRegistry.getSkill(skillName).ifPresent(skill -> {
+            if (skill.getScope() == null || "global".equals(skill.getScope())) {
+                // 只有默认 global 的技能才改为 personal，避免覆盖进化生成的 department scope
+                skill.setScope("personal");
+            }
+        });
+
         bindSkillToNeuron(skillName, neuronId);
     }
 

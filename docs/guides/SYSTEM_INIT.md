@@ -54,7 +54,7 @@
 | `employee_id` | `founder_xxxxxxxx` | 自动生成的唯一ID |
 | `name` | 用户输入 | 董事长姓名 |
 | `email` | 用户输入 | 邮箱地址 |
-| `identity` | `INTERNAL_CHAIRMAN` | 身份标识 |
+| `identity` | `INTERNAL_ENTERPRISE` | 身份标识 |
 | `access_level` | `FULL` | 最高访问权限 |
 | `is_founder` | `true` | 董事长标志 |
 | `position` | `董事长` | 职位 |
@@ -328,7 +328,7 @@ Response:
   "data": {
     "employeeId": "founder_abc12345",
     "name": "张三",
-    "identity": "INTERNAL_CHAIRMAN",
+    "identity": "INTERNAL_ENTERPRISE",
     "accessLevel": "FULL",
     "sessionId": "sess_xxxxxxxx"
   }

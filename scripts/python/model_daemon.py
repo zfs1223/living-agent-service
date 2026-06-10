@@ -24,6 +24,7 @@ Living Agent Service - 模型守护进程 (优化版)
 import sys
 import os
 import re
+import errno
 import subprocess
 import hashlib
 import time
@@ -33,7 +34,6 @@ import traceback
 import threading
 from collections import deque
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Dict, List, Tuple, Any
 
 os.environ['NUMBA_DISABLE_JIT'] = '0'
@@ -246,26 +246,66 @@ class QuickGreetingGenerator:
             if g in lower:
                 hour = time.localtime().tm_hour
                 if 5 <= hour < 12:
-                    return "早上好！今天有什么我可以帮助您的吗？"
+                    if QuickGreetingGenerator._is_pure_greeting(lower, g):
+                        return "早上好！今天有什么我可以帮助您的吗？"
         
         for g in GREETINGS['afternoon']:
             if g in lower:
-                return "下午好！有什么我可以为您做的吗？"
+                if QuickGreetingGenerator._is_pure_greeting(lower, g):
+                    return "下午好！有什么我可以为您做的吗？"
         
         for g in GREETINGS['evening']:
             if g in lower:
-                if '晚安' in lower:
-                    return "晚安！祝您有个好梦。"
-                return "晚上好！有什么我可以帮您的吗？"
+                if QuickGreetingGenerator._is_pure_greeting(lower, g):
+                    if '晚安' in lower:
+                        return "晚安！祝您有个好梦。"
+                    return "晚上好！有什么我可以帮您的吗？"
         
         if re.match(r'.*在[吗呢].*', lower) or '在不在' in lower or '有人吗' in lower:
-            return "我在的，有什么可以帮您？"
+            if QuickGreetingGenerator._is_pure_greeting(lower, None):
+                return "我在的，有什么可以帮您？"
         
         for g in GREETINGS['general']:
             if g in lower:
-                return "您好！我是公司的前台助手，有什么可以帮您的吗？"
+                if QuickGreetingGenerator._is_pure_greeting(lower, g):
+                    return "您好！我是公司的前台助手，有什么可以帮您的吗？"
         
         return None
+    
+    @staticmethod
+    def _is_pure_greeting(lower: str, greeting: Optional[str] = None) -> bool:
+        """判断是否为纯问候（无后续问题/请求）
+        
+        如果是纯问候词（如"你好"），返回 True
+        如果问候词后还有其他内容（如"你好，你是什么模型"），返回 False
+        """
+        text = lower.strip()
+        
+        question_patterns = [
+            r'[吗呢啊呀]+$',
+            r'什么',
+            r'怎么',
+            r'如何',
+            r'为什么',
+            r'哪个',
+            r'多少',
+            r'能[不否]',
+            r'可以[不否]',
+            r'有没有',
+            r'是不是',
+            r'会不会',
+        ]
+        
+        for pattern in question_patterns:
+            if re.search(pattern, text):
+                return False
+        
+        if text.count('，') > 0 or text.count(',') > 0:
+            return False
+        if text.count('？') > 0 or text.count('?') > 0:
+            return False
+        
+        return True
 
 class NeuronRouter:
     """神经网络路由器 - 路由到部门神经元或MainBrain"""
@@ -1304,38 +1344,101 @@ class ModelManager:
 
 
 class SessionManager:
+    SESSION_PIPE_READY_TIMEOUT_SEC = float(os.environ.get('SESSION_PIPE_READY_TIMEOUT_SEC', '2.5'))
+    SESSION_PIPE_POLL_INTERVAL_SEC = 0.05
+
     def __init__(self, model_manager, max_workers=10):
         self.model_manager = model_manager
         self.sessions = {}
         self.session_histories = {}
+        self.session_threads = {}
         self.lock = threading.Lock()
-        self.executor = ThreadPoolExecutor(max_workers=max_workers)
+        # 根因修复：会话处理线程会长期阻塞在FIFO读，不能放在线程池里被上限卡死
+        # 改为每个会话独立daemon线程，避免create_session成功但handler排队导致初始化超时
+        self.max_workers = max_workers
         print("[SessionManager] 会话管理器初始化", file=sys.stderr, flush=True)
-    
+
+    def _wait_pipe_ready_for_write(self, pipe_path: str, timeout_sec: float) -> bool:
+        """等待 FIFO 可写（有 reader 打开），避免阻塞死锁。"""
+        deadline = time.time() + timeout_sec
+        while time.time() < deadline:
+            fd = None
+            try:
+                fd = os.open(pipe_path, os.O_WRONLY | os.O_NONBLOCK)
+                return True
+            except OSError as e:
+                # ENXIO: 没有 reader；ENOENT: pipe 尚未就绪
+                if e.errno in (errno.ENXIO, errno.ENOENT):
+                    time.sleep(self.SESSION_PIPE_POLL_INTERVAL_SEC)
+                    continue
+                print(f"[SessionManager] 等待pipe可写异常 path={pipe_path}, errno={e.errno}, err={e}", file=sys.stderr, flush=True)
+                return False
+            finally:
+                if fd is not None:
+                    os.close(fd)
+        return False
+
     def create_session(self, session_id):
+        start_ts = time.time()
         with self.lock:
             if session_id in self.sessions:
+                print(f"[SessionManager] 会话已存在，跳过创建: {session_id}", file=sys.stderr, flush=True)
                 return True
             request_pipe = f"/tmp/dialogue_daemon_request_{session_id}"
             response_pipe = f"/tmp/dialogue_daemon_response_{session_id}"
-            
+
+            print(
+                f"[SessionManager] create_session start session_id={session_id}, "
+                f"request_pipe={request_pipe}, response_pipe={response_pipe}",
+                file=sys.stderr,
+                flush=True
+            )
+
             try:
                 for pipe in [request_pipe, response_pipe]:
                     if os.path.exists(pipe):
+                        print(f"[SessionManager] 删除旧管道: {pipe}", file=sys.stderr, flush=True)
                         os.unlink(pipe)
                     os.mkfifo(pipe, 0o666)
-                
+                    print(f"[SessionManager] 创建会话管道成功: {pipe}", file=sys.stderr, flush=True)
+
                 self.sessions[session_id] = {
                     "request_pipe": request_pipe,
                     "response_pipe": response_pipe,
                     "active": True
                 }
                 self.session_histories[session_id] = SessionHistory(CHAT_CONFIG['max_history_turns'])
-                
-                print(f"[SessionManager] 创建会话: {session_id}", file=sys.stderr, flush=True)
+
+                # 可观测点：检查客户端是否已接入 reader，但不作为失败条件（避免握手时序死锁）
+                ready = self._wait_pipe_ready_for_write(
+                    request_pipe,
+                    self.SESSION_PIPE_READY_TIMEOUT_SEC
+                )
+                elapsed_ms = int((time.time() - start_ts) * 1000)
+                if not ready:
+                    print(
+                        f"[SessionManager] create_session reader not ready yet (non-fatal): "
+                        f"session_id={session_id}, timeout_sec={self.SESSION_PIPE_READY_TIMEOUT_SEC}, elapsed_ms={elapsed_ms}",
+                        file=sys.stderr,
+                        flush=True
+                    )
+                else:
+                    print(
+                        f"[SessionManager] create_session reader ready: session_id={session_id}, elapsed_ms={elapsed_ms}",
+                        file=sys.stderr,
+                        flush=True
+                    )
+
+                print(f"[SessionManager] 创建会话成功: {session_id}, elapsed_ms={elapsed_ms}", file=sys.stderr, flush=True)
                 return True
             except Exception as e:
-                print(f"[SessionManager] 创建会话失败: {str(e)}", file=sys.stderr, flush=True)
+                elapsed_ms = int((time.time() - start_ts) * 1000)
+                print(
+                    f"[SessionManager] 创建会话失败: session_id={session_id}, elapsed_ms={elapsed_ms}, err={str(e)}",
+                    file=sys.stderr,
+                    flush=True
+                )
+                traceback.print_exc(file=sys.stderr)
                 return False
     
     def destroy_session(self, session_id):
@@ -1353,6 +1456,8 @@ class SessionManager:
                 del self.sessions[session_id]
                 if session_id in self.session_histories:
                     del self.session_histories[session_id]
+                if session_id in self.session_threads:
+                    del self.session_threads[session_id]
                 print(f"[SessionManager] 销毁会话: {session_id}", file=sys.stderr, flush=True)
                 return True
             except Exception as e:
@@ -1379,52 +1484,56 @@ class SessionManager:
                             continue
                         
                         request = json.loads(line)
+                        params = request.get('params', {}) if isinstance(request.get('params', {}), dict) else {}
                         service_type = request.get('service', '')
+
+                        def get_param(key, default=None):
+                            return request.get(key, params.get(key, default))
                         
                         if service_type == 'asr':
-                            audio_path = request.get('audio_path', '')
+                            audio_path = get_param('audio_path', '')
                             result = self.model_manager.recognize_audio(audio_path)
                         
                         elif service_type == 'llm':
-                            prompt = request.get('prompt', '')
-                            model = request.get('model', 'qwen3')
-                            max_tokens = request.get('max_tokens', 1000)
-                            temperature = request.get('temperature', 0.7)
+                            prompt = get_param('prompt', '')
+                            model = get_param('model', 'qwen3')
+                            max_tokens = get_param('max_tokens', 1000)
+                            temperature = get_param('temperature', 0.7)
                             result = self.model_manager.generate_text(prompt, model, max_tokens, temperature, session_id)
                         
                         elif service_type == 'chat':
-                            user_input = request.get('prompt', '')
-                            history_list = history.get_history() if history else None
+                            user_input = get_param('prompt', '')
+                            history_list = get_param('history', history.get_history() if history else None)
                             result = self.model_manager.generate_chat_response(session_id, user_input, history_list)
                             
                             if result.get('success') and result.get('text') and not result.get('should_route'):
-                                if history:
+                                if history and user_input:
                                     history.add_turn('user', user_input)
                                     history.add_turn('assistant', result['text'])
                         
                         elif service_type == 'classify_intent':
-                            text = request.get('text', '')
+                            text = get_param('text', '')
                             result = self.model_manager.classify_intent(text)
                             result['success'] = True
                         
                         elif service_type == 'tts':
-                            text = request.get('text', '')
-                            language = request.get('language', 'zh')
-                            speed = request.get('speed', 1.0)
-                            output_path = request.get('output_path', '')
+                            text = get_param('text', '')
+                            language = get_param('language', 'zh')
+                            speed = get_param('speed', 1.0)
+                            output_path = get_param('output_path', '')
                             result = self.model_manager.synthesize_speech(text, language, speed, output_path)
                         
                         elif service_type == 'speaker_register':
-                            audio_path = request.get('audio_path', '')
-                            speaker_id = request.get('speaker_id', '')
-                            name = request.get('name', '')
-                            profile = request.get('profile', {})
+                            audio_path = get_param('audio_path', '')
+                            speaker_id = get_param('speaker_id', '')
+                            name = get_param('name', '')
+                            profile = get_param('profile', {})
                             result = self.model_manager.register_speaker(audio_path, speaker_id, name, profile)
                         
                         elif service_type == 'speaker_verify':
-                            audio_path = request.get('audio_path', '')
-                            speaker_id = request.get('speaker_id')
-                            threshold = request.get('threshold')
+                            audio_path = get_param('audio_path', '')
+                            speaker_id = get_param('speaker_id')
+                            threshold = get_param('threshold')
                             result = self.model_manager.verify_speaker(audio_path, speaker_id, threshold)
                         
                         elif service_type == 'speaker_list':
@@ -1481,7 +1590,21 @@ class SessionManager:
             print(f"[SessionManager] 会话结束: {session_id}", file=sys.stderr, flush=True)
     
     def start_session_handler(self, session_id):
-        self.executor.submit(self.handle_session, session_id)
+        with self.lock:
+            existing = self.session_threads.get(session_id)
+            if existing and existing.is_alive():
+                print(f"[SessionManager] 会话处理线程已存在: {session_id}", file=sys.stderr, flush=True)
+                return
+
+            t = threading.Thread(
+                target=self.handle_session,
+                args=(session_id,),
+                name=f"session-handler-{session_id[:8]}",
+                daemon=True
+            )
+            self.session_threads[session_id] = t
+            t.start()
+            print(f"[SessionManager] 会话处理线程已启动: {session_id}", file=sys.stderr, flush=True)
     
     def get_session_count(self):
         with self.lock:
@@ -1490,9 +1613,18 @@ class SessionManager:
     def shutdown(self):
         with self.lock:
             session_ids = list(self.sessions.keys())
+            threads = list(self.session_threads.values())
+
         for session_id in session_ids:
             self.destroy_session(session_id)
-        self.executor.shutdown(wait=True)
+
+        # 等待会话线程自然退出（FIFO被unlink后会结束）
+        for t in threads:
+            try:
+                t.join(timeout=1.0)
+            except Exception:
+                pass
+
         print("[SessionManager] 已关闭", file=sys.stderr, flush=True)
 
 
@@ -1712,66 +1844,131 @@ def main():
         os.mkfifo(pipe, 0o666)
     
     print(f"[ModelDaemon] 创建控制管道: {control_request_pipe}", file=sys.stderr, flush=True)
-    
-    try:
-        while True:
+    print(f"[ModelDaemon] 创建控制管道: {control_response_pipe}", file=sys.stderr, flush=True)
+
+    control_resp_timeout_sec = float(os.environ.get('CONTROL_RESPONSE_WRITE_TIMEOUT_SEC', '2.5'))
+
+    def write_control_response(result: Dict[str, Any], response_pipe: Optional[str] = None) -> bool:
+        payload = json.dumps(result, ensure_ascii=False) + '\n'
+        deadline = time.time() + control_resp_timeout_sec
+        target_pipe = response_pipe or control_response_pipe
+        while time.time() < deadline:
+            fd = None
             try:
-                with open(control_request_pipe, 'r') as req_pipe:
-                    line = req_pipe.readline().strip()
-                    if not line:
+                fd = os.open(target_pipe, os.O_WRONLY | os.O_NONBLOCK)
+                os.write(fd, payload.encode('utf-8'))
+                return True
+            except OSError as e:
+                if e.errno in (errno.ENXIO, errno.ENOENT):
+                    time.sleep(0.03)
+                    continue
+                print(f"[ModelDaemon] 写控制响应失败 pipe={target_pipe}, errno={e.errno}, err={e}", file=sys.stderr, flush=True)
+                return False
+            finally:
+                if fd is not None:
+                    os.close(fd)
+
+        print(
+            f"[ModelDaemon] 写控制响应超时 pipe={target_pipe}, timeout_sec={control_resp_timeout_sec}, result_keys={list(result.keys())}",
+            file=sys.stderr,
+            flush=True
+        )
+        return False
+
+    try:
+        # 根因修复：控制FIFO使用RDWR持有，避免读端重开窗口和EOF导致后续请求丢失/阻塞
+        control_req_fd = os.open(control_request_pipe, os.O_RDWR)
+        with os.fdopen(control_req_fd, 'r', buffering=1) as req_pipe:
+            while True:
+                try:
+                    line = req_pipe.readline()
+                    if line is None:
                         continue
-                    
+                    line = line.strip()
+                    if not line:
+                        time.sleep(0.01)
+                        continue
+
+                    req_start = time.time()
                     request = json.loads(line)
                     action = request.get('action', '')
-                    
-                    if action == 'create_session':
-                        session_id = request.get('session_id', '')
+                    service = request.get('service', '')
+                    request_id = request.get('requestId')
+
+                    command = action or service
+                    if command == 'status':
+                        command = 'get_status'
+
+                    control_response_pipe_override = None
+                    params = request.get('params', {}) if isinstance(request.get('params', {}), dict) else {}
+                    if isinstance(params.get('control_response_pipe'), str) and params.get('control_response_pipe').strip():
+                        control_response_pipe_override = params.get('control_response_pipe').strip()
+
+                    print(
+                        f"[ModelDaemon] 控制请求: command={command}, requestId={request_id}, request={request}",
+                        file=sys.stderr,
+                        flush=True
+                    )
+
+                    if command == 'create_session':
+                        session_id = request.get('session_id') or params.get('session_id') or ''
                         if session_id:
                             success = session_manager.create_session(session_id)
                             if success:
                                 session_manager.start_session_handler(session_id)
+                                print(f"[ModelDaemon] create_session handler started: {session_id}", file=sys.stderr, flush=True)
                             result = {"success": success, "session_id": session_id}
                         else:
                             result = {"success": False, "error": "缺少session_id"}
-                    
-                    elif action == 'destroy_session':
-                        session_id = request.get('session_id', '')
+
+                    elif command == 'destroy_session':
+                        session_id = request.get('session_id') or params.get('session_id') or ''
                         if session_id:
                             success = session_manager.destroy_session(session_id)
                             result = {"success": success, "session_id": session_id}
                         else:
                             result = {"success": False, "error": "缺少session_id"}
-                    
-                    elif action == 'get_status':
+
+                    elif command == 'get_status':
                         result = {
                             "success": True,
                             "model_status": manager.get_status(),
                             "session_count": session_manager.get_session_count(),
                             "stats": manager.get_stats()
                         }
-                    
-                    elif action == 'shutdown':
+
+                    elif command == 'shutdown':
                         session_manager.shutdown()
                         result = {"success": True, "message": "守护进程已关闭"}
+                        write_control_response(result)
                         break
-                    
+
                     else:
-                        result = {"success": False, "error": f"未知操作: {action}"}
-                    
-                    with open(control_response_pipe, 'w') as resp_pipe:
-                        resp_pipe.write(json.dumps(result, ensure_ascii=False) + '\n')
-                        resp_pipe.flush()
-                        
-            except json.JSONDecodeError as e:
-                result = {"success": False, "error": f"JSON解析失败: {str(e)}"}
-                with open(control_response_pipe, 'w') as resp_pipe:
-                    resp_pipe.write(json.dumps(result, ensure_ascii=False) + '\n')
-                    resp_pipe.flush()
-            except Exception as e:
-                result = {"success": False, "error": f"处理失败: {str(e)}"}
-                with open(control_response_pipe, 'w') as resp_pipe:
-                    resp_pipe.write(json.dumps(result, ensure_ascii=False) + '\n')
-                    resp_pipe.flush()
+                        result = {
+                            "success": False,
+                            "error": f"未知操作: action={action}, service={service}",
+                            "request": request
+                        }
+
+                    if request_id:
+                        result["requestId"] = request_id
+                    wrote = write_control_response(result, control_response_pipe_override)
+                    elapsed_ms = int((time.time() - req_start) * 1000)
+                    print(
+                        f"[ModelDaemon] 控制响应: command={command}, requestId={request_id}, pipe={control_response_pipe_override or control_response_pipe}, wrote={wrote}, elapsed_ms={elapsed_ms}, result={result}",
+                        file=sys.stderr,
+                        flush=True
+                    )
+
+                except json.JSONDecodeError as e:
+                    result = {"success": False, "error": f"JSON解析失败: {str(e)}"}
+                    wrote = write_control_response(result)
+                    print(f"[ModelDaemon] 控制请求JSON解析失败 wrote={wrote}, err={e}", file=sys.stderr, flush=True)
+                except Exception as e:
+                    result = {"success": False, "error": f"处理失败: {str(e)}"}
+                    wrote = write_control_response(result)
+                    print(f"[ModelDaemon] 控制请求处理异常 wrote={wrote}, err={e}", file=sys.stderr, flush=True)
+                    traceback.print_exc(file=sys.stderr)
                 
     except KeyboardInterrupt:
         print("\n[ModelDaemon] 收到停止信号", file=sys.stderr, flush=True)

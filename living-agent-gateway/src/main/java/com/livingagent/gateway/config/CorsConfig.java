@@ -21,7 +21,15 @@ public class CorsConfig {
         
         CorsConfiguration config = new CorsConfiguration();
         
-        config.setAllowedOriginPatterns(Arrays.asList("*"));
+        // 生产环境应限制为具体域名，如 Arrays.asList("https://your-domain.com")
+        // 开发环境可通过 CORS_ALLOWED_ORIGINS 环境变量配置
+        String allowedOrigins = System.getenv("CORS_ALLOWED_ORIGINS");
+        if (allowedOrigins != null && !allowedOrigins.isBlank()) {
+            config.setAllowedOriginPatterns(Arrays.asList(allowedOrigins.split(",")));
+        } else {
+            // 开发环境默认允许所有来源，生产环境必须配置 CORS_ALLOWED_ORIGINS
+            config.setAllowedOriginPatterns(Arrays.asList("*"));
+        }
         
         config.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
         

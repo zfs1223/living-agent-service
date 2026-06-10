@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.Executors;
 
 @Component
@@ -154,6 +155,20 @@ public class EventHookManager {
     public void shutdown() {
         executorService.shutdown();
         log.info("EventHookManager shutdown");
+    }
+
+    @jakarta.annotation.PreDestroy
+    public void destroy() {
+        executorService.shutdown();
+        try {
+            if (!executorService.awaitTermination(10, TimeUnit.SECONDS)) {
+                executorService.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executorService.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+        log.info("EventHookManager shutdown complete");
     }
 
     private static class EventStatistics {

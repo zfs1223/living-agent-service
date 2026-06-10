@@ -1,22 +1,53 @@
 package com.livingagent.core.security;
 
-import java.time.Instant;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Index;
+import jakarta.persistence.Table;
+import java.util.UUID;
 
+@Entity
+@Table(name = "access_audit_logs", indexes = {
+    @Index(name = "idx_audit_employee_id", columnList = "employee_id"),
+    @Index(name = "idx_audit_timestamp", columnList = "timestamp"),
+    @Index(name = "idx_audit_resource_action", columnList = "resource,action")
+})
 public class AccessAuditLog {
     
+    @Id
+    @Column(name = "log_id", length = 50)
     private String logId;
+    
+    @Column(name = "employee_id", length = 255)
     private String employeeId;
+    
+    @Column(name = "employee_name", length = 255)
     private String employeeName;
+    
+    @Column(name = "resource", length = 255)
     private String resource;
+    
+    @Column(name = "action", length = 255)
     private String action;
+    
+    @Column(name = "granted")
     private boolean granted;
+    
+    @Column(name = "reason", length = 500)
     private String reason;
+    
+    @Column(name = "timestamp")
     private long timestamp;
+    
+    @Column(name = "session_id", length = 100)
     private String sessionId;
+    
+    @Column(name = "ip_address", length = 50)
     private String ipAddress;
 
     public AccessAuditLog() {
-        this.logId = "log_" + System.currentTimeMillis();
+        this.logId = "log_" + UUID.randomUUID().toString().substring(0, 8);
         this.timestamp = System.currentTimeMillis();
     }
 

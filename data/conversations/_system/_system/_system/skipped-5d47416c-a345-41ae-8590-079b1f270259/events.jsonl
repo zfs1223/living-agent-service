@@ -1,0 +1,12 @@
+{
+  "data" : {
+    "requestId" : "5d47416c-a345-41ae-8590-079b1f270259",
+    "department" : "tech",
+    "brain" : "neuron://tech/tech-brain/001",
+    "intent" : "web_development",
+    "readinessStatus" : "NEEDS_CLARIFICATION",
+    "clarificationQuestions" : [ "请明确本次开发是否必须包含用户系统、多人联机及内购支付功能，还是作为可选阶段？", "项目的预计上线时间和关键交付节点是什么？", "是否有现成的美术素材库或已完成的设计稿供前端使用？" ]
+  },
+  "type" : "clarification_requested",
+  "timestamp" : "2026-05-20T01:41:56.917119369Z"
+}

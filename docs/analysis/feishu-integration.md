@@ -108,7 +108,7 @@
 
 | 机器人名称 | App ID | 绑定数字员工 | 权限范围 | 用途 |
 |-----------|--------|-------------|----------|------|
-| **ChairmanBot** | cli_chairman | MainBrain | 全部权限 | 董事长专属，管理组织架构、审批流程 |
+| **EnterpriseBot** | cli_enterprise | MainBrain | 全部权限 | 董事长专属，管理组织架构、审批流程 |
 | **HrBot** | cli_hr | HrBrain | 通讯录+部门管理 | HR专属，管理员工和部门 |
 
 ### 3.3 员工 OAuth 授权模式
@@ -296,7 +296,7 @@
 
 ## 六、董事长飞书工具完整功能
 
-### 6.1 ChairmanFeishuTool 支持的操作
+### 6.1 EnterpriseFeishuTool 支持的操作
 
 | 操作 | API 路径 | 权限要求 | 状态 |
 |------|---------|----------|------|
@@ -337,11 +337,11 @@
 | `get_chat` | GET /open-apis/im/v1/chats/{id} | `im:chat` | 📝 待实现 |
 | `add_chat_members` | POST /open-apis/im/v1/chats/{id}/members | `im:chat` | 📝 待实现 |
 
-### 6.2 ChairmanFeishuTool Schema 定义
+### 6.2 EnterpriseFeishuTool Schema 定义
 
 ```java
 ToolSchema.builder()
-    .name("chairman_feishu")
+    .name("enterprise_feishu")
     .description("董事长专属飞书管理工具，具备全部权限，可进行组织架构管理、人员管理、审批管理等所有操作")
     .parameter("action", "string", 
         "操作类型: " +
@@ -429,7 +429,7 @@ CREATE TABLE feishu_bot_config (
     allowed_actions JSONB,
     
     -- 角色类型
-    role_type VARCHAR(20) NOT NULL,     -- 'CHAIRMAN' 或 'HR'
+    role_type VARCHAR(20) NOT NULL,     -- 'ENTERPRISE' 或 'HR'
     
     -- 状态
     is_active BOOLEAN DEFAULT true,
@@ -473,7 +473,7 @@ CREATE TABLE feishu_operation_logs (
 
 | 数字员工 | neuron_id | 绑定模式 | 绑定对象 | 操作身份 |
 |---------|-----------|---------|---------|---------|
-| MainBrain | main-brain-001 | BOT | ChairmanBot | 机器人身份 |
+| MainBrain | main-brain-001 | BOT | EnterpriseBot | 机器人身份 |
 | HrBrain | hr-brain-001 | BOT | HrBot | 机器人身份 |
 | TechBrain | tech-brain-001 | OAUTH | 绑定员工账号 | 员工身份 |
 | FinanceBrain | finance-brain-001 | OAUTH | 绑定员工账号 | 员工身份 |
@@ -526,7 +526,7 @@ CREATE TABLE feishu_operation_logs (
 │  └── 用途: 数字员工身份标识                                      │
 │                                                                 │
 │  【管理者数字员工】- 机器人模式                                   │
-│  ├── MainBrain (听风) → 绑定 ChairmanBot → 机器人身份操作       │
+│  ├── MainBrain (听风) → 绑定 EnterpriseBot → 机器人身份操作       │
 │  └── HrBrain (听雨) → 绑定 HrBot → 机器人身份操作               │
 │                                                                 │
 │  【普通数字员工】- 虚拟员工账号                                   │
@@ -695,14 +695,14 @@ public class FeishuAuditService {
 
 ```
 living-agent-core/src/main/java/com/livingagent/core/tool/impl/enterprise/
-├── ChairmanFeishuTool.java    ← 董事长专用（全部权限）
+├── EnterpriseFeishuTool.java    ← 董事长专用（全部权限）
 ├── HrFeishuTool.java          ← HR专用（通讯录+部门管理）
 └── EmployeeFeishuTool.java    ← 普通员工（基础消息+查询）
 ```
 
 ### 10.2 权限对比矩阵
 
-| 操作 | ChairmanFeishuTool | HrFeishuTool | EmployeeFeishuTool |
+| 操作 | EnterpriseFeishuTool | HrFeishuTool | EmployeeFeishuTool |
 |------|-------------------|--------------|-------------------|
 | `send_message` | ✅ | ✅ | ✅ |
 | `get_user` | ✅ | ✅ | ✅ |
@@ -726,8 +726,8 @@ living-agent-core/src/main/java/com/livingagent/core/tool/impl/enterprise/
 
 | 文件 | 状态 | 建议 |
 |------|------|------|
-| `FeishuTool.java` | ⚠️ 遗留 | 删除，已被 `ChairmanFeishuTool` 替代 |
-| `FeishuSyncAdapter.java` | ⚠️ 遗留 | 删除或重命名为 `ChairmanFeishuSyncAdapter` |
+| `FeishuTool.java` | ⚠️ 遗留 | 删除，已被 `EnterpriseFeishuTool` 替代 |
+| `FeishuSyncAdapter.java` | ⚠️ 遗留 | 删除或重命名为 `EnterpriseFeishuSyncAdapter` |
 
 ### 10.4 配置文件
 
@@ -737,9 +737,9 @@ living-agent-core/src/main/java/com/livingagent/core/tool/impl/enterprise/
 feishu:
   enabled: ${FEISHU_ENABLED:true}
   webhook-key: ${FEISHU_WEBHOOK_KEY:}
-  chairman:
-    app-id: ${FEISHU_CHAIRMAN_APP_ID:cli_a920321f3b7a5cc1}
-    app-secret: ${FEISHU_CHAIRMAN_APP_SECRET:gmU0opRuS3Aps30BWR84ghkv7ELrkncG}
+  enterprise:
+    app-id: ${FEISHU_ENTERPRISE_APP_ID:cli_a920321f3b7a5cc1}
+    app-secret: ${FEISHU_ENTERPRISE_APP_SECRET:gmU0opRuS3Aps30BWR84ghkv7ELrkncG}
   hr:
     app-id: ${FEISHU_HR_APP_ID:}
     app-secret: ${FEISHU_HR_APP_SECRET:}
@@ -826,7 +826,7 @@ lark-cli-main/
 
 ### 13.3 功能模块对比
 
-| 模块 | lark-cli-main | ChairmanFeishuTool | 说明 |
+| 模块 | lark-cli-main | EnterpriseFeishuTool | 说明 |
 |------|---------------|-------------------|------|
 | **日历管理** | ✅ 完整支持 | 📝 部分实现 | lark-cli 支持冲突检测、共同空闲时间 |
 | **通讯录** | ✅ 完整支持 | ✅ 已实现 | 功能相当 |
@@ -862,7 +862,7 @@ func (c *Client) doRequestWithTenantToken(method, path string, ...) {
 }
 ```
 
-#### ChairmanFeishuTool 认证模式
+#### EnterpriseFeishuTool 认证模式
 
 ```java
 // 仅租户访问令牌 (tenant_access_token)
@@ -875,7 +875,7 @@ public String getTenantAccessToken() {
 
 **关键差异**:
 
-| 特性 | lark-cli-main | ChairmanFeishuTool |
+| 特性 | lark-cli-main | EnterpriseFeishuTool |
 |------|---------------|-------------------|
 | **user_access_token** | ✅ 支持 | ❌ 不支持 |
 | **tenant_access_token** | ✅ 支持 | ✅ 支持 |
@@ -937,7 +937,7 @@ String output = new String(p.getInputStream().readAllBytes());
 
 #### 方案二：参考实现，增强现有工具（推荐）
 
-借鉴 lark-cli-main 的优秀设计，增强 ChairmanFeishuTool：
+借鉴 lark-cli-main 的优秀设计，增强 EnterpriseFeishuTool：
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -976,7 +976,7 @@ String output = new String(p.getInputStream().readAllBytes());
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │  Java 服务层 (living-agent-service)                              │
-│  ├── ChairmanFeishuTool  ← 核心业务逻辑                          │
+│  ├── EnterpriseFeishuTool  ← 核心业务逻辑                          │
 │  ├── HrFeishuTool        ← HR 专属操作                           │
 │  └── EmployeeFeishuTool  ← 员工基础功能                          │
 │                                                                 │
@@ -992,7 +992,7 @@ String output = new String(p.getInputStream().readAllBytes());
 
 ### 13.7 功能增强建议
 
-基于 lark-cli-main 分析，建议为 ChairmanFeishuTool 增加以下功能：
+基于 lark-cli-main 分析，建议为 EnterpriseFeishuTool 增加以下功能：
 
 | 功能 | 优先级 | 说明 |
 |------|--------|------|

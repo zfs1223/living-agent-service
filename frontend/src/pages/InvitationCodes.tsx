@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import { getToken } from '../stores';
 
 export default function InvitationCodes() {
     const { t } = useTranslation();
@@ -13,7 +14,7 @@ export default function InvitationCodes() {
     const [creating, setCreating] = useState(false);
     const [toast, setToast] = useState('');
 
-    const token = localStorage.getItem('token');
+    const token = getToken();
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
@@ -59,7 +60,7 @@ export default function InvitationCodes() {
     };
 
     const exportCsv = () => {
-        const token = localStorage.getItem('token');
+        const token = getToken();
         const a = document.createElement('a');
         fetch('/api/enterprise/invitation-codes/export', {
             headers: token ? { Authorization: `Bearer ${token}` } : {},

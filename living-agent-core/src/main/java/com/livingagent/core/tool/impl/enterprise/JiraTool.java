@@ -132,8 +132,19 @@ public class JiraTool implements Tool {
     }
     
     private String getAuthHeader() {
+        if (email == null || email.isEmpty() || apiToken == null || apiToken.isEmpty()) {
+            return null;
+        }
         return "Basic " + java.util.Base64.getEncoder().encodeToString(
             (email + ":" + apiToken).getBytes());
+    }
+
+    private HttpRequest.Builder addAuth(HttpRequest.Builder builder) {
+        String auth = getAuthHeader();
+        if (auth != null) {
+            builder.header("Authorization", auth);
+        }
+        return builder;
     }
     
     private ToolResult searchIssues(ToolParams params) throws Exception {
@@ -146,12 +157,9 @@ public class JiraTool implements Tool {
             java.net.URLEncoder.encode(jql, "UTF-8") + 
             "&maxResults=" + maxResults;
         
-        HttpRequest request = HttpRequest.newBuilder()
+        HttpRequest request = addAuth(HttpRequest.newBuilder()
             .uri(URI.create(url))
-            .header("Accept", "application/json")
-            .header("Authorization", "Basic " + 
-                java.util.Base64.getEncoder().encodeToString(
-                    (email + ":" + apiToken).getBytes()))
+            .header("Accept", "application/json"))
             .GET()
             .build();
         
@@ -196,12 +204,9 @@ public class JiraTool implements Tool {
         
         String url = baseUrl + "/rest/api/3/issue/" + issueKey;
         
-        HttpRequest request = HttpRequest.newBuilder()
+        HttpRequest request = addAuth(HttpRequest.newBuilder()
             .uri(URI.create(url))
-            .header("Accept", "application/json")
-            .header("Authorization", "Basic " + 
-                java.util.Base64.getEncoder().encodeToString(
-                    (email + ":" + apiToken).getBytes()))
+            .header("Accept", "application/json"))
             .GET()
             .build();
         
@@ -281,13 +286,10 @@ public class JiraTool implements Tool {
         String url = baseUrl + "/rest/api/3/issue";
         String body = objectMapper.writeValueAsString(issueData);
         
-        HttpRequest request = HttpRequest.newBuilder()
+        HttpRequest request = addAuth(HttpRequest.newBuilder()
             .uri(URI.create(url))
             .header("Accept", "application/json")
-            .header("Content-Type", "application/json")
-            .header("Authorization", "Basic " + 
-                java.util.Base64.getEncoder().encodeToString(
-                    (email + ":" + apiToken).getBytes()))
+            .header("Content-Type", "application/json"))
             .POST(HttpRequest.BodyPublishers.ofString(body))
             .build();
         
@@ -335,13 +337,10 @@ public class JiraTool implements Tool {
         String url = baseUrl + "/rest/api/3/issue/" + issueKey;
         String body = objectMapper.writeValueAsString(Map.of("fields", fields));
         
-        HttpRequest request = HttpRequest.newBuilder()
+        HttpRequest request = addAuth(HttpRequest.newBuilder()
             .uri(URI.create(url))
             .header("Accept", "application/json")
-            .header("Content-Type", "application/json")
-            .header("Authorization", "Basic " + 
-                java.util.Base64.getEncoder().encodeToString(
-                    (email + ":" + apiToken).getBytes()))
+            .header("Content-Type", "application/json"))
             .method("PUT", HttpRequest.BodyPublishers.ofString(body))
             .build();
         
@@ -381,13 +380,10 @@ public class JiraTool implements Tool {
             )
         ));
         
-        HttpRequest request = HttpRequest.newBuilder()
+        HttpRequest request = addAuth(HttpRequest.newBuilder()
             .uri(URI.create(url))
             .header("Accept", "application/json")
-            .header("Content-Type", "application/json")
-            .header("Authorization", "Basic " + 
-                java.util.Base64.getEncoder().encodeToString(
-                    (email + ":" + apiToken).getBytes()))
+            .header("Content-Type", "application/json"))
             .POST(HttpRequest.BodyPublishers.ofString(body))
             .build();
         
@@ -413,12 +409,9 @@ public class JiraTool implements Tool {
         String url = baseUrl + "/rest/api/3/user/search?query=" + 
             java.net.URLEncoder.encode(query, "UTF-8");
         
-        HttpRequest request = HttpRequest.newBuilder()
+        HttpRequest request = addAuth(HttpRequest.newBuilder()
             .uri(URI.create(url))
-            .header("Accept", "application/json")
-            .header("Authorization", "Basic " + 
-                java.util.Base64.getEncoder().encodeToString(
-                    (email + ":" + apiToken).getBytes()))
+            .header("Accept", "application/json"))
             .GET()
             .build();
         

@@ -1,5 +1,6 @@
 package com.livingagent.core.neuron.impl;
 
+import com.livingagent.core.autonomy.TaskMetadataKeys;
 import com.livingagent.core.channel.ChannelMessage;
 import com.livingagent.core.neuron.NeuronContext;
 import com.livingagent.core.project.Project;
@@ -110,7 +111,7 @@ public class ProjectDevelopmentNeuron extends AbstractNeuron {
     }
 
     private void handleStartWorkflow(Map<String, Object> payload) {
-        String projectId = (String) payload.get("projectId");
+        String projectId = (String) payload.get(TaskMetadataKeys.PROJECT_ID);
         if (projectId == null) {
             log.warn("Missing projectId for workflow start");
             return;
@@ -120,7 +121,7 @@ public class ProjectDevelopmentNeuron extends AbstractNeuron {
     }
 
     private void handleAdvancePhase(Map<String, Object> payload) {
-        String projectId = (String) payload.get("projectId");
+        String projectId = (String) payload.get(TaskMetadataKeys.PROJECT_ID);
         if (projectId == null) {
             log.warn("Missing projectId for phase advance");
             return;
@@ -130,7 +131,7 @@ public class ProjectDevelopmentNeuron extends AbstractNeuron {
     }
 
     private void handleGetStatus(Map<String, Object> payload) {
-        String projectId = (String) payload.get("projectId");
+        String projectId = (String) payload.get(TaskMetadataKeys.PROJECT_ID);
         if (projectId == null) {
             log.info("Project statistics: {}", projectService.getStatistics());
             return;
@@ -140,7 +141,7 @@ public class ProjectDevelopmentNeuron extends AbstractNeuron {
     }
 
     private void handlePauseWorkflow(Map<String, Object> payload) {
-        String projectId = (String) payload.get("projectId");
+        String projectId = (String) payload.get(TaskMetadataKeys.PROJECT_ID);
         if (projectId != null) {
             orchestrator.pauseWorkflow(projectId);
             log.info("Paused workflow: {}", projectId);
@@ -148,7 +149,7 @@ public class ProjectDevelopmentNeuron extends AbstractNeuron {
     }
 
     private void handleResumeWorkflow(Map<String, Object> payload) {
-        String projectId = (String) payload.get("projectId");
+        String projectId = (String) payload.get(TaskMetadataKeys.PROJECT_ID);
         if (projectId != null) {
             orchestrator.resumeWorkflow(projectId);
             log.info("Resumed workflow: {}", projectId);
@@ -156,7 +157,7 @@ public class ProjectDevelopmentNeuron extends AbstractNeuron {
     }
 
     private void handleCancelWorkflow(Map<String, Object> payload) {
-        String projectId = (String) payload.get("projectId");
+        String projectId = (String) payload.get(TaskMetadataKeys.PROJECT_ID);
         if (projectId != null) {
             orchestrator.cancelWorkflow(projectId);
             log.info("Cancelled workflow: {}", projectId);

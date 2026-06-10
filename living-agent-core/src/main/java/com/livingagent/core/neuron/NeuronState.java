@@ -7,6 +7,8 @@ public enum NeuronState {
     IDLE,
     RUNNING,
     PROCESSING,
+    LEARNING,
+    EVOLVING,
     SUSPENDED,
     STOPPED,
     ERROR

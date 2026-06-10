@@ -1,13 +1,13 @@
 package com.livingagent.core.tool.impl;
 
-import com.livingagent.core.sandbox.*;
+import com.livingagent.core.sandbox.ExecutionResult;
+import com.livingagent.core.sandbox.TraeExecutionGateway;
 import com.livingagent.core.tool.*;
 import com.livingagent.core.security.SecurityPolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 
 public class TraeTool implements Tool {
 
@@ -28,14 +28,12 @@ public class TraeTool implements Tool {
     
     private static final String DEPARTMENT = "tech";
     
-    private final SandboxService sandboxService;
-    private final Map<String, SandboxSession> sessions;
+    private final TraeExecutionGateway traeExecutionGateway;
     private final ToolSchema schema;
     private volatile ToolStats stats;
 
-    public TraeTool(SandboxService sandboxService) {
-        this.sandboxService = sandboxService;
-        this.sessions = new ConcurrentHashMap<>();
+    public TraeTool(TraeExecutionGateway traeExecutionGateway) {
+        this.traeExecutionGateway = traeExecutionGateway;
         this.schema = buildSchema();
         this.stats = ToolStats.empty(NAME);
     }
@@ -95,18 +93,12 @@ public class TraeTool implements Tool {
         }
         
         String sessionId = context.sessionId();
-        SandboxSession session = getOrCreateSession(sessionId);
-        
-        if (session == null) {
-            return ToolResult.failure("Failed to create sandbox session");
-        }
-        
         long startTime = System.currentTimeMillis();
         
         try {
             Map<String, Object> traeParams = buildTraeParams(params);
             
-            ExecutionResult result = session.executeTraeCommand(action, traeParams).join();
+            ExecutionResult result = traeExecutionGateway.execute(sessionId, action, traeParams).join();
             
             long duration = System.currentTimeMillis() - startTime;
             
@@ -151,15 +143,6 @@ public class TraeTool implements Tool {
         return stats;
     }
     
-    private SandboxSession getOrCreateSession(String sessionId) {
-        return sessions.computeIfAbsent(sessionId, id -> {
-            if (sandboxService.isAvailable()) {
-                return sandboxService.createSession(id, SandboxService.SandboxConfig.TRAE_DEFAULT)
-                    .orElse(null);
-            }
-            return null;
-        });
-    }
     
     @SuppressWarnings("unchecked")
     private Map<String, Object> buildTraeParams(ToolParams params) {
@@ -189,14 +172,10 @@ public class TraeTool implements Tool {
     }
     
     public void closeSession(String sessionId) {
-        SandboxSession session = sessions.remove(sessionId);
-        if (session != null) {
-            session.close();
-        }
+        traeExecutionGateway.closeSession(sessionId);
     }
     
     public void closeAllSessions() {
-        sessions.values().forEach(SandboxSession::close);
-        sessions.clear();
+        traeExecutionGateway.closeAllSessions();
     }
 }

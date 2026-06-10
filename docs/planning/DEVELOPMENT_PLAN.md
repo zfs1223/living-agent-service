@@ -2833,7 +2833,7 @@ double netProfit = project.netProfit();        // 净利润
 │  │  └── /dept/ops (运营部) - OpsBrain                                  │   │
 │  │                                                                     │   │
 │  │  董事长层 (需要登录 + 董事长身份)                                       │   │
-│  │  └── /chairman (董事长专属) - MainBrain + 所有大脑                   │   │
+│  │  └── /enterprise (董事长专属) - MainBrain + 所有大脑                   │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │  已完成任务:                                                                 │
@@ -2842,7 +2842,7 @@ double netProfit = project.netProfit();        // 净利润
 │  │  ├── ✅ DepartmentApiController - 部门API控制器                      │   │
 │  │  ├── ✅ DepartmentPermissionInterceptor - 部门权限拦截器             │   │
 │  │  ├── ✅ DepartmentDataFilter - 部门数据过滤器 (已集成到拦截器)        │   │
-│  │  └── ✅ ChairmanApiController - 董事长API控制器                      │   │
+│  │  └── ✅ EnterpriseApiController - 董事长API控制器                      │   │
 │  │                                                                     │   │
 │  │  18.2 部门WebSocket频道 ✅                                            │   │
 │  │  ├── ✅ DepartmentWebSocketHandler - 部门WebSocket处理器             │   │
@@ -2857,7 +2857,7 @@ double netProfit = project.netProfit();        // 净利润
 │  │  └── ✅ DepartmentNotificationService - 部门通知服务                 │   │
 │  │                                                                     │   │
 │  │  18.4 董事长专属功能 ✅                                               │   │
-│  │  ├── ✅ ChairmanDashboardService - 董事长仪表盘服务 (已集成到控制器)  │   │
+│  │  ├── ✅ EnterpriseDashboardService - 董事长仪表盘服务 (已集成到控制器)  │   │
 │  │  ├── ✅ GlobalOverviewController - 全局概览控制器 (已集成)            │   │
 │  │  ├── ✅ EmployeeManagementController - 员工管理控制器 (已集成)        │   │
 │  │  └── ✅ SystemSettingsController - 系统配置控制器                    │   │
@@ -2893,7 +2893,7 @@ double netProfit = project.netProfit();        // 净利润
 | `/api/cs/*` | cs部门 | 客服部专属API |
 | `/api/legal/*` | legal部门 | 法务部专属API |
 | `/api/ops/*` | ops部门 | 运营部专属API |
-| `/api/chairman/*` | 董事长 | 董事长专属API |
+| `/api/enterprise/*` | 董事长 | 董事长专属API |
 
 #### 18.2 部门WebSocket频道设计
 
@@ -2908,7 +2908,7 @@ double netProfit = project.netProfit();        // 净利润
 | `/ws/dept/cs` | cs部门 | 客服部群聊频道 |
 | `/ws/dept/legal` | legal部门 | 法务部群聊频道 |
 | `/ws/dept/ops` | ops部门 | 运营部群聊频道 |
-| `/ws/chairman` | 董事长 | 董事长专属频道 |
+| `/ws/enterprise` | 董事长 | 董事长专属频道 |
 
 ---
 
@@ -3496,7 +3496,7 @@ double netProfit = project.netProfit();        // 净利润
 │  └── 人脸识别 (EyeNeuron)                                                    │
 │                                                                             │
 │  Step 2: 权限级别确定                                                        │
-│  ├── INTERNAL_CHAIRMAN → FULL (董事长)                                       │
+│  ├── INTERNAL_ENTERPRISE → FULL (董事长)                                       │
 │  ├── INTERNAL_ACTIVE → DEPARTMENT (在职员工)                                 │
 │  ├── INTERNAL_PROBATION → LIMITED (试用期)                                   │
 │  ├── INTERNAL_DEPARTED → CHAT_ONLY (离职)                                    │
@@ -4137,7 +4137,7 @@ Week 7-8: P2 迭代开发支持
 
 | 层级 | 组件 | 功能 | 状态 |
 |------|------|------|------|
-| 管理层 | ChairmanFeishuTool | 创建部门、管理员工、配置审批 | ✅ 已实现 |
+| 管理层 | EnterpriseFeishuTool | 创建部门、管理员工、配置审批 | ✅ 已实现 |
 | 使用层 | EmployeeFeishuTool | 发消息、看日程、编辑文档 | 🔜 待增强 |
 
 #### 22.4.2 参考 Clawith-main 实现
@@ -4266,8 +4266,9 @@ Week 9-10: P1 触发器和自治权限
 | Phase 8-20 | 其他功能 | ✅ 完成 | 100% |
 | Phase 21 | 项目开发流程编排 | ✅ 已完成 | 100% |
 | Phase 22 | Clawith-main 对比优化 | ✅ 已完成 | 100% |
+| **Phase 23** | **MemPalace 双记忆体架构** | 🚧 进行中 | **30%** |
 
-**整体完成度: 约 95%**
+**整体完成度: 约 96% (新增 Phase 23)**
 
 ### Phase 20 已完成工作
 
@@ -4308,3 +4309,229 @@ Week 9-10: P1 触发器和自治权限
 9. ✅ **DepartmentAccessValidator** - 部门访问权限验证器
 10. ✅ **PostgreSQL 知识库持久化** - KnowledgeEntryEntity + KnowledgeEntryRepository + KnowledgePersistenceService
 11. ✅ **MainBrainModelSelector** - 主大脑模型灵活选择器（参考 Clawith-main 设计）
+
+---
+
+### Phase 23: MemPalace 双记忆体架构 (第87-92周) 🚧 进行中
+
+> 基于 [ANALYSIS_COMPARISON.md](../mempalace-3.0.0/ANALYSIS_COMPARISON.md) 分析结果，集成 MemPalace 3.0.0 作为实时记忆层
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  Phase 23: MemPalace 双记忆体架构 🚧 进行中                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  目标: 实现分层记忆系统，MemPalace(实时) + MemOS(长期) + SQLite(兜底)          │
+│                                                                             │
+│  现有代码基础 (不冲突/不重复):                                                 │
+│  ├── Memory 接口: store/recall/get/list/forget/count/healthCheck            │
+│  ├── MemoryBackend 接口: 统一后端抽象                                        │
+│  ├── MemoryServiceImpl: 单后端包装器                                         │
+│  ├── SQLiteMemoryBackend: 本地 SQLite 实现 (完整)                            │
+│  ├── MemosMemoryBackend: MemOS REST API 实现 (完整)                          │
+│  ├── MemPalaceBackend: MemPalace 内部调用实现 (框架已创建)                        │
+│  ├── MemoryCategory: CORE/DAILY/CONVERSATION/CUSTOM                         │
+│  ├── MemoryEntry: record(id,key,content,category,timestamp,sessionId,score) │
+│  ├── LivingAgentCoreConfig: 已支持 mempalace/memos/sqlite 三后端切换         │
+│  └── application.yml: 已添加 mempalace 配置段                                │
+│                                                                             │
+│  前端现状:                                                                   │
+│  ├── Mind Tab: 通过 FileBrowser 管理 memory/ 目录 (文件方式)                 │
+│  ├── fileApi: list/read/write/delete 文件操作                                │
+│  └── 无独立记忆 API (通过 AgentFileController)                               │
+│                                                                             │
+│  当前状态 (2026-04-09):                                                      │
+│  ├── ✅ 已完成: MemPalaceBackend 基础框架                                     │
+│  ├── ✅ 已完成: application.yml MemPalace 配置段                              │
+│  ├── ✅ 已完成: LivingAgentCoreConfig 三后端支持                              │
+│  ├── ✅ 已完成: memory.md v2.0 双记忆体架构文档                               │
+│  ├── ✅ 已完成: ANALYSIS_COMPARISON.md 分析报告                               │
+│  ├── 🚧 进行中: Python 子进程通信实现                                        │
+│  └── ⏳ 待开始: 智能路由/数据同步/前端集成                                     │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 23.1 架构设计
+
+| 记忆层 | 技术选型 | 负责范围 | 应用场景 | 响应时间 |
+|-------|---------|---------|---------|---------|
+| **实时记忆层** | MemPalace | 会话级记忆、快速检索 | Layer 2 快速响应 | <100ms |
+| **长期记忆层** | MemOS | 企业级知识、多模态 | Layer 1 深度推理 | <500ms |
+| **本地缓存层** | SQLite | 兜底、离线支持 | 系统故障 | <10ms |
+
+#### 23.2 现有代码清单 (避免冲突)
+
+| 文件 | 类型 | 状态 | 说明 |
+|------|------|------|------|
+| `core/memory/Memory.java` | 接口 | ✅ 稳定 | 服务层接口，不需修改 |
+| `core/memory/MemoryBackend.java` | 接口 | ✅ 稳定 | 后端抽象，不需修改 |
+| `core/memory/MemoryCategory.java` | 枚举 | ✅ 稳定 | CORE/DAILY/CONVERSATION/CUSTOM |
+| `core/memory/MemoryEntry.java` | record | ✅ 稳定 | 数据模型，不需修改 |
+| `core/memory/impl/MemoryServiceImpl.java` | 实现 | ⚠️ 需扩展 | 当前单后端，需支持多后端路由 |
+| `core/memory/impl/SQLiteMemoryBackend.java` | 实现 | ✅ 稳定 | SQLite 后端，不需修改 |
+| `core/memory/impl/MemosMemoryBackend.java` | 实现 | ✅ 稳定 | MemOS 后端，不需修改 |
+| `core/memory/impl/MemPalaceBackend.java` | 实现 | 🚧 开发中 | Python 子进程调用待完善 |
+| `config/LivingAgentCoreConfig.java` | 配置 | ✅ 已更新 | 支持三后端切换 |
+| `application.yml` | 配置 | ✅ 已更新 | MemPalace 配置段已添加 |
+
+#### 23.3 开发任务清单
+
+**第一阶段：基础集成（当前，完成度 30%）**
+
+- [x] `MemPalaceBackend` - MemPalace 后端框架创建
+- [x] `application.yml` - 添加 MemPalace 配置段
+- [x] `LivingAgentCoreConfig` - 支持三后端切换
+- [ ] `PythonSubprocessClient` - Python 子进程通信实现
+  - 文件: `living-agent-core/src/main/java/com/livingagent/core/memory/python/PythonSubprocessClient.java`
+  - 功能: JSON-RPC 2.0 协议与 MemPalace Python 子进程通信
+- [ ] `MemPalaceBackend.callPythonTool()` - 实现真实的 Python 工具调用
+- [ ] `MemPalaceBackend.parseSearchResult()` - 解析搜索结果
+- [ ] `MemPalaceBackend.parseListResult()` - 解析列表结果
+
+**第二阶段：智能路由（待开始）**
+
+- [ ] `MemoryRouter` - 智能路由器
+  - 文件: `living-agent-core/src/main/java/com/livingagent/core/memory/MemoryRouter.java`
+  - 功能: 基于 RequestType 和 Priority 自动选择后端
+  - 注意: 不修改现有 MemoryServiceImpl，而是作为新的包装层
+- [ ] `MemoryRequestClassifier` - 请求分类器
+  - 基于 LLM 层级判断 (LAYER1/LAYER2/LAYER3)
+  - 基于 MemoryCategory 判断 (CORE→MemOS, DAILY→MemPalace)
+- [ ] `BackendPerformanceMonitor` - 性能监控器
+- [ ] 缓存策略实现 (热点数据→MemPalace, 温点→SQLite, 冷点→MemOS)
+
+**第三阶段：数据同步（待开始）**
+
+- [ ] `MemoryDataMapper` - MemPalace ↔ MemOS 数据映射
+- [ ] `MemorySyncService` - 定期双向同步服务
+- [ ] 一致性检查机制
+
+**第四阶段：前端集成（待开始）**
+
+- [ ] `MemoryController` - 记忆管理 REST API
+  - 文件: `living-agent-gateway/src/main/java/com/livingagent/gateway/controller/MemoryController.java`
+  - 端点: GET/POST/DELETE /api/memory
+  - 注意: 不影响现有 AgentFileController 的文件管理功能
+- [ ] 前端 `memoryApi` - 记忆 API 服务
+  - 文件: `frontend/src/services/api.ts` 新增 memoryApi 段
+  - 功能: 搜索记忆、查看统计、手动同步
+- [ ] 前端 Mind Tab 增强
+  - 在现有 FileBrowser 基础上增加记忆搜索功能
+  - 显示记忆后端状态 (MemPalace/MemOS/SQLite)
+  - 记忆统计面板
+
+#### 23.4 接口设计 (与现有代码对齐)
+
+```java
+// PythonSubprocessClient - 新增，不修改现有接口
+package com.livingagent.core.memory.python;
+
+import java.io.*;
+
+public class PythonSubprocessClient {
+    private final String pythonCommand;
+    private final String palacePath;
+    private Process process;
+    private BufferedWriter stdin;
+    private BufferedReader stdout;
+    
+    public PythonSubprocessClient(String pythonCommand, String palacePath) { ... }
+    
+    public CompletableFuture<Object> callTool(String toolName, Map<String, Object> params) {
+        // 通过 stdio 管道发送 JSON-RPC 2.0 请求
+    }
+    
+    public CompletableFuture<Boolean> healthCheck() { ... }
+    
+    public void start() throws IOException { ... }
+    public void stop() { ... }
+}
+
+// MemoryRouter - 新增，不修改 MemoryServiceImpl
+package com.livingagent.core.memory;
+
+public class MemoryRouter implements Memory {
+    private final Map<String, MemoryBackend> backends;
+    private final MemoryBackend defaultBackend;
+    
+    public MemoryRouter(Map<String, MemoryBackend> backends) { ... }
+    
+    @Override
+    public CompletableFuture<Void> store(String key, String content, 
+                                          MemoryCategory category, String sessionId) {
+        MemoryBackend backend = selectBackend(category, sessionId);
+        return backend.store(key, content, category, sessionId);
+    }
+    
+    private MemoryBackend selectBackend(MemoryCategory category, String sessionId) {
+        // CORE → MemOS (长期重要记忆)
+        // DAILY → MemPalace (日常快速记忆)
+        // CONVERSATION → MemPalace (会话级记忆)
+        // CUSTOM → SQLite (兜底)
+    }
+}
+```
+
+#### 23.5 前端集成设计
+
+```typescript
+// api.ts 新增 - 不修改现有 fileApi
+export const memoryApi = {
+    search: (query: string, limit?: number) =>
+        request<MemoryEntry[]>(`/memory/search?query=${encodeURIComponent(query)}&limit=${limit || 20}`),
+    
+    stats: () =>
+        request<MemoryStats>('/memory/stats'),
+    
+    sync: () =>
+        request('/memory/sync', { method: 'POST' }),
+    
+    backends: () =>
+        request<BackendStatus[]>('/memory/backends'),
+};
+
+interface MemoryEntry {
+    id: string;
+    key: string;
+    content: string;
+    category: 'CORE' | 'DAILY' | 'CONVERSATION' | 'CUSTOM';
+    timestamp: string;
+    sessionId?: string;
+    score?: number;
+}
+
+interface MemoryStats {
+    total: number;
+    byCategory: Record<string, number>;
+    byBackend: Record<string, number>;
+}
+
+interface BackendStatus {
+    name: string;
+    healthy: boolean;
+    count: number;
+    avgLatencyMs: number;
+}
+```
+
+#### 23.6 性能目标
+
+| 指标 | 当前值 | 目标值 | 提升 |
+|------|-------|--------|------|
+| 平均响应时间 | 450ms | 280ms | 38% ↓ |
+| 吞吐量 (QPS) | 100 | 250 | 150% ↑ |
+| 可用性 | 99.5% | 99.9% | +0.4% |
+
+#### 23.7 验证标准
+
+- [ ] MemPalace 后端 Python 子进程通信正常
+- [ ] 三后端切换功能正常 (application.yml 配置)
+- [ ] 智能路由准确率 >90%
+- [ ] 数据同步延迟 <5 分钟
+- [ ] 前端记忆搜索功能可用
+- [ ] 现有功能不受影响 (回归测试通过)
+
+---
+
+## 进度总览

@@ -1,0 +1,12 @@
+{
+  "data" : {
+    "requestId" : "f090ecb0-11d7-437f-89f3-817c12289411",
+    "executionId" : "76d03cff-72b0-44ce-b3fe-8a80a7bc3b88",
+    "batchId" : "e36a86b6-24f2-42e3-a094-52ad46b6de51",
+    "department" : "tech",
+    "status" : "WAITING_RECEIPT",
+    "dispatchedCount" : 3
+  },
+  "type" : "department_execution_started",
+  "timestamp" : "2026-06-02T02:05:32.822181252Z"
+}

@@ -116,9 +116,49 @@ public class UnifiedAuthService {
             return Optional.empty();
         }
 
+        if (session.isRevoked()) {
+            activeSessions.remove(sessionId);
+            log.info("Session revoked: {}", sessionId);
+            return Optional.empty();
+        }
+
         AuthSession touchedSession = session.touch();
         activeSessions.put(sessionId, touchedSession);
         return Optional.of(touchedSession);
+    }
+
+    /**
+     * 刷新会话：使旧会话立即失效，创建新会话（令牌轮换）
+     * @param oldSessionId 旧会话ID
+     * @return 新会话，如果旧会话无效则返回 empty
+     */
+    public Optional<AuthSession> refreshSession(String oldSessionId) {
+        if (oldSessionId == null) {
+            return Optional.empty();
+        }
+
+        AuthSession oldSession = activeSessions.get(oldSessionId);
+        if (oldSession == null) {
+            return Optional.empty();
+        }
+
+        if (oldSession.isExpired()) {
+            activeSessions.remove(oldSessionId);
+            log.info("Cannot refresh expired session: {}", oldSessionId);
+            return Optional.empty();
+        }
+
+        // 使旧会话立即失效
+        activeSessions.remove(oldSessionId);
+        log.info("Old session revoked for token rotation: {}", oldSessionId);
+
+        // 创建新会话
+        AuthContext authContext = oldSession.authContext();
+        AuthSession newSession = createSession(authContext, oldSession.authMethod());
+
+        log.info("Token rotation completed: old={} -> new={} for user={}",
+                oldSessionId, newSession.sessionId(), authContext.getName());
+        return Optional.of(newSession);
     }
 
     public void invalidateSession(String sessionId) {
@@ -136,6 +176,15 @@ public class UnifiedAuthService {
             }
             return false;
         });
+    }
+
+    public void updateSessionTenantId(String sessionId, String tenantId) {
+        AuthSession session = activeSessions.get(sessionId);
+        if (session != null) {
+            AuthContext authContext = session.authContext();
+            authContext.setTenantId(tenantId);
+            log.info("Updated tenantId for session: {} -> {}", sessionId, tenantId);
+        }
     }
 
     private AuthSession createSession(AuthContext authContext, String authMethod) {
@@ -219,9 +268,13 @@ public class UnifiedAuthService {
         public boolean isExpired() {
             return Instant.now().isAfter(expiresAt);
         }
-        
+
+        public boolean isRevoked() {
+            return metadata != null && Boolean.TRUE.equals(metadata.get("revoked"));
+        }
+
         public AuthSession touch() {
-            return new AuthSession(sessionId, authContext, authMethod, createdAt, 
+            return new AuthSession(sessionId, authContext, authMethod, createdAt,
                     Instant.now().plusSeconds(3600), metadata);
         }
     }

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { getToken } from '../stores';
 
 function formatTokens(n: number | null | undefined): string {
     if (n == null) return '-';
@@ -27,7 +28,7 @@ export default function PlatformDashboard() {
             const start = new Date();
             start.setDate(start.getDate() - days);
             
-            const token = localStorage.getItem('token');
+            const token = getToken();
             const res = await fetch(`/api/admin/metrics/timeseries?start_date=${start.toISOString()}&end_date=${end.toISOString()}`, {
                 headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
             });
@@ -44,7 +45,7 @@ export default function PlatformDashboard() {
     const fetchLeaderboards = async () => {
         setLoadingLeaders(true);
         try {
-            const token = localStorage.getItem('token');
+            const token = getToken();
             const res = await fetch('/api/admin/metrics/leaderboards', {
                 headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
             });
@@ -97,7 +98,7 @@ export default function PlatformDashboard() {
             <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '20px', color: 'var(--text-secondary)' }}>{title}</div>
             <div style={{ height: '240px', width: '100%' }}>
                 {loadingStats ? (
-                    <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-tertiary)', fontSize: '12px' }}>Loading...</div>
+                    <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-tertiary)', fontSize: '12px' }}>{t('common.loading', '加载中...')}</div>
                 ) : (
                     <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={timeSeriesData} margin={{ top: 5, right: 5, left: -20, bottom: 5 }}>
@@ -115,7 +116,38 @@ export default function PlatformDashboard() {
     );
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+            <div style={{
+                borderRadius: '24px',
+                padding: '22px',
+                background: 'linear-gradient(135deg, rgba(168,85,247,0.12), rgba(12,18,28,0.84) 48%, rgba(5,6,10,0.96))',
+                border: '1px solid rgba(255,255,255,0.08)',
+                boxShadow: '0 24px 60px rgba(0,0,0,0.18)',
+            }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '18px', alignItems: 'flex-start' }}>
+                    <div style={{ maxWidth: '760px' }}>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '6px 10px', borderRadius: '999px', background: 'rgba(255,255,255,0.08)', color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '14px' }}>
+                            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--accent-primary)', boxShadow: '0 0 18px rgba(168,85,247,0.85)' }} />
+                            平台总览
+                        </div>
+                        <h1 style={{ fontSize: '28px', fontWeight: 700, margin: 0, letterSpacing: '-0.04em', color: 'var(--text-primary)' }}>平台仪表盘</h1>
+                        <p style={{ margin: '10px 0 0', color: 'var(--text-secondary)', fontSize: '13px', lineHeight: 1.75, maxWidth: '68ch' }}>
+                            全局平台的公司、用户与模型消耗趋势概览。
+                        </p>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '10px', minWidth: '320px' }}>
+                        <div style={{ padding: '12px 14px', borderRadius: '16px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>公司数</div>
+                            <div style={{ fontSize: '22px', fontWeight: 700, marginTop: '6px' }}>{topCompanies.length}</div>
+                        </div>
+                        <div style={{ padding: '12px 14px', borderRadius: '16px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>员工数</div>
+                            <div style={{ fontSize: '22px', fontWeight: 700, marginTop: '6px' }}>{topAgents.length}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             {/* Range Toggle */}
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                 <div style={{ display: 'flex', background: 'var(--bg-secondary)', padding: '4px', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
@@ -128,7 +160,7 @@ export default function PlatformDashboard() {
                             boxShadow: timeRange === 7 ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
                             border: 'none', cursor: 'pointer', transition: 'all 0.2s'
                         }}>
-                        Last 7 Days
+                        近 7 天
                     </button>
                     <button
                         onClick={() => setTimeRange(30)}
@@ -139,26 +171,26 @@ export default function PlatformDashboard() {
                             boxShadow: timeRange === 30 ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
                             border: 'none', cursor: 'pointer', transition: 'all 0.2s'
                         }}>
-                        Last 30 Days
+                        近 30 天
                     </button>
                 </div>
             </div>
 
             {/* Charts Row */}
             <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
-                <ChartCard title="Companies" dataKeyTotal="total_companies" dataKeyNew="new_companies" color="#3b82f6" />
-                <ChartCard title="Users" dataKeyTotal="total_users" dataKeyNew="new_users" color="#10b981" />
-                <ChartCard title="Token Usage" dataKeyTotal="total_tokens" dataKeyNew="new_tokens" color="#8b5cf6" />
+                <ChartCard title="公司趋势" dataKeyTotal="total_companies" dataKeyNew="new_companies" color="#3b82f6" />
+                <ChartCard title="用户趋势" dataKeyTotal="total_users" dataKeyNew="new_users" color="#10b981" />
+                <ChartCard title="Token 消耗" dataKeyTotal="total_tokens" dataKeyNew="new_tokens" color="#8b5cf6" />
             </div>
 
             {/* Leaderboards */}
             <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
                 <div className="card" style={{ flex: 1, minWidth: '300px', padding: '0', overflow: 'hidden' }}>
                     <div style={{ padding: '20px', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-subtle)' }}>
-                        Top 20 Companies by Tokens
+                        Token 消耗 Top 20 公司
                     </div>
                     {loadingLeaders ? (
-                        <div style={{ padding: '40px', textAlign: 'center', fontSize: '12px', color: 'var(--text-tertiary)' }}>Loading...</div>
+                        <div style={{ padding: '40px', textAlign: 'center', fontSize: '12px', color: 'var(--text-tertiary)' }}>加载中...</div>
                     ) : (
                         <div>
                             {topCompanies.map((c, i) => (
@@ -172,17 +204,17 @@ export default function PlatformDashboard() {
                                     </div>
                                 </div>
                             ))}
-                            {topCompanies.length === 0 && <div style={{ padding: '20px', textAlign: 'center', fontSize: '12px', color: 'var(--text-tertiary)' }}>No data</div>}
+                            {topCompanies.length === 0 && <div style={{ padding: '20px', textAlign: 'center', fontSize: '12px', color: 'var(--text-tertiary)' }}>暂无数据</div>}
                         </div>
                     )}
                 </div>
 
                 <div className="card" style={{ flex: 1, minWidth: '300px', padding: '0', overflow: 'hidden' }}>
                     <div style={{ padding: '20px', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-subtle)' }}>
-                        Top 20 Agents by Tokens
+                        Token 消耗 Top 20 员工
                     </div>
                     {loadingLeaders ? (
-                        <div style={{ padding: '40px', textAlign: 'center', fontSize: '12px', color: 'var(--text-tertiary)' }}>Loading...</div>
+                        <div style={{ padding: '40px', textAlign: 'center', fontSize: '12px', color: 'var(--text-tertiary)' }}>加载中...</div>
                     ) : (
                         <div>
                             {topAgents.map((a, i) => (
@@ -199,7 +231,7 @@ export default function PlatformDashboard() {
                                     </div>
                                 </div>
                             ))}
-                            {topAgents.length === 0 && <div style={{ padding: '20px', textAlign: 'center', fontSize: '12px', color: 'var(--text-tertiary)' }}>No data</div>}
+                            {topAgents.length === 0 && <div style={{ padding: '20px', textAlign: 'center', fontSize: '12px', color: 'var(--text-tertiary)' }}>暂无数据</div>}
                         </div>
                     )}
                 </div>

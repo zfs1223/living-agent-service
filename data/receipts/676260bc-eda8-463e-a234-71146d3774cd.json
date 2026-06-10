@@ -1,0 +1,49 @@
+[ {
+  "receiptId" : "f13f06dd-34b4-41d1-889a-af75dab4e407",
+  "executionId" : "676260bc-eda8-463e-a234-71146d3774cd",
+  "dispatchId" : "526ed872-b6c5-4568-b51b-4696a32bb68b",
+  "assignmentId" : "16357528-9e45-48cf-98a3-bdb64fa0f9ad",
+  "employeeCode" : "T02",
+  "employeeNeuronId" : "neuron://tech/architect/001",
+  "status" : "COMPLETED",
+  "summary" : "原型已生成：包含 HTML/CSS/JS 文件，实现了 创建一个满足用户描述的可运行网页原型",
+  "receivedAt" : 1778228434.821774002,
+  "metadata" : {
+    "taskType" : "web_prototype",
+    "title" : "架构师",
+    "employeeName" : "真构",
+    "department" : "tech"
+  }
+}, {
+  "receiptId" : "f7539126-f455-443b-bc55-b2ed7e6fd783",
+  "executionId" : "676260bc-eda8-463e-a234-71146d3774cd",
+  "dispatchId" : "685450c7-60c2-4aab-9b01-8b5da51bfe12",
+  "assignmentId" : "f6839085-351a-479e-808e-00c21b83cf5c",
+  "employeeCode" : "T09",
+  "employeeNeuronId" : "neuron://tech/frontend/001",
+  "status" : "COMPLETED",
+  "summary" : "原型已生成：包含 HTML/CSS/JS 文件，实现了 创建一个满足用户描述的可运行网页原型",
+  "receivedAt" : 1778228434.858420422,
+  "metadata" : {
+    "taskType" : "web_prototype",
+    "title" : "前端工程师",
+    "employeeName" : "真绘",
+    "department" : "tech"
+  }
+}, {
+  "receiptId" : "57805a40-8b88-4566-b76f-4c480efe9189",
+  "executionId" : "676260bc-eda8-463e-a234-71146d3774cd",
+  "dispatchId" : "aa405bc5-b1a6-47e7-a166-87f1be234905",
+  "assignmentId" : "4dfdaf01-95a4-47dd-974c-cf55ef5cd16d",
+  "employeeCode" : "T04",
+  "employeeNeuronId" : "neuron://tech/ops/001",
+  "status" : "COMPLETED",
+  "summary" : "原型已生成：包含 HTML/CSS/JS 文件，实现了 创建一个满足用户描述的可运行网页原型",
+  "receivedAt" : 1778228434.874540875,
+  "metadata" : {
+    "taskType" : "web_prototype",
+    "title" : "运维工程师",
+    "employeeName" : "真稳",
+    "department" : "tech"
+  }
+} ]

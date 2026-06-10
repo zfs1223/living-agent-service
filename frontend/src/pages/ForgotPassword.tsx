@@ -4,9 +4,8 @@ import { useTranslation } from 'react-i18next';
 import { authApi } from '../services/api';
 
 export default function ForgotPassword() {
-    const { t, i18n } = useTranslation();
+    const { t } = useTranslation();
     const navigate = useNavigate();
-    const isChinese = i18n.language?.startsWith('zh');
     const [phone, setPhone] = useState('');
     const [code, setCode] = useState('');
     const [loading, setLoading] = useState(false);
@@ -27,7 +26,7 @@ export default function ForgotPassword() {
 
     const handleSendCode = async () => {
         if (!phone) {
-            setError(isChinese ? '请输入手机号' : 'Please enter phone number');
+            setError(t('phoneLogin.enterPhone'));
             return;
         }
         
@@ -37,9 +36,9 @@ export default function ForgotPassword() {
         try {
             await authApi.sendSmsCode({ phone, type: 'reset' });
             setCountdown(60);
-            setMessage(isChinese ? '验证码已发送' : 'Code sent');
+            setMessage(t('phoneLogin.codeSent'));
         } catch (err: any) {
-            setError(err.message || (isChinese ? '发送验证码失败' : 'Failed to send code'));
+            setError(err.message || t('phoneLogin.failedToSendCode'));
         } finally {
             setLoading(false);
         }
@@ -53,10 +52,10 @@ export default function ForgotPassword() {
 
         try {
             await authApi.phoneLogin({ phone, code });
-            setMessage(isChinese ? '登录成功，正在跳转...' : 'Login successful, redirecting...');
+            setMessage(t('phoneLogin.loginSuccess'));
             setTimeout(() => navigate('/'), 1000);
         } catch (err: any) {
-            setError(err.message || (isChinese ? '验证码错误或已过期' : 'Invalid or expired code'));
+            setError(err.message || t('phoneLogin.invalidOrExpiredCode'));
         } finally {
             setLoading(false);
         }
@@ -71,9 +70,9 @@ export default function ForgotPassword() {
                             <img src="/logo-black.png" className="login-logo-img" alt="" style={{ width: 28, height: 28, marginRight: 8, verticalAlign: 'middle' }} />
                             Living Agent
                         </div>
-                        <h2 className="login-form-title">{isChinese ? '手机验证登录' : 'Phone Verification Login'}</h2>
+                        <h2 className="login-form-title">{t('phoneLogin.title')}</h2>
                         <p className="login-form-subtitle">
-                            {isChinese ? '使用手机验证码快速登录系统' : 'Quick login with phone verification'}
+                            {t('phoneLogin.subtitle')}
                         </p>
                     </div>
 
@@ -91,24 +90,24 @@ export default function ForgotPassword() {
 
                     <form onSubmit={handleSubmit} className="login-form">
                         <div className="login-field">
-                            <label>{isChinese ? '手机号' : 'Phone Number'}</label>
+                            <label>{t('phoneLogin.phoneNumber')}</label>
                             <input
                                 value={phone}
                                 onChange={(e) => setPhone(e.target.value)}
                                 required
                                 autoFocus
-                                placeholder={isChinese ? '请输入手机号' : 'Enter phone number'}
+                                placeholder={t('phoneLogin.enterPhoneNumber')}
                             />
                         </div>
 
                         <div className="login-field">
-                            <label>{isChinese ? '验证码' : 'Verification Code'}</label>
+                            <label>{t('phoneLogin.verificationCode')}</label>
                             <div style={{ display: 'flex', gap: '8px' }}>
                                 <input
                                     value={code}
                                     onChange={(e) => setCode(e.target.value)}
                                     required
-                                    placeholder={isChinese ? '请输入验证码' : 'Enter code'}
+                                    placeholder={t('phoneLogin.enterCode')}
                                     style={{ flex: 1 }}
                                     maxLength={6}
                                 />
@@ -119,18 +118,18 @@ export default function ForgotPassword() {
                                     disabled={countdown > 0 || loading}
                                     style={{ whiteSpace: 'nowrap', minWidth: '100px' }}
                                 >
-                                    {countdown > 0 ? `${countdown}s` : (isChinese ? '发送验证码' : 'Send Code')}
+                                    {countdown > 0 ? `${countdown}s` : t('phoneLogin.sendCode')}
                                 </button>
                             </div>
                         </div>
 
                         <button className="login-submit" type="submit" disabled={loading}>
-                            {loading ? <span className="login-spinner" /> : (isChinese ? '登录' : 'Login')}
+                            {loading ? <span className="login-spinner" /> : t('phoneLogin.login')}
                         </button>
                     </form>
 
                     <div className="login-switch">
-                        <Link to="/login">{isChinese ? '返回登录' : 'Back to login'}</Link>
+                        <Link to="/login">{t('phoneLogin.backToLogin')}</Link>
                     </div>
                 </div>
             </div>

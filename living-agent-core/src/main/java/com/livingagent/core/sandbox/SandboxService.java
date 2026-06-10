@@ -5,6 +5,11 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
+/**
+ * @deprecated 优先使用 {@link com.livingagent.core.security.SandboxExecutor} 作为统一执行入口。
+ * 该接口保留为兼容层，默认由 HybridSandboxService 委托到 SandboxExecutor/DockerSandboxService。
+ */
+@Deprecated(since = "1.4", forRemoval = false)
 public interface SandboxService {
     
     CompletableFuture<ExecutionResult> executeCode(

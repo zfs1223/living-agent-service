@@ -6,14 +6,26 @@
 import { useState, useEffect } from 'react';
 import { agentApi } from '../services/api';
 import type { Agent } from '../types';
+import { useToastStore } from '../stores/toastStore';
 import './DigitalEmployeeSettings.css';
 
 interface DigitalEmployeeSettingsProps {
     agent: Agent;
-    isChairman: boolean;
+    isEnterprise: boolean;
     onUpdate?: (updatedAgent: Agent) => void;
 }
 
+// 后端返回的 AgentConfig 格式
+interface BackendAgentConfig {
+    agentId?: string;
+    name?: string;
+    maxConcurrentTasks?: number;
+    autoResponse?: boolean;
+    workingHours?: string;  // 后端返回 "09:00-18:00" 格式
+    allowedChannels?: string[];
+}
+
+// 前端使用的 AgentConfig 格式
 interface AgentConfig {
     maxConcurrentTasks: number;
     autoResponse: boolean;
@@ -25,7 +37,7 @@ interface AgentConfig {
     };
 }
 
-export default function DigitalEmployeeSettings({ agent, isChairman, onUpdate }: DigitalEmployeeSettingsProps) {
+export default function DigitalEmployeeSettings({ agent, isEnterprise, onUpdate }: DigitalEmployeeSettingsProps) {
     const [config, setConfig] = useState<AgentConfig>({
         maxConcurrentTasks: 5,
         autoResponse: true,
@@ -37,7 +49,7 @@ export default function DigitalEmployeeSettings({ agent, isChairman, onUpdate }:
     const [saving, setSaving] = useState(false);
 
     // 只有董事长可以查看和修改设置
-    if (!isChairman) {
+    if (!isEnterprise) {
         return null;
     }
 
@@ -46,16 +58,38 @@ export default function DigitalEmployeeSettings({ agent, isChairman, onUpdate }:
         loadAgentConfig();
     }, [agent.id]);
 
+    // 将后端 workingHours 字符串 "09:00-18:00" 转换为前端对象格式
+    const parseWorkingHours = (hours: string | undefined): { start: string; end: string } => {
+        if (!hours || !hours.includes('-')) {
+            return { start: '09:00', end: '18:00' };
+        }
+        const [start, end] = hours.split('-');
+        return { start: start.trim(), end: end.trim() };
+    };
+
+    // 将前端 workingHours 对象转换为后端字符串格式
+    const formatWorkingHours = (hours: { start: string; end: string }): string => {
+        return `${hours.start}-${hours.end}`;
+    };
+
     const loadAgentConfig = async () => {
         setLoading(true);
         try {
             // 从后端获取数字员工的配置
             const response = await agentApi.getConfig(agent.id);
             if (response) {
-                setConfig(prev => ({ ...prev, ...response }));
+                const backendConfig = response as BackendAgentConfig;
+                setConfig({
+                    maxConcurrentTasks: backendConfig.maxConcurrentTasks ?? 5,
+                    autoResponse: backendConfig.autoResponse ?? true,
+                    allowedChannels: backendConfig.allowedChannels ?? ['chat', 'email'],
+                    restrictedSkills: [], // 后端暂无此字段，使用默认值
+                    workingHours: parseWorkingHours(backendConfig.workingHours)
+                });
             }
         } catch (error) {
             console.error('加载数字员工配置失败:', error);
+            // 使用默认配置
         } finally {
             setLoading(false);
         }
@@ -64,12 +98,21 @@ export default function DigitalEmployeeSettings({ agent, isChairman, onUpdate }:
     const handleSave = async () => {
         setSaving(true);
         try {
-            await agentApi.updateConfig(agent.id, config);
+            // 将前端配置转换为后端格式
+            const backendConfig: BackendAgentConfig = {
+                agentId: agent.id,
+                name: agent.name,
+                maxConcurrentTasks: config.maxConcurrentTasks,
+                autoResponse: config.autoResponse,
+                workingHours: formatWorkingHours(config.workingHours),
+                allowedChannels: config.allowedChannels
+            };
+            await agentApi.updateConfig(agent.id, backendConfig);
             onUpdate?.(agent);
-            alert('设置已保存');
+            useToastStore.getState().showToast('设置已保存', 'success');
         } catch (error) {
             console.error('保存配置失败:', error);
-            alert('保存失败，请重试');
+            useToastStore.getState().showToast('保存失败，请重试', 'error');
         } finally {
             setSaving(false);
         }

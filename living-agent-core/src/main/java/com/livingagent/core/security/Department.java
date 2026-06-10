@@ -8,6 +8,26 @@ import java.util.Set;
 
 public class Department {
 
+    /**
+     * 部门/Brain 命名映射规范
+     * ==========================
+     * department: 业务部门 code (如 tech, hr, finance)
+     *   - 前端 URL 参数 "brain" 实际代表部门 code
+     *   - 后端 URI path 提取的也是部门 code
+     *
+     * brain: 部门大脑名称 (如 TechBrain, HrBrain, FinanceBrain)
+     *   - 用于后端运行层、配置层
+     *   - 通过 mapDepartmentToBrain() 从部门 code 映射
+     *
+     * brainId: 完整神经元 ID (如 neuron://tech/code-reviewer/001)
+     *   - 用于神经元配置、会话管理等底层
+     *   - 与 brain 名称是不同层级的概念
+     *
+     * 映射关系:
+     *   department code -> mapDepartmentToBrain() -> brain name
+     *   brain name -> mapBrainToDepartment() -> 中文部门名称
+     */
+
     private String departmentId;
     private String name;
     private String code;

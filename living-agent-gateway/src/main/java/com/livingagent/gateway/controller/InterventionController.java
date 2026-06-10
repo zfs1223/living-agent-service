@@ -1,6 +1,7 @@
 package com.livingagent.gateway.controller;
 
 import com.livingagent.core.intervention.*;
+import com.livingagent.core.security.AccessGateService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -17,13 +18,20 @@ public class InterventionController {
     private static final Logger log = LoggerFactory.getLogger(InterventionController.class);
 
     private final InterventionDecisionEngine decisionEngine;
+    private final AccessGateService accessGateService;
 
-    public InterventionController(InterventionDecisionEngine decisionEngine) {
+    public InterventionController(InterventionDecisionEngine decisionEngine, AccessGateService accessGateService) {
         this.decisionEngine = decisionEngine;
+        this.accessGateService = accessGateService;
     }
 
     @PostMapping("/evaluate")
-    public ResponseEntity<Map<String, Object>> evaluateOperation(@RequestBody Map<String, Object> request) {
+    public ResponseEntity<Map<String, Object>> evaluateOperation(
+            @RequestBody Map<String, Object> request,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(Map.of("success", false, "message", "Access denied before routing"));
+        }
         String operationType = (String) request.get("operationType");
         @SuppressWarnings("unchecked")
         Map<String, Object> operationDetails = (Map<String, Object>) request.get("operationDetails");
@@ -47,7 +55,11 @@ public class InterventionController {
 
     @GetMapping("/pending")
     public ResponseEntity<Map<String, Object>> getPendingDecisions(
-            @RequestParam(required = false) String department) {
+            @RequestParam(required = false) String department,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
+            return ResponseEntity.status(403).body(Map.of("success", false, "message", "Access denied before routing"));
+        }
         
         List<InterventionDecision> decisions = decisionEngine.getPendingDecisions(department);
         
@@ -60,8 +72,12 @@ public class InterventionController {
     @PostMapping("/{decisionId}/respond")
     public ResponseEntity<Map<String, Object>> respondToDecision(
             @PathVariable String decisionId,
-            @RequestBody Map<String, Object> request) {
+            @RequestBody Map<String, Object> request,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(Map.of("success", false, "message", "Access denied before routing"));
+        }
         String humanDecision = (String) request.get("decision");
         String respondedBy = (String) request.get("respondedBy");
 
@@ -90,7 +106,12 @@ public class InterventionController {
     }
 
     @PostMapping("/{decisionId}/escalate")
-    public ResponseEntity<Map<String, Object>> escalateDecision(@PathVariable String decisionId) {
+    public ResponseEntity<Map<String, Object>> escalateDecision(
+            @PathVariable String decisionId,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(Map.of("success", false, "message", "Access denied before routing"));
+        }
         List<InterventionDecision> pendingDecisions = decisionEngine.getPendingDecisions(null);
         InterventionDecision decision = pendingDecisions.stream()
             .filter(d -> d.getDecisionId().equals(decisionId))
@@ -124,8 +145,12 @@ public class InterventionController {
     @GetMapping("/statistics")
     public ResponseEntity<Map<String, Object>> getStatistics(
             @RequestParam(required = false) String department,
-            @RequestParam(defaultValue = "0") long since) {
+            @RequestParam(defaultValue = "0") long since,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(Map.of("success", false, "message", "Access denied before routing"));
+        }
         InterventionDecisionEngine.InterventionStatistics stats = 
             decisionEngine.getStatistics(department, since);
 
@@ -149,7 +174,12 @@ public class InterventionController {
     }
 
     @PostMapping("/rules")
-    public ResponseEntity<Map<String, Object>> registerRule(@RequestBody InterventionRule rule) {
+    public ResponseEntity<Map<String, Object>> registerRule(
+            @RequestBody InterventionRule rule,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(Map.of("success", false, "message", "Access denied before routing"));
+        }
         decisionEngine.registerRule(rule);
         
         return ResponseEntity.ok(Map.of(
@@ -159,7 +189,12 @@ public class InterventionController {
     }
 
     @DeleteMapping("/rules/{ruleId}")
-    public ResponseEntity<Map<String, Object>> unregisterRule(@PathVariable String ruleId) {
+    public ResponseEntity<Map<String, Object>> unregisterRule(
+            @PathVariable String ruleId,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(Map.of("success", false, "message", "Access denied before routing"));
+        }
         decisionEngine.unregisterRule(ruleId);
         
         return ResponseEntity.ok(Map.of(
@@ -170,8 +205,12 @@ public class InterventionController {
 
     @GetMapping("/rules")
     public ResponseEntity<Map<String, Object>> getApplicableRules(
-            @RequestParam String operationType) {
+            @RequestParam String operationType,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(Map.of("success", false, "message", "Access denied before routing"));
+        }
         List<InterventionRule> rules = decisionEngine.getApplicableRules(operationType);
         
         return ResponseEntity.ok(Map.of(

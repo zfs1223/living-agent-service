@@ -104,7 +104,8 @@ public class NeuronCoordinator {
         );
         
         state.getPerceptionChannel().publish(message);
-        log.debug("Published user input to perception channel for session: {}", sessionId);
+        channelManager.publish(state.getPerceptionChannel().getId(), message);
+        log.info("Published user input to perception channel for session: {}", sessionId);
     }
     
     public SessionState getSessionState(String sessionId) {

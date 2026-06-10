@@ -372,6 +372,9 @@ public class DigitalWorkerFactoryImpl implements DigitalWorkerFactory {
         public boolean isDigital() { return true; }
 
         @Override
+        public EmployeeOrigin getOrigin() { return EmployeeOrigin.FIXED; }
+
+        @Override
         public HumanConfig getHumanConfig() { return null; }
 
         @Override

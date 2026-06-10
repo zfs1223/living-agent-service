@@ -1,5 +1,7 @@
 package com.livingagent.core.autonomous.bounty;
 
+import com.livingagent.core.model.pool.BrainModelResolver;
+import com.livingagent.core.model.pool.ResolvedBrainModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -15,12 +17,14 @@ public class BountyHunterSkill {
     private static final String SKILL_NAME = "bounty-hunter";
     private static final int MAX_CONCURRENT_HUNTS = 3;
     private static final double MIN_PROFIT_MARGIN = 0.3;
+    private static final String FALLBACK_MODEL_ID = "qwen3.5:9b";
 
     private final GitHubScanner gitHubScanner;
     private final FreelanceScanner freelanceScanner;
     private final BugBountyScanner bugBountyScanner;
     private final LedgerService ledgerService;
     private final TokenCostEstimator costEstimator;
+    private final BrainModelResolver brainModelResolver;
     private TaskExecutor taskExecutor;
 
     private final Map<String, ActiveHunt> activeHunts = new ConcurrentHashMap<>();
@@ -33,11 +37,39 @@ public class BountyHunterSkill {
             BugBountyScanner bugBountyScanner,
             LedgerService ledgerService,
             TokenCostEstimator costEstimator) {
+        this(gitHubScanner, freelanceScanner, bugBountyScanner, ledgerService, costEstimator, null);
+    }
+
+    public BountyHunterSkill(
+            GitHubScanner gitHubScanner,
+            FreelanceScanner freelanceScanner,
+            BugBountyScanner bugBountyScanner,
+            LedgerService ledgerService,
+            TokenCostEstimator costEstimator,
+            BrainModelResolver brainModelResolver) {
         this.gitHubScanner = gitHubScanner;
         this.freelanceScanner = freelanceScanner;
         this.bugBountyScanner = bugBountyScanner;
         this.ledgerService = ledgerService;
         this.costEstimator = costEstimator;
+        this.brainModelResolver = brainModelResolver;
+    }
+
+    /**
+     * 动态获取赏金猎手使用的模型ID，优先从 BrainModelResolver 获取
+     */
+    private String getBountyModelId() {
+        if (brainModelResolver != null) {
+            try {
+                ResolvedBrainModel resolved = brainModelResolver.resolve("bounty-hunter");
+                if (resolved != null && resolved.getModelName() != null && !resolved.getModelName().isEmpty()) {
+                    return resolved.getModelName();
+                }
+            } catch (Exception e) {
+                log.warn("BountyHunterSkill failed to resolve model from BrainModelResolver: {}, using fallback: {}", e.getMessage(), FALLBACK_MODEL_ID);
+            }
+        }
+        return FALLBACK_MODEL_ID;
     }
 
     public void setTaskExecutor(TaskExecutor taskExecutor) {
@@ -104,7 +136,7 @@ public class BountyHunterSkill {
             Map.of("source", opportunity.sourceType(), "payout", opportunity.payoutCents()),
             complexity,
             opportunity.riskLevel() != null ? opportunity.riskLevel() : "medium",
-            "qwen3.5:9b"
+            getBountyModelId()
         );
         
         TokenCostEstimator.TaskCostEstimate costEstimate = costEstimator.estimateTaskCost(taskProfile);

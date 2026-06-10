@@ -27,18 +27,25 @@ const statusColors: Record<ProjectStatus, string> = {
 };
 
 const statusLabels: Record<ProjectStatus, string> = {
-    planning: '规划中',
-    active: '进行中',
-    on_hold: '暂停',
-    completed: '已完成',
-    cancelled: '已取消',
+    planning: 'Planning',
+    active: 'Active',
+    on_hold: 'On Hold',
+    completed: 'Completed',
+    cancelled: 'Cancelled',
 };
 
 export default function Projects() {
     const { t, i18n } = useTranslation();
-    const isChinese = i18n.language?.startsWith('zh');
     const queryClient = useQueryClient();
     const user = useAuthStore((s) => s.user);
+
+    const tStatusLabels: Record<ProjectStatus, string> = {
+        planning: t('projects.statusPlanning'),
+        active: t('projects.statusActive'),
+        on_hold: t('projects.statusOnHold'),
+        completed: t('projects.statusCompleted'),
+        cancelled: t('projects.statusCancelled'),
+    };
     
     const [selectedDepartment, setSelectedDepartment] = useState<string>('');
     const [selectedStatus, setSelectedStatus] = useState<string>('');
@@ -72,27 +79,47 @@ export default function Projects() {
     });
 
     return (
-        <div className="page-container">
-            <div className="page-header">
-                <div>
-                    <h1 className="page-title">{isChinese ? '项目管理' : 'Projects'}</h1>
-                    <p className="page-subtitle">{isChinese ? '管理企业项目和任务' : 'Manage enterprise projects and tasks'}</p>
+        <div className="page-container" style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+            <div style={{
+                borderRadius: '24px',
+                padding: '22px',
+                background: 'linear-gradient(135deg, rgba(96,165,250,0.12), rgba(12,18,28,0.84) 50%, rgba(5,6,10,0.96))',
+                border: '1px solid rgba(255,255,255,0.08)',
+                boxShadow: '0 24px 60px rgba(0,0,0,0.18)',
+            }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '18px', alignItems: 'flex-start' }}>
+                    <div style={{ maxWidth: '760px' }}>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '6px 10px', borderRadius: '999px', background: 'rgba(255,255,255,0.08)', color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '14px' }}>
+                            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--accent-primary)', boxShadow: '0 0 18px rgba(96,165,250,0.85)' }} />
+                            {t('projects.commandCenter')}
+                        </div>
+                        <h1 className="page-title" style={{ margin: 0, fontSize: '28px', lineHeight: 1.1 }}>{t('projects.title')}</h1>
+                        <p className="page-subtitle" style={{ marginTop: '10px', maxWidth: '68ch', lineHeight: 1.75 }}>
+                            {t('projects.subtitle')}
+                        </p>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '10px', minWidth: '320px' }}>
+                        <div style={{ padding: '12px 14px', borderRadius: '16px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{t('projects.projectCount')}</div>
+                            <div style={{ fontSize: '22px', fontWeight: 700, marginTop: '6px' }}>{projects.length}</div>
+                        </div>
+                        <button className="btn btn-primary" onClick={() => setShowCreateModal(true)} style={{ height: '100%', justifyContent: 'center' }}>
+                            <IconPlus size={16} stroke={1.5} />
+                            <span>{t('projects.newProject')}</span>
+                        </button>
+                    </div>
                 </div>
-                <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
-                    <IconPlus size={16} stroke={1.5} />
-                    <span>{isChinese ? '新建项目' : 'New Project'}</span>
-                </button>
             </div>
             
-            <div className="page-filters">
+            <div className="page-filters" style={{ padding: '12px 14px', borderRadius: '18px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-subtle)' }}>
                 <select
                     className="form-select"
                     value={selectedDepartment}
                     onChange={(e) => setSelectedDepartment(e.target.value)}
                 >
-                    <option value="">{isChinese ? '所有部门' : 'All Departments'}</option>
+                    <option value="">{t('projects.allDepartments')}</option>
                     {Object.entries(DEPARTMENTS).map(([code, info]) => (
-                        <option key={code} value={code}>{info.icon} {isChinese ? info.name : info.name_en}</option>
+                        <option key={code} value={code}>{info.icon} {i18n.language?.startsWith('zh') ? info.name : info.name_en}</option>
                     ))}
                 </select>
                 <select
@@ -100,19 +127,19 @@ export default function Projects() {
                     value={selectedStatus}
                     onChange={(e) => setSelectedStatus(e.target.value)}
                 >
-                    <option value="">{isChinese ? '所有状态' : 'All Status'}</option>
-                    {Object.entries(statusLabels).map(([status, label]) => (
+                    <option value="">{t('projects.allStatus')}</option>
+                    {Object.entries(tStatusLabels).map(([status, label]) => (
                         <option key={status} value={status}>{label}</option>
                     ))}
                 </select>
             </div>
             
             {isLoading ? (
-                <div className="loading-state">{isChinese ? '加载中...' : 'Loading...'}</div>
+                <div className="loading-state">{t('projects.loading')}</div>
             ) : projects.length === 0 ? (
                 <div className="empty-state">
                     <IconFolder size={48} stroke={1} />
-                    <p>{isChinese ? '暂无项目' : 'No projects yet'}</p>
+                    <p>{t('projects.noProjects')}</p>
                 </div>
             ) : (
                 <div className="projects-grid">
@@ -128,10 +155,10 @@ export default function Projects() {
                                     className="project-status-badge"
                                     style={{ background: statusColors[project.status] }}
                                 >
-                                    {statusLabels[project.status]}
+                                    {tStatusLabels[project.status]}
                                 </span>
                             </div>
-                            <p className="project-card-desc">{project.description || (isChinese ? '暂无描述' : 'No description')}</p>
+                            <p className="project-card-desc">{project.description || t('projects.noDescription')}</p>
                             <div className="project-card-meta">
                                 {project.department_id && (
                                     <span className="project-meta-item">
@@ -171,7 +198,6 @@ export default function Projects() {
                     onClose={() => setShowCreateModal(false)}
                     onSubmit={(data) => createMutation.mutate(data)}
                     loading={createMutation.isPending}
-                    isChinese={isChinese}
                 />
             )}
             
@@ -180,19 +206,18 @@ export default function Projects() {
                     project={selectedProject}
                     onClose={() => setSelectedProject(null)}
                     onDelete={() => deleteMutation.mutate(selectedProject.id)}
-                    isChinese={isChinese}
                 />
             )}
         </div>
     );
 }
 
-function CreateProjectModal({ onClose, onSubmit, loading, isChinese }: {
+function CreateProjectModal({ onClose, onSubmit, loading }: {
     onClose: () => void;
     onSubmit: (data: any) => void;
     loading: boolean;
-    isChinese: boolean;
 }) {
+    const { t, i18n } = useTranslation();
     const [form, setForm] = useState({
         name: '',
         description: '',
@@ -214,13 +239,13 @@ function CreateProjectModal({ onClose, onSubmit, loading, isChinese }: {
         <div className="modal-overlay" onClick={onClose}>
             <div className="modal-content" onClick={(e) => e.stopPropagation()}>
                 <div className="modal-header">
-                    <h2>{isChinese ? '新建项目' : 'New Project'}</h2>
+                    <h2>{t('projects.createProject')}</h2>
                     <button className="modal-close" onClick={onClose}>×</button>
                 </div>
                 <form onSubmit={handleSubmit}>
                     <div className="modal-body">
                         <div className="form-group">
-                            <label>{isChinese ? '项目名称' : 'Project Name'}</label>
+                            <label>{t('projects.projectName')}</label>
                             <input
                                 className="form-input"
                                 value={form.name}
@@ -229,7 +254,7 @@ function CreateProjectModal({ onClose, onSubmit, loading, isChinese }: {
                             />
                         </div>
                         <div className="form-group">
-                            <label>{isChinese ? '描述' : 'Description'}</label>
+                            <label>{t('projects.description')}</label>
                             <textarea
                                 className="form-textarea"
                                 value={form.description}
@@ -238,21 +263,21 @@ function CreateProjectModal({ onClose, onSubmit, loading, isChinese }: {
                             />
                         </div>
                         <div className="form-group">
-                            <label>{isChinese ? '所属部门' : 'Department'}</label>
+                            <label>{t('projects.department')}</label>
                             <select
                                 className="form-select"
                                 value={form.department_id}
                                 onChange={(e) => setForm({ ...form, department_id: e.target.value })}
                             >
-                                <option value="">{isChinese ? '选择部门' : 'Select Department'}</option>
+                                <option value="">{t('projects.selectDepartment')}</option>
                                 {Object.entries(DEPARTMENTS).map(([code, info]) => (
-                                    <option key={code} value={code}>{info.icon} {isChinese ? info.name : info.name_en}</option>
+                                    <option key={code} value={code}>{info.icon} {i18n.language?.startsWith('zh') ? info.name : info.name_en}</option>
                                 ))}
                             </select>
                         </div>
                         <div className="form-row">
                             <div className="form-group">
-                                <label>{isChinese ? '开始日期' : 'Start Date'}</label>
+                                <label>{t('projects.startDate')}</label>
                                 <input
                                     type="date"
                                     className="form-input"
@@ -261,7 +286,7 @@ function CreateProjectModal({ onClose, onSubmit, loading, isChinese }: {
                                 />
                             </div>
                             <div className="form-group">
-                                <label>{isChinese ? '结束日期' : 'End Date'}</label>
+                                <label>{t('projects.endDate')}</label>
                                 <input
                                     type="date"
                                     className="form-input"
@@ -271,7 +296,7 @@ function CreateProjectModal({ onClose, onSubmit, loading, isChinese }: {
                             </div>
                         </div>
                         <div className="form-group">
-                            <label>{isChinese ? '预算' : 'Budget'}</label>
+                            <label>{t('projects.budget')}</label>
                             <input
                                 type="number"
                                 className="form-input"
@@ -283,10 +308,10 @@ function CreateProjectModal({ onClose, onSubmit, loading, isChinese }: {
                     </div>
                     <div className="modal-footer">
                         <button type="button" className="btn btn-ghost" onClick={onClose}>
-                            {isChinese ? '取消' : 'Cancel'}
+                            {t('projects.cancel')}
                         </button>
                         <button type="submit" className="btn btn-primary" disabled={loading}>
-                            {loading ? '...' : (isChinese ? '创建' : 'Create')}
+                            {loading ? '...' : t('projects.create')}
                         </button>
                     </div>
                 </form>
@@ -295,12 +320,12 @@ function CreateProjectModal({ onClose, onSubmit, loading, isChinese }: {
     );
 }
 
-function ProjectDetailModal({ project, onClose, onDelete, isChinese }: {
+function ProjectDetailModal({ project, onClose, onDelete }: {
     project: Project;
     onClose: () => void;
     onDelete: () => void;
-    isChinese: boolean;
 }) {
+    const { t } = useTranslation();
     const { data: tasks = [] } = useQuery({
         queryKey: ['project-tasks', project.id],
         queryFn: () => projectApi.getTasks(project.id),
@@ -323,33 +348,33 @@ function ProjectDetailModal({ project, onClose, onDelete, isChinese }: {
                 </div>
                 <div className="modal-body">
                     <div className="project-detail-section">
-                        <h3>{isChinese ? '项目信息' : 'Project Info'}</h3>
+                        <h3>{t('projects.projectInfo')}</h3>
                         <div className="project-detail-grid">
                             <div className="detail-item">
-                                <span className="detail-label">{isChinese ? '描述' : 'Description'}</span>
+                                <span className="detail-label">{t('projects.description')}</span>
                                 <span className="detail-value">{project.description || '-'}</span>
                             </div>
                             <div className="detail-item">
-                                <span className="detail-label">{isChinese ? '部门' : 'Department'}</span>
+                                <span className="detail-label">{t('projects.department')}</span>
                                 <span className="detail-value">
                                     {project.department_id && DEPARTMENTS[project.department_id as keyof typeof DEPARTMENTS]?.name}
                                 </span>
                             </div>
                             <div className="detail-item">
-                                <span className="detail-label">{isChinese ? '进度' : 'Progress'}</span>
+                                <span className="detail-label">{t('projects.progress')}</span>
                                 <span className="detail-value">{project.progress || 0}%</span>
                             </div>
                             <div className="detail-item">
-                                <span className="detail-label">{isChinese ? '预算' : 'Budget'}</span>
+                                <span className="detail-label">{t('projects.budget')}</span>
                                 <span className="detail-value">{project.budget ? `¥${project.budget.toLocaleString()}` : '-'}</span>
                             </div>
                         </div>
                     </div>
                     
                     <div className="project-detail-section">
-                        <h3>{isChinese ? '任务列表' : 'Tasks'}</h3>
+                        <h3>{t('projects.tasks')}</h3>
                         {(tasks as ProjectTask[]).length === 0 ? (
-                            <div className="empty-state-small">{isChinese ? '暂无任务' : 'No tasks'}</div>
+                            <div className="empty-state-small">{t('projects.noTasks')}</div>
                         ) : (
                             <div className="task-list">
                                 {(tasks as ProjectTask[]).map((task) => (
@@ -379,10 +404,10 @@ function ProjectDetailModal({ project, onClose, onDelete, isChinese }: {
                 <div className="modal-footer">
                     <button className="btn btn-danger" onClick={onDelete}>
                         <IconTrash size={16} />
-                        {isChinese ? '删除项目' : 'Delete'}
+                        {t('projects.deleteProject')}
                     </button>
                     <button className="btn btn-ghost" onClick={onClose}>
-                        {isChinese ? '关闭' : 'Close'}
+                        {t('projects.close')}
                     </button>
                 </div>
             </div>

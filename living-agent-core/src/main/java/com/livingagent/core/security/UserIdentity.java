@@ -2,7 +2,7 @@ package com.livingagent.core.security;
 
 public enum UserIdentity {
     
-    INTERNAL_CHAIRMAN("董事长", AccessLevel.FULL, true),
+    INTERNAL_ENTERPRISE("董事长", AccessLevel.FULL, true),
     INTERNAL_ACTIVE("在职员工", AccessLevel.DEPARTMENT, true),
     INTERNAL_PROBATION("试用期员工", AccessLevel.LIMITED, true),
     INTERNAL_DEPARTED("离职员工", AccessLevel.CHAT_ONLY, false),
@@ -26,11 +26,11 @@ public enum UserIdentity {
     public boolean canAccessEnterprise() { return canAccessEnterprise; }
 
     public boolean isInternal() {
-        return this == INTERNAL_CHAIRMAN || this == INTERNAL_ACTIVE || this == INTERNAL_PROBATION || this == INTERNAL_DEPARTED;
+        return this == INTERNAL_ENTERPRISE || this == INTERNAL_ACTIVE || this == INTERNAL_PROBATION || this == INTERNAL_DEPARTED;
     }
 
     public boolean isActiveEmployee() {
-        return this == INTERNAL_CHAIRMAN || this == INTERNAL_ACTIVE || this == INTERNAL_PROBATION;
+        return this == INTERNAL_ENTERPRISE || this == INTERNAL_ACTIVE || this == INTERNAL_PROBATION;
     }
 
     public boolean canUseMainBrain() {
@@ -46,7 +46,7 @@ public enum UserIdentity {
         return this == EXTERNAL_CUSTOMER;
     }
 
-    public boolean isChairman() {
-        return this == INTERNAL_CHAIRMAN;
+    public boolean isEnterprise() {
+        return this == INTERNAL_ENTERPRISE;
     }
 }

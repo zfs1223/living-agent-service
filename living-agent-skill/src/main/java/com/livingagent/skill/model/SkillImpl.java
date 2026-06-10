@@ -12,6 +12,9 @@ public class SkillImpl implements Skill {
     private String content;
     private Map<String, Object> metadata;
     private String skillPath;
+    private String scope = "global";
+    private String ownerId;
+    private String departmentId;
 
     public SkillImpl() {
         this.metadata = new HashMap<>();
@@ -114,4 +117,22 @@ public class SkillImpl implements Skill {
         }
         metadata.put("author", author);
     }
+
+    @Override
+    public String getScope() { return scope; }
+
+    @Override
+    public void setScope(String scope) { this.scope = scope; }
+
+    @Override
+    public String getOwnerId() { return ownerId; }
+
+    @Override
+    public void setOwnerId(String ownerId) { this.ownerId = ownerId; }
+
+    @Override
+    public String getDepartmentId() { return departmentId; }
+
+    @Override
+    public void setDepartmentId(String departmentId) { this.departmentId = departmentId; }
 }

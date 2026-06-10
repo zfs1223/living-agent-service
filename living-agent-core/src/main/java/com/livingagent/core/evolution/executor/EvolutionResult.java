@@ -3,6 +3,9 @@ package com.livingagent.core.evolution.executor;
 import com.livingagent.core.evolution.engine.EvolutionDecisionEngine.EvolutionDecision;
 import com.livingagent.core.evolution.signal.EvolutionSignal;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -26,6 +29,7 @@ public class EvolutionResult {
     private long timestamp;
     private long executionTimeMs;
     private Map<String, Object> metadata;
+    private int retryCount = 0;
     
     private EvolutionResult() {
         this.timestamp = System.currentTimeMillis();
@@ -126,6 +130,13 @@ public class EvolutionResult {
     public Map<String, Object> getMetadata() { return metadata; }
     public void setMetadata(Map<String, Object> metadata) { this.metadata = metadata; }
     
+    public int getRetryCount() { return retryCount; }
+    public void setRetryCount(int retryCount) { this.retryCount = retryCount; }
+    
+    public LocalDateTime getTimestampAsLocalDateTime() {
+        return timestamp > 0 ? LocalDateTime.ofInstant(Instant.ofEpochMilli(timestamp), ZoneId.systemDefault()) : null;
+    }
+    
     @Override
     public String toString() {
         return String.format("EvolutionResult{id=%s, status=%s, skill=%s, action=%s, time=%dms}",
@@ -137,6 +148,9 @@ public class EvolutionResult {
         map.put("resultId", resultId);
         map.put("status", status.name());
         map.put("signalId", signal != null ? signal.getSignalId() : null);
+        map.put("brainId", signal != null ? signal.getBrainDomain() : null);
+        map.put("brainType", extractBrainType(signal != null ? signal.getBrainDomain() : null));
+        map.put("department", extractDepartment(signal != null ? signal.getBrainDomain() : null));
         map.put("strategy", decision != null ? decision.getStrategy() : null);
         map.put("generatedSkillId", generatedSkillId);
         map.put("action", action);
@@ -144,6 +158,33 @@ public class EvolutionResult {
         map.put("executionTimeMs", executionTimeMs);
         map.put("timestamp", timestamp);
         map.put("immediateEffective", isImmediateEffective());
+        map.putAll(metadata != null ? metadata : new HashMap<>());
         return map;
+    }
+    
+    private String extractBrainType(String brainId) {
+        if (brainId == null) return "default";
+        String lower = brainId.toLowerCase();
+        if (lower.contains("main")) return "main";
+        if (lower.contains("tech")) return "tech";
+        if (lower.contains("admin")) return "admin";
+        if (lower.contains("hr")) return "hr";
+        if (lower.contains("finance")) return "finance";
+        if (lower.contains("sales")) return "sales";
+        if (lower.contains("cs")) return "cs";
+        if (lower.contains("ops")) return "ops";
+        if (lower.contains("legal")) return "legal";
+        return "default";
+    }
+    
+    private String extractDepartment(String brainId) {
+        if (brainId == null) return "unknown";
+        if (brainId.startsWith("neuron://")) {
+            String[] parts = brainId.split("/");
+            if (parts.length > 1) {
+                return parts[1];
+            }
+        }
+        return extractBrainType(brainId);
     }
 }

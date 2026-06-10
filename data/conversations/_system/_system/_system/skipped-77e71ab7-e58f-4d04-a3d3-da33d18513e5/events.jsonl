@@ -1,0 +1,12 @@
+{
+  "data" : {
+    "requestId" : "77e71ab7-e58f-4d04-a3d3-da33d18513e5",
+    "department" : "tech",
+    "brain" : "neuron://tech/tech-brain/001",
+    "intent" : "web_development",
+    "readinessStatus" : "NEEDS_CLARIFICATION",
+    "clarificationQuestions" : [ "多人在线功能的具体业务逻辑与技术指标是什么（如最大并发人数、延迟容忍度）？", "美术资源的来源已确定吗？是自研、外包还是使用素材库，预计何时可交付？", "项目的最终上线截止日期（Deadline）和批准的总预算范围是多少？", "是否需要增补游戏策划或UI设计师以完善游戏设计与交互细节？" ]
+  },
+  "type" : "clarification_requested",
+  "timestamp" : "2026-05-19T10:21:57.076809339Z"
+}

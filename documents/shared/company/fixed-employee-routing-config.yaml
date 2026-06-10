@@ -1,0 +1,41 @@
+version: 1
+workflow:
+  scan_paths:
+    - documents/shared
+    - documents/department
+  route_paths:
+    company:
+      - documents/shared/company
+    hr:
+      - documents/department/hr
+    finance:
+      - documents/department/finance
+    tech:
+      - documents/department/tech
+    sales:
+      - documents/department/sales
+    ops:
+      - documents/department/ops
+    cs:
+      - documents/department/cs
+    legal:
+      - documents/department/legal
+  approval_required:
+    - contract
+    - payment
+    - production
+    - permission
+    - sensitive
+  archive_keywords:
+    - obsolete
+    - deprecated
+    - archive
+  knowledge_keywords:
+    - policy
+    - procedure
+    - runbook
+    - handbook
+    - faq
+    - template
+    - sop
+    - architecture

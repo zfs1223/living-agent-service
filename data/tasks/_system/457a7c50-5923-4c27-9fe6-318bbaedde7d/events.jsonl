@@ -1,0 +1,40 @@
+{
+  "data" : {
+    "executionId" : "457a7c50-5923-4c27-9fe6-318bbaedde7d",
+    "receiptStatus" : "COMPLETED",
+    "employeeCode" : "T02",
+    "dispatchId" : "c1a5b177-4d52-4271-bbe6-21e347d7aee0"
+  },
+  "type" : "execution_receipt_recorded",
+  "timestamp" : "2026-05-20T01:48:26.511982401Z"
+}
+{
+  "data" : {
+    "executionId" : "457a7c50-5923-4c27-9fe6-318bbaedde7d",
+    "receiptStatus" : "COMPLETED",
+    "employeeCode" : "T09",
+    "dispatchId" : "685ebca7-dad7-4fea-b72e-440d5a01d043"
+  },
+  "type" : "execution_receipt_recorded",
+  "timestamp" : "2026-05-20T01:48:58.228103712Z"
+}
+{
+  "data" : {
+    "executionId" : "457a7c50-5923-4c27-9fe6-318bbaedde7d",
+    "receiptStatus" : "COMPLETED",
+    "employeeCode" : "T10",
+    "dispatchId" : "1f6707aa-0735-4709-b3d8-312cc00b1985"
+  },
+  "type" : "execution_receipt_recorded",
+  "timestamp" : "2026-05-20T01:49:37.011596286Z"
+}
+{
+  "data" : {
+    "executionId" : "457a7c50-5923-4c27-9fe6-318bbaedde7d",
+    "receiptStatus" : "COMPLETED",
+    "employeeCode" : "T03",
+    "dispatchId" : "3eda0e34-2d7d-4560-9401-4a29dda49872"
+  },
+  "type" : "execution_receipt_recorded",
+  "timestamp" : "2026-05-20T01:50:13.253043760Z"
+}

@@ -1,5 +1,8 @@
 package com.livingagent.gateway.controller;
 
+import com.livingagent.core.model.pool.BrainModelResolver;
+import com.livingagent.core.model.pool.ResolvedBrainModel;
+import com.livingagent.core.security.AccessGateService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -15,9 +18,32 @@ import java.util.Map;
 public class NeuronController {
 
     private static final Logger log = LoggerFactory.getLogger(NeuronController.class);
+    private final AccessGateService accessGateService;
+    private final BrainModelResolver brainModelResolver;
+
+    public NeuronController(AccessGateService accessGateService, BrainModelResolver brainModelResolver) {
+        this.accessGateService = accessGateService;
+        this.brainModelResolver = brainModelResolver;
+    }
+
+    private String resolveModelDisplayName(String brainId) {
+        try {
+            ResolvedBrainModel resolved = brainModelResolver.resolve(brainId);
+            if (resolved != null && resolved.getDisplayName() != null && !resolved.getDisplayName().isBlank()) {
+                return resolved.getDisplayName();
+            }
+        } catch (Exception e) {
+            log.warn("Failed to resolve model for brain {}: {}", brainId, e.getMessage());
+        }
+        return "model-pool";
+    }
 
     @GetMapping
-    public ResponseEntity<ApiResponse<List<NeuronInfo>>> listNeurons() {
+    public ResponseEntity<ApiResponse<List<NeuronInfo>>> listNeurons(
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.debug("Listing neurons");
 
         List<NeuronInfo> neurons = new ArrayList<>();
@@ -26,7 +52,7 @@ public class NeuronController {
                 "代码审查神经元",
                 "tech",
                 "running",
-                "Qwen3.5-27B",
+                resolveModelDisplayName("neuron://tech/tech-brain/001"),
                 Instant.now()
         ));
         neurons.add(new NeuronInfo(
@@ -34,7 +60,7 @@ public class NeuronController {
                 "招聘神经元",
                 "hr",
                 "running",
-                "Qwen3.5-27B",
+                resolveModelDisplayName("neuron://hr/hr-brain/001"),
                 Instant.now()
         ));
 
@@ -42,7 +68,12 @@ public class NeuronController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<ApiResponse<NeuronDetail>> getNeuron(@PathVariable String id) {
+    public ResponseEntity<ApiResponse<NeuronDetail>> getNeuron(
+            @PathVariable String id,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.debug("Getting neuron: {}", id);
 
         NeuronDetail detail = new NeuronDetail(
@@ -50,7 +81,7 @@ public class NeuronController {
                 "代码审查神经元",
                 "tech",
                 "running",
-                "Qwen3.5-27B",
+                resolveModelDisplayName("neuron://tech/tech-brain/001"),
                 "负责代码审查和质量把控",
                 List.of("code-review", "quality-check"),
                 Instant.now()
@@ -60,7 +91,12 @@ public class NeuronController {
     }
 
     @GetMapping("/{id}/status")
-    public ResponseEntity<ApiResponse<NeuronStatus>> getNeuronStatus(@PathVariable String id) {
+    public ResponseEntity<ApiResponse<NeuronStatus>> getNeuronStatus(
+            @PathVariable String id,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.debug("Getting neuron status: {}", id);
 
         NeuronStatus status = new NeuronStatus(
@@ -75,7 +111,12 @@ public class NeuronController {
     }
 
     @GetMapping("/{id}/metrics")
-    public ResponseEntity<ApiResponse<NeuronMetrics>> getNeuronMetrics(@PathVariable String id) {
+    public ResponseEntity<ApiResponse<NeuronMetrics>> getNeuronMetrics(
+            @PathVariable String id,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.debug("Getting neuron metrics: {}", id);
 
         NeuronMetrics metrics = new NeuronMetrics(

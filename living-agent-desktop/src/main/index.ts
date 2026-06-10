@@ -1,0 +1,124 @@
+/**
+ * 应用入口（Electron 主进程）
+ * 启动流程：连接检测 → 窗口创建 → 托盘 → 菜单 → IPC → 事件订阅
+ *
+ * 详细参考：HERMES_COMPARISON_AND_BORROWING_PLAN.md §3.5
+ */
+import { app, BrowserWindow } from 'electron';
+import { createMainWindow } from './window';
+import { initTray, destroyTray } from './tray';
+import { buildApplicationMenu } from './menu';
+import { registerIpcHandlers, unregisterIpcHandlers } from './ipc';
+import { initShortcuts, destroyShortcuts } from './shortcuts';
+import { startConnectionMonitor, stopConnectionMonitor } from './connection';
+import { initFloatingTaskBoard, destroyFloatingTaskBoard } from './floating-task-board';
+import { initTaskBoardTray } from './task-board-tray';
+import { initTaskNotification, destroyTaskNotification } from './task-notification';
+import { startLocalSaveSync, stopLocalSaveSync } from './local-save-sync';
+import { appOnReady, appOnActivate, appOnBeforeQuit, getMainWindow } from './window';
+import { SHARED_CONSTANTS } from '../shared/constants';
+import { getOrCreateClientId } from './client-id';
+import { loadBackendUrl, isBackendConfigured } from './api-client';
+
+// 单实例锁：避免多开
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+}
+
+app.setName(SHARED_CONSTANTS.APP_NAME);
+app.setAppUserModelId('com.livingagent.desktop');
+
+let mainWindow: BrowserWindow | null = null;
+
+app.whenReady().then(async () => {
+  // 0. 加载后端 URL 持久化配置
+  //    必须在 clientId 初始化前完成：HTTP/WS 请求会用到 backendUrl
+  //    若未加载就开始发请求，会拿不到真实的远程后端地址
+  try {
+    const url = await loadBackendUrl();
+    console.log(
+      `[LivingAgent] backendUrl=${url} configured=${isBackendConfigured()}`
+    );
+  } catch (e) {
+    console.error('[LivingAgent] Failed to load backend config:', e);
+  }
+
+  // 0.1 优先加载/生成 clientId：所有 HTTP/WS 请求都依赖此值
+  //    若生成失败，登录鉴权 / 后端审计 / WindowsAppTool 路由都会受影响
+  try {
+    const info = await getOrCreateClientId();
+    console.log(
+      `[LivingAgent] clientId=${info.clientId} host=${info.hostname} platform=${info.platform} user=${info.osUser}`
+    );
+  } catch (e) {
+    console.error('[LivingAgent] Failed to initialize clientId:', e);
+  }
+
+  // 1. 注册 IPC handlers
+  registerIpcHandlers();
+
+  // 2. 创建主窗口
+  mainWindow = createMainWindow();
+
+  // 3. 创建托盘
+  initTray();
+  await initTaskBoardTray();
+
+  // 4. 菜单栏
+  buildApplicationMenu();
+
+  // 5. 启动连接检测
+  await startConnectionMonitor();
+
+  // 6. 全局快捷键
+  initShortcuts();
+
+  // 7. 任务通知
+  initTaskNotification();
+
+  // 8. 任务中心悬浮窗
+  initFloatingTaskBoard();
+
+  // 9. 本地保存同步
+  await startLocalSaveSync();
+
+  // 应用 ready 钩子
+  appOnReady(mainWindow);
+}).catch((err) => {
+  console.error('[LivingAgent] App initialization failed:', err);
+  app.quit();
+});
+
+app.on('second-instance', () => {
+  const w = getMainWindow();
+  if (w) {
+    if (w.isMinimized()) w.restore();
+    w.show();
+    w.focus();
+  }
+});
+
+appOnActivate(() => {
+  if (BrowserWindow.getAllWindows().length === 0) {
+    mainWindow = createMainWindow();
+  }
+});
+
+appOnBeforeQuit(() => {
+  // 清理资源
+  destroyTaskNotification();
+  destroyFloatingTaskBoard();
+  destroyShortcuts();
+  destroyTray();
+  stopConnectionMonitor();
+  stopLocalSaveSync();
+  unregisterIpcHandlers();
+});
+
+app.on('window-all-closed', () => {
+  // macOS 上保留 Dock 图标，Windows/Linux 退出
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
+});

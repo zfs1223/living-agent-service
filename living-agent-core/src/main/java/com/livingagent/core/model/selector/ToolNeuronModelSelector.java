@@ -14,7 +14,7 @@ public class ToolNeuronModelSelector {
     
     public enum ModelType {
         QWEN35_2B("qwen3.5-2b", "Qwen3.5-2B", 4 * 1024, 262144, true, true),
-        BITNET_158_3B("bitnet-1.58-3b", "BitNet-1.58-3B", 1 * 1024, 4096, false, false);
+        QWEN3_06B("qwen3-0.6b", "Qwen3-0.6B", 512, 4096, false, false);
         
         private final String id;
         private final String displayName;
@@ -114,13 +114,13 @@ public class ToolNeuronModelSelector {
             return ModelType.QWEN35_2B;
         }
         
-        if (availableMemoryMB >= ModelType.BITNET_158_3B.getMemoryMB()) {
-            log.info("Limited resources, falling back to BitNet-1.58-3B");
-            return ModelType.BITNET_158_3B;
+        if (availableMemoryMB >= ModelType.QWEN3_06B.getMemoryMB()) {
+            log.info("Limited resources, falling back to Qwen3-0.6B");
+            return ModelType.QWEN3_06B;
         }
         
-        log.warn("Very limited resources, using BitNet-1.58-3B as fallback");
-        return ModelType.BITNET_158_3B;
+        log.warn("Very limited resources, using Qwen3-0.6B as fallback");
+        return ModelType.QWEN3_06B;
     }
     
     public ModelType getModelById(String id) {
@@ -136,8 +136,8 @@ public class ToolNeuronModelSelector {
         return getCurrentModel() == ModelType.QWEN35_2B;
     }
     
-    public boolean shouldUseBitNet() {
-        return getCurrentModel() == ModelType.BITNET_158_3B;
+    public boolean shouldUseQwen3() {
+        return getCurrentModel() == ModelType.QWEN3_06B;
     }
     
     public String getModelConfig() {
@@ -162,11 +162,11 @@ public class ToolNeuronModelSelector {
         public final int qwen35ContextLength = ModelType.QWEN35_2B.getContextLength();
         public final boolean qwen35Multimodal = ModelType.QWEN35_2B.isMultimodal();
         
-        public final String bitnetId = ModelType.BITNET_158_3B.getId();
-        public final String bitnetDisplayName = ModelType.BITNET_158_3B.getDisplayName();
-        public final int bitnetMemoryMB = ModelType.BITNET_158_3B.getMemoryMB();
-        public final int bitnetContextLength = ModelType.BITNET_158_3B.getContextLength();
-        public final boolean bitnetMultimodal = ModelType.BITNET_158_3B.isMultimodal();
+        public final String qwen3Id = ModelType.QWEN3_06B.getId();
+        public final String qwen3DisplayName = ModelType.QWEN3_06B.getDisplayName();
+        public final int qwen3MemoryMB = ModelType.QWEN3_06B.getMemoryMB();
+        public final int qwen3ContextLength = ModelType.QWEN3_06B.getContextLength();
+        public final boolean qwen3Multimodal = ModelType.QWEN3_06B.isMultimodal();
         
         public final String recommendedDefault = ModelType.QWEN35_2B.getId();
     }

@@ -7,11 +7,13 @@ import com.livingagent.core.knowledge.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.stream.Collectors;
 
 @Service
@@ -19,10 +21,18 @@ public class LayeredKnowledgeBaseImpl implements LayeredKnowledgeBase {
 
     private static final Logger log = LoggerFactory.getLogger(LayeredKnowledgeBaseImpl.class);
     private static final String COLLECTION_NAME = "knowledge";
+    private static final int MAX_CACHE_SIZE = 1000;
+    private static final long CACHE_TTL_SECONDS = 30 * 60L; // 30 minutes
 
     private final Map<String, KnowledgeEntry> knowledgeStore = new ConcurrentHashMap<>();
     private final Map<String, Set<String>> accessControl = new ConcurrentHashMap<>();
     private final Map<String, float[]> embeddingCache = new ConcurrentHashMap<>();
+    private final Map<String, Instant> knowledgeStoreAccessTime = new ConcurrentHashMap<>();
+    private final Map<String, Instant> accessControlAccessTime = new ConcurrentHashMap<>();
+    private final Map<String, Instant> embeddingCacheAccessTime = new ConcurrentHashMap<>();
+    private final Deque<String> knowledgeStoreInsertOrder = new ConcurrentLinkedDeque<>();
+    private final Deque<String> accessControlInsertOrder = new ConcurrentLinkedDeque<>();
+    private final Deque<String> embeddingCacheInsertOrder = new ConcurrentLinkedDeque<>();
 
     private QdrantVectorService vectorService;
     private EmbeddingService embeddingService;
@@ -73,9 +83,16 @@ public class LayeredKnowledgeBaseImpl implements LayeredKnowledgeBase {
         entry.setRelevance(1.0);
 
         knowledgeStore.put(fullKey, entry);
+        knowledgeStoreAccessTime.put(fullKey, Instant.now());
+        knowledgeStoreInsertOrder.addLast(fullKey);
+        evictIfNeeded(knowledgeStore, knowledgeStoreAccessTime, knowledgeStoreInsertOrder);
 
         String accessKey = buildAccessKey(fullKey);
         accessControl.computeIfAbsent(accessKey, k -> ConcurrentHashMap.newKeySet());
+        if (accessControlAccessTime.put(accessKey, Instant.now()) == null) {
+            accessControlInsertOrder.addLast(accessKey);
+            evictIfNeeded(accessControl, accessControlAccessTime, accessControlInsertOrder);
+        }
 
         if (persistenceEnabled && persistenceService != null) {
             try {
@@ -90,6 +107,9 @@ public class LayeredKnowledgeBaseImpl implements LayeredKnowledgeBase {
                 String textContent = knowledge != null ? knowledge.toString() : "";
                 float[] embedding = embeddingService.embed(textContent);
                 embeddingCache.put(fullKey, embedding);
+                embeddingCacheAccessTime.put(fullKey, Instant.now());
+                embeddingCacheInsertOrder.addLast(fullKey);
+                evictIfNeeded(embeddingCache, embeddingCacheAccessTime, embeddingCacheInsertOrder);
                 
                 Map<String, Object> payload = new HashMap<>();
                 payload.put("key", fullKey);
@@ -116,19 +136,23 @@ public class LayeredKnowledgeBaseImpl implements LayeredKnowledgeBase {
         if (entry != null) {
             entry.setAccessCount(entry.getAccessCount() + 1);
             entry.setLastAccessedAt(Instant.now());
-            
+            knowledgeStoreAccessTime.put(fullKey, Instant.now());
+
             if (persistenceEnabled && persistenceService != null) {
                 persistenceService.incrementAccessCount(fullKey);
             }
-            
+
             return Optional.of(entry.getContent());
         }
-        
+
         if (persistenceEnabled && persistenceService != null) {
             Optional<KnowledgeEntryEntity> entityOpt = persistenceService.findByKey(fullKey);
             if (entityOpt.isPresent()) {
                 KnowledgeEntry loadedEntry = persistenceService.toKnowledgeEntry(entityOpt.get());
                 knowledgeStore.put(fullKey, loadedEntry);
+                knowledgeStoreAccessTime.put(fullKey, Instant.now());
+                knowledgeStoreInsertOrder.addLast(fullKey);
+                evictIfNeeded(knowledgeStore, knowledgeStoreAccessTime, knowledgeStoreInsertOrder);
                 persistenceService.incrementAccessCount(fullKey);
                 return Optional.of(loadedEntry.getContent());
             }
@@ -141,21 +165,25 @@ public class LayeredKnowledgeBaseImpl implements LayeredKnowledgeBase {
     public Optional<KnowledgeEntry> retrieveEntry(String key, KnowledgeScope scope, String scopeIdentifier) {
         String namespace = scope.buildNamespace(scopeIdentifier);
         String fullKey = namespace + ":" + key;
-        
+
         KnowledgeEntry entry = knowledgeStore.get(fullKey);
         if (entry != null) {
+            knowledgeStoreAccessTime.put(fullKey, Instant.now());
             return Optional.of(entry);
         }
-        
+
         if (persistenceEnabled && persistenceService != null) {
             Optional<KnowledgeEntryEntity> entityOpt = persistenceService.findByKey(fullKey);
             if (entityOpt.isPresent()) {
                 KnowledgeEntry loadedEntry = persistenceService.toKnowledgeEntry(entityOpt.get());
                 knowledgeStore.put(fullKey, loadedEntry);
+                knowledgeStoreAccessTime.put(fullKey, Instant.now());
+                knowledgeStoreInsertOrder.addLast(fullKey);
+                evictIfNeeded(knowledgeStore, knowledgeStoreAccessTime, knowledgeStoreInsertOrder);
                 return Optional.of(loadedEntry);
             }
         }
-        
+
         return Optional.empty();
     }
 
@@ -163,18 +191,22 @@ public class LayeredKnowledgeBaseImpl implements LayeredKnowledgeBase {
     public Optional<KnowledgeEntry> retrieveEntry(String key) {
         KnowledgeEntry entry = knowledgeStore.get(key);
         if (entry != null) {
+            knowledgeStoreAccessTime.put(key, Instant.now());
             return Optional.of(entry);
         }
-        
+
         if (persistenceEnabled && persistenceService != null) {
             Optional<KnowledgeEntryEntity> entityOpt = persistenceService.findByKey(key);
             if (entityOpt.isPresent()) {
                 KnowledgeEntry loadedEntry = persistenceService.toKnowledgeEntry(entityOpt.get());
                 knowledgeStore.put(key, loadedEntry);
+                knowledgeStoreAccessTime.put(key, Instant.now());
+                knowledgeStoreInsertOrder.addLast(key);
+                evictIfNeeded(knowledgeStore, knowledgeStoreAccessTime, knowledgeStoreInsertOrder);
                 return Optional.of(loadedEntry);
             }
         }
-        
+
         return Optional.empty();
     }
 
@@ -279,6 +311,9 @@ public class LayeredKnowledgeBaseImpl implements LayeredKnowledgeBase {
         promotedEntry.setPromotedFrom(fullKey);
 
         knowledgeStore.put(newKey, promotedEntry);
+        knowledgeStoreAccessTime.put(newKey, Instant.now());
+        knowledgeStoreInsertOrder.addLast(newKey);
+        evictIfNeeded(knowledgeStore, knowledgeStoreAccessTime, knowledgeStoreInsertOrder);
 
         if (persistenceEnabled && persistenceService != null) {
             persistenceService.promoteKnowledge(fullKey, toScope, toIdentifier);
@@ -341,7 +376,13 @@ public class LayeredKnowledgeBaseImpl implements LayeredKnowledgeBase {
     public void grantAccess(String key, String profileId, KnowledgeScope scope, String scopeIdentifier) {
         String fullKey = scope.buildNamespace(scopeIdentifier) + ":" + key;
         String accessKey = buildAccessKey(fullKey);
-        accessControl.computeIfAbsent(accessKey, k -> ConcurrentHashMap.newKeySet()).add(profileId);
+        Set<String> newSet = ConcurrentHashMap.newKeySet();
+        Set<String> existing = accessControl.putIfAbsent(accessKey, newSet);
+        (existing != null ? existing : newSet).add(profileId);
+        if (accessControlAccessTime.put(accessKey, Instant.now()) == null) {
+            accessControlInsertOrder.addLast(accessKey);
+            evictIfNeeded(accessControl, accessControlAccessTime, accessControlInsertOrder);
+        }
     }
 
     @Override
@@ -388,6 +429,59 @@ public class LayeredKnowledgeBaseImpl implements LayeredKnowledgeBase {
 
     private String buildAccessKey(String knowledgeKey) {
         return "access:" + knowledgeKey;
+    }
+
+    private <V> void evictIfNeeded(Map<String, V> cache, Map<String, Instant> accessTime, Deque<String> insertOrder) {
+        while (cache.size() > MAX_CACHE_SIZE) {
+            String oldest = insertOrder.pollFirst();
+            if (oldest != null) {
+                cache.remove(oldest);
+                accessTime.remove(oldest);
+            } else {
+                break;
+            }
+        }
+    }
+
+    @Scheduled(fixedRate = 5 * 60 * 1000) // every 5 minutes
+    public void cleanupExpiredCache() {
+        Instant threshold = Instant.now().minusSeconds(CACHE_TTL_SECONDS);
+        int removedKnowledge = 0, removedAccess = 0, removedEmbedding = 0;
+
+        Iterator<Map.Entry<String, Instant>> it = knowledgeStoreAccessTime.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<String, Instant> entry = it.next();
+            if (entry.getValue().isBefore(threshold)) {
+                knowledgeStore.remove(entry.getKey());
+                it.remove();
+                removedKnowledge++;
+            }
+        }
+
+        Iterator<Map.Entry<String, Instant>> it2 = accessControlAccessTime.entrySet().iterator();
+        while (it2.hasNext()) {
+            Map.Entry<String, Instant> entry = it2.next();
+            if (entry.getValue().isBefore(threshold)) {
+                accessControl.remove(entry.getKey());
+                it2.remove();
+                removedAccess++;
+            }
+        }
+
+        Iterator<Map.Entry<String, Instant>> it3 = embeddingCacheAccessTime.entrySet().iterator();
+        while (it3.hasNext()) {
+            Map.Entry<String, Instant> entry = it3.next();
+            if (entry.getValue().isBefore(threshold)) {
+                embeddingCache.remove(entry.getKey());
+                it3.remove();
+                removedEmbedding++;
+            }
+        }
+
+        if (removedKnowledge + removedAccess + removedEmbedding > 0) {
+            log.info("Cache TTL cleanup: removed {} knowledge, {} access, {} embedding entries",
+                removedKnowledge, removedAccess, removedEmbedding);
+        }
     }
 
     @Override
@@ -440,9 +534,13 @@ public class LayeredKnowledgeBaseImpl implements LayeredKnowledgeBase {
     @Override
     public void delete(String key) {
         knowledgeStore.remove(key);
-        accessControl.remove(buildAccessKey(key));
+        knowledgeStoreAccessTime.remove(key);
+        String accessKey = buildAccessKey(key);
+        accessControl.remove(accessKey);
+        accessControlAccessTime.remove(accessKey);
         embeddingCache.remove(key);
-        
+        embeddingCacheAccessTime.remove(key);
+
         if (persistenceEnabled && persistenceService != null) {
             persistenceService.delete(key);
         }
@@ -536,6 +634,9 @@ public class LayeredKnowledgeBaseImpl implements LayeredKnowledgeBase {
                 
                 vectorService.upsertVector(COLLECTION_NAME, key, embedding, payload);
                 embeddingCache.put(key, embedding);
+                embeddingCacheAccessTime.put(key, Instant.now());
+                embeddingCacheInsertOrder.addLast(key);
+                evictIfNeeded(embeddingCache, embeddingCacheAccessTime, embeddingCacheInsertOrder);
                 log.debug("Stored knowledge with explicit vector: {}", key);
             } catch (Exception e) {
                 log.warn("Failed to store explicit vector for {}: {}", key, e.getMessage());

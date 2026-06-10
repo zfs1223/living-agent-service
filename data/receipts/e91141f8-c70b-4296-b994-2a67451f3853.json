@@ -1,0 +1,77 @@
+[ {
+  "receiptId" : "54de96a6-2d39-429b-b2a8-db80c7a9ea6c",
+  "executionId" : "e91141f8-c70b-4296-b994-2a67451f3853",
+  "dispatchId" : "a65ac8d3-6d97-4119-9819-b481a65251c4",
+  "assignmentId" : "f3c1263d-a422-46f9-866a-bf46e735580a",
+  "employeeCode" : "T09",
+  "employeeNeuronId" : "neuron://tech/frontend/001",
+  "status" : "COMPLETED",
+  "summary" : "任务执行完成（工具驱动）\n\n员工: 真绘 (T09)\n任务类型: WebDevelopment\n使用工具: [llm_code_generation, file_write]\n产物文件:\n- index.html (html): data/artifacts/tech/e91141f8-c70b-4296-b994-2a67451f3853/index.html\n执行结果: Web 任务已完成，生成 1 个文件",
+  "receivedAt" : 1779083543.310043282,
+  "metadata" : {
+    "modelName" : "tool_executor",
+    "modelProvider" : "tool_executor",
+    "confidence" : 0.9,
+    "failureReason" : null,
+    "outcomeStatus" : "COMPLETED",
+    "needsHumanReview" : false,
+    "needsRetry" : false
+  }
+}, {
+  "receiptId" : "322f219d-04e7-4509-a12a-e93842ab0211",
+  "executionId" : "e91141f8-c70b-4296-b994-2a67451f3853",
+  "dispatchId" : "755265e3-8b82-4157-9fba-f2c236f70dc9",
+  "assignmentId" : "40924325-3b0a-475c-827e-388934c1f6f0",
+  "employeeCode" : "T10",
+  "employeeNeuronId" : "neuron://tech/backend/001",
+  "status" : "COMPLETED",
+  "summary" : "任务执行完成（工具驱动）\n\n员工: 真栈 (T10)\n任务类型: WebDevelopment\n使用工具: [llm_code_generation, file_write]\n产物文件:\n- index.html (html): data/artifacts/tech/e91141f8-c70b-4296-b994-2a67451f3853/index.html\n执行结果: Web 任务已完成，生成 1 个文件",
+  "receivedAt" : 1779083600.147697578,
+  "metadata" : {
+    "modelName" : "tool_executor",
+    "modelProvider" : "tool_executor",
+    "confidence" : 0.9,
+    "failureReason" : null,
+    "outcomeStatus" : "COMPLETED",
+    "needsHumanReview" : false,
+    "needsRetry" : false
+  }
+}, {
+  "receiptId" : "838913e9-9e25-423f-a80f-0a1db4727187",
+  "executionId" : "e91141f8-c70b-4296-b994-2a67451f3853",
+  "dispatchId" : "00fda1bf-9b4d-4bd6-a360-e827849ab8a0",
+  "assignmentId" : "55de5793-13d4-4388-8080-73e5f5d4a998",
+  "employeeCode" : "T02",
+  "employeeNeuronId" : "neuron://tech/architect/001",
+  "status" : "COMPLETED",
+  "summary" : "任务执行完成（工具驱动）\n\n员工: 真构 (T02)\n任务类型: WebDevelopment\n使用工具: [llm_code_generation, file_write]\n产物文件:\n- index.html (html): data/artifacts/tech/e91141f8-c70b-4296-b994-2a67451f3853/index.html\n执行结果: Web 任务已完成，生成 1 个文件",
+  "receivedAt" : 1779083643.622210320,
+  "metadata" : {
+    "modelName" : "tool_executor",
+    "modelProvider" : "tool_executor",
+    "confidence" : 0.9,
+    "failureReason" : null,
+    "outcomeStatus" : "COMPLETED",
+    "needsHumanReview" : false,
+    "needsRetry" : false
+  }
+}, {
+  "receiptId" : "c13b0c7f-16d1-42e3-b499-fa048c02d6f4",
+  "executionId" : "e91141f8-c70b-4296-b994-2a67451f3853",
+  "dispatchId" : "c934748a-c708-4773-b5ec-3863d19d7749",
+  "assignmentId" : "84c9a042-d9a4-42b9-a4b7-470ed5e5ae21",
+  "employeeCode" : "T03",
+  "employeeNeuronId" : "neuron://tech/devops/001",
+  "status" : "COMPLETED",
+  "summary" : "任务执行完成（工具驱动）\n\n员工: 真捷 (T03)\n任务类型: WebDevelopment\n使用工具: [llm_code_generation, file_write]\n产物文件:\n- index.html (html): data/artifacts/tech/e91141f8-c70b-4296-b994-2a67451f3853/index.html\n执行结果: Web 任务已完成，生成 1 个文件",
+  "receivedAt" : 1779083688.260185516,
+  "metadata" : {
+    "modelName" : "tool_executor",
+    "modelProvider" : "tool_executor",
+    "confidence" : 0.9,
+    "failureReason" : null,
+    "outcomeStatus" : "COMPLETED",
+    "needsHumanReview" : false,
+    "needsRetry" : false
+  }
+} ]

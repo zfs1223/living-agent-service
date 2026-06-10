@@ -1,0 +1,41 @@
+appId: com.livingagent.desktop
+productName: Living Agent
+copyright: Copyright © 2026 ${author}
+directories:
+  buildResources: assets
+  output: release/${version}
+files:
+  - dist/**/*
+  - assets/**/*
+  - package.json
+asar: true
+asarUnpack:
+  - resources/**
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: assets/icon.ico
+  artifactName: ${productName}-Setup-${version}.${ext}
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+  shortcutName: Living Agent
+  uninstallDisplayName: Living Agent
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  category: public.app-category.business
+linux:
+  target:
+    - AppImage
+  category: Office
+  icon: assets/icon.png
+publish: null

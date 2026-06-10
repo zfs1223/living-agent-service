@@ -1,0 +1,58 @@
+[ {
+  "receiptId" : "2f1b81d3-39b6-413c-8edb-4ba5c447ec38",
+  "executionId" : "0643a216-ab8a-4374-ad21-81639f517b62",
+  "dispatchId" : "02f2bb6d-bb98-4240-897b-24515f17688a",
+  "assignmentId" : "55f30396-cb69-4f7e-9b32-168be8d9575b",
+  "employeeCode" : "T02",
+  "employeeNeuronId" : "neuron://tech/architect/001",
+  "status" : "COMPLETED",
+  "summary" : "任务执行完成（工具驱动）\n\n员工: 真构 (T02)\n任务类型: 项目类型修正\n使用工具: [llm_code_generation, file_write]\n产物文件:\n- index.html (html): data/artifacts/tech/0643a216-ab8a-4374-ad21-81639f517b62/index.html\n执行结果: Web 任务已完成，生成 1 个文件",
+  "receivedAt" : 1779242049.701935956,
+  "metadata" : {
+    "modelName" : "tool_executor",
+    "modelProvider" : "tool_executor",
+    "confidence" : 0.9,
+    "failureReason" : null,
+    "outcomeStatus" : "COMPLETED",
+    "needsHumanReview" : false,
+    "needsRetry" : false
+  }
+}, {
+  "receiptId" : "58f6ed3c-cc9e-44ba-a2ff-b568c80d80b0",
+  "executionId" : "0643a216-ab8a-4374-ad21-81639f517b62",
+  "dispatchId" : "1a80f77a-eb95-4694-968f-551da5ab0894",
+  "assignmentId" : "cffadba3-6230-4215-afd1-7dd6c35e6673",
+  "employeeCode" : "T09",
+  "employeeNeuronId" : "neuron://tech/frontend/001",
+  "status" : "COMPLETED",
+  "summary" : "任务执行完成（工具驱动）\n\n员工: 真绘 (T09)\n任务类型: 项目类型修正\n使用工具: [llm_code_generation, file_write]\n产物文件:\n- index.html (html): data/artifacts/tech/0643a216-ab8a-4374-ad21-81639f517b62/index.html\n执行结果: Web 任务已完成，生成 1 个文件",
+  "receivedAt" : 1779242083.144967973,
+  "metadata" : {
+    "modelName" : "tool_executor",
+    "modelProvider" : "tool_executor",
+    "confidence" : 0.9,
+    "failureReason" : null,
+    "outcomeStatus" : "COMPLETED",
+    "needsHumanReview" : false,
+    "needsRetry" : false
+  }
+}, {
+  "receiptId" : "6c33d323-7ebc-4aca-b936-808b4662b5e4",
+  "executionId" : "0643a216-ab8a-4374-ad21-81639f517b62",
+  "dispatchId" : "e54a18bb-6f07-4b3c-858f-99016d668d2f",
+  "assignmentId" : "1fdffbe1-d27a-40de-83f4-c8f6ff3e0d0b",
+  "employeeCode" : "T04",
+  "employeeNeuronId" : "neuron://tech/ops/001",
+  "status" : "COMPLETED",
+  "summary" : "任务执行完成（工具驱动）\n\n员工: 真稳 (T04)\n任务类型: 项目类型修正\n使用工具: [llm_code_generation, file_write]\n产物文件:\n- index.html (html): data/artifacts/tech/0643a216-ab8a-4374-ad21-81639f517b62/index.html\n执行结果: Web 任务已完成，生成 1 个文件",
+  "receivedAt" : 1779242116.529159157,
+  "metadata" : {
+    "modelName" : "tool_executor",
+    "modelProvider" : "tool_executor",
+    "confidence" : 0.9,
+    "failureReason" : null,
+    "outcomeStatus" : "COMPLETED",
+    "needsHumanReview" : false,
+    "needsRetry" : false
+  }
+} ]

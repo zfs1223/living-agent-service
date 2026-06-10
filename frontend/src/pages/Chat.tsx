@@ -1,11 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import MarkdownRenderer from '../components/MarkdownRenderer';
 import AgentBayLivePanel, { LivePreviewState } from '../components/AgentBayLivePanel';
-import { agentApi, enterpriseApi } from '../services/api';
+import { agentApi, enterpriseApi, authApi } from '../services/api';
 import { useAuthStore } from '../stores';
+import { useToastStore } from '../stores/toastStore';
+import { usePolling } from '../hooks/usePolling';
 
 /* ── Inline SVG Icons ── */
 const Icons = {
@@ -69,12 +71,43 @@ export default function Chat() {
     const navigate = useNavigate();
     const token = useAuthStore((s) => s.token);
     const user = useAuthStore((s) => s.user);
+    const setAuth = useAuthStore((s) => s.setAuth);
 
-    // 支持两种路由方式: /agents/:id/chat 或 /chat?id=xxx&brain=xxx
+    // Auto-fetch user info if token exists but user is null (after page refresh)
+    useEffect(() => {
+        if (token && !user) {
+            authApi.me()
+                .then(res => {
+                    if (res) {
+                        setAuth(res as any, token);
+                    }
+                })
+                .catch(() => {});
+        }
+    }, [token, user, setAuth]);
+
+    // ========================================================================
+    // 入口路由判定 (固定优先，身份兜底)
+    // ========================================================================
+    // 优先级顺序 (严格按此顺序，不可调换):
+    //   1. id 硬路由: /chat?id=... 或 /agents/:id/chat -> /ws/agent
+    //   2. brain 硬路由: /chat?brain=...&dept=... -> /ws/dept/{brain}
+    //   3. 身份软路由: /chat (无参数) -> 根据用户身份自动选择通道
+    //
+    // 职责边界:
+    //   - Chat.tsx 负责: 按 URL 参数做入口判定
+    //   - Chat.tsx 不负责: 定义部门脑内部推理逻辑、决定模型切换策略
+    //
+    // 命名映射:
+    //   - brain: 前端 URL 参数，代表部门 code (如 tech, hr)
+    //   - dept: 前端 URL 参数，用于显示部门名称
+    //   - department: 后端使用的部门 code
+    //   - brainId: 后端运行/配置层唯一 ID (如 neuron://tech/code-reviewer/001)
+    // ========================================================================
     const queryId = searchParams.get('id');
-    const brainDept = searchParams.get('brain');
-    const deptName = searchParams.get('dept');
-    const id = routeId || queryId || undefined;
+    const brainDept = searchParams.get('brain'); // 部门 brain code (如 tech, hr)
+    const deptName = searchParams.get('dept'); // 部门显示名称
+    const id = routeId || queryId || undefined; // id 优先于 brain
 
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
@@ -99,6 +132,7 @@ export default function Chat() {
         queryFn: () => agentApi.get(id!),
         enabled: !!id,
     });
+    const isFixedEmployee = String((agent as any)?.origin || '').toLowerCase() === 'fixed';
 
     const { data: llmModels = [] } = useQuery({
         queryKey: ['llm-models'],
@@ -149,24 +183,38 @@ export default function Chat() {
     }, [id, token]);
 
     useEffect(() => {
-        if ((!id && !brainDept) || !token) return;
+        if (!token) return;
 
         let cancelled = false;
 
         const connect = () => {
             if (cancelled) return;
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            // 使用统一的 /ws/agent 端点，参数通过 query string 传递
-            // 根据权限区分对话通道：所有对话都通过 Qwen3Neuron (闲聊神经元)
+            // 入口优先级: id > brain > 身份兜底 (严格按此顺序)
             let wsUrl: string;
+
             if (id) {
-                // 与特定数字员工对话
-                wsUrl = `${protocol}//${window.location.host}/ws/agent?token=${token}&agentId=${encodeURIComponent(id)}`;
+                // 优先级 1: agent 硬路由 -> /ws/agent
+                // 固定员工 (origin=fixed) 降级到 /ws/public
+                if (isFixedEmployee) {
+                    wsUrl = `${protocol}//${window.location.host}/ws/public?token=${token}`;
+                } else {
+                    wsUrl = `${protocol}//${window.location.host}/ws/agent?token=${token}&agentId=${encodeURIComponent(id)}`;
+                }
             } else if (brainDept) {
-                // 与部门大脑对话
-                wsUrl = `${protocol}//${window.location.host}/ws/agent?token=${token}&department=${encodeURIComponent(brainDept)}`;
+                // 优先级 2: department/brain 硬路由 -> /ws/dept/{brain}
+                wsUrl = `${protocol}//${window.location.host}/ws/dept/${encodeURIComponent(brainDept)}?token=${token}`;
             } else {
-                return;
+                // 优先级 3: 身份软路由 (仅无参数 /chat 时触发)
+                // 使用部门 code (不是数据库 ID) 连接部门通道
+                const deptCode = user?.department_code;
+                if (user?.identity === 'INTERNAL_ENTERPRISE' || user?.access_level === 'FULL') {
+                    wsUrl = `${protocol}//${window.location.host}/ws/enterprise?token=${token}`;
+                } else if (deptCode) {
+                    wsUrl = `${protocol}//${window.location.host}/ws/dept/${encodeURIComponent(deptCode)}?token=${token}`;
+                } else {
+                    wsUrl = `${protocol}//${window.location.host}/ws/public?token=${token}`;
+                }
             }
             const ws = new WebSocket(wsUrl);
 
@@ -189,7 +237,10 @@ export default function Chat() {
             };
             ws.onmessage = (event) => {
                 const data = JSON.parse(event.data);
-                if (['thinking', 'chunk', 'tool_call', 'done', 'error', 'quota_exceeded'].includes(data.type)) {
+                if (['connected', 'pong', 'PONG', 'ONLINE_USERS', 'USER_JOINED', 'USER_LEFT', 'TYPING', 'CHAT', 'BRAIN_RESPONSE', 'control', 'aborted'].includes(data.type)) {
+                    return;
+                }
+                if (['thinking', 'chunk', 'tool_call', 'done', 'error', 'quota_exceeded', 'response'].includes(data.type)) {
                     setIsWaiting(false);
                 }
                 if (['error', 'quota_exceeded'].includes(data.type)) {
@@ -268,21 +319,20 @@ export default function Chat() {
                             setLivePanelVisible(true);
                         }
                     }
-                } else if (data.type === 'done') {
-                    // Final response — replace streaming message with final + tool calls
+                } else if (data.type === 'done' || data.type === 'response') {
                     const toolCalls = pendingToolCalls.current.length > 0 ? [...pendingToolCalls.current] : undefined;
                     const thinking = thinkingContent.current || undefined;
                     pendingToolCalls.current = [];
                     streamContent.current = '';
                     thinkingContent.current = '';
                     setStreaming(false);
+                    const responseContent = data.content || data.text || '';
                     setMessages(prev => {
                         const updated = [...prev];
-                        // Replace the last streaming assistant message
                         if (updated.length > 0 && updated[updated.length - 1].role === 'assistant') {
-                            updated[updated.length - 1] = { role: 'assistant', content: data.content, toolCalls, thinking };
+                            updated[updated.length - 1] = { role: 'assistant', content: responseContent, toolCalls, thinking };
                         } else {
-                            updated.push({ role: 'assistant', content: data.content, toolCalls, thinking });
+                            updated.push({ role: 'assistant', content: responseContent, toolCalls, thinking });
                         }
                         return updated;
                     });
@@ -302,7 +352,7 @@ export default function Chat() {
                 wsRef.current = null;
             }
         };
-    }, [id, brainDept, token]);
+    }, [id, brainDept, token, user]);
 
     // Auto-focus input when connection is established
     useEffect(() => {
@@ -310,6 +360,15 @@ export default function Chat() {
             setTimeout(() => textareaRef.current?.focus(), 50);
         }
     }, [connected]);
+
+    // Heartbeat to keep WebSocket connection alive (pauses when page is hidden)
+    const sendHeartbeat = useCallback(() => {
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ type: 'ping' }));
+        }
+    }, []);
+
+    usePolling(sendHeartbeat, 30000, connected);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -333,14 +392,14 @@ export default function Chat() {
 
             if (!resp.ok) {
                 const err = await resp.json();
-                alert(err.detail || t('agent.upload.failed'));
+                useToastStore.getState().showToast(err.detail || t('agent.upload.failed'), 'error');
                 return;
             }
 
             const data = await resp.json();
             setAttachedFile({ name: data.filename, text: data.extracted_text, path: data.workspace_path, imageUrl: data.image_data_url || undefined });
         } catch (err) {
-            alert(t('agent.upload.failed') + ': ' + (err as Error).message);
+            useToastStore.getState().showToast(t('agent.upload.failed') + ': ' + (err as Error).message, 'error');
         } finally {
             setUploading(false);
             if (fileInputRef.current) fileInputRef.current.value = '';
@@ -395,7 +454,11 @@ export default function Chat() {
             imageUrl: attachedFile?.imageUrl,
             timestamp: new Date().toISOString(),
         }]);
-        wsRef.current.send(JSON.stringify({ content: contentForLLM, display_content: userMsg, file_name: attachedFile?.name || '' }));
+        if (id) {
+            wsRef.current.send(JSON.stringify({ type: 'text', text: contentForLLM, channel: 'default', file_name: attachedFile?.name || '' }));
+        } else {
+            wsRef.current.send(JSON.stringify({ type: 'CHAT', content: contentForLLM }));
+        }
         setInput('');
         setAttachedFile(null);
         // Reset textarea height back to single-line after sending
@@ -459,6 +522,11 @@ export default function Chat() {
                             {brainDept && (
                                 <span style={{ color: 'var(--accent-text)', marginLeft: '8px', fontSize: '11px' }}>
                                     {t('chat.departmentBrainMode') || '部门大脑模式'}
+                                </span>
+                            )}
+                            {id && isFixedEmployee && (
+                                <span style={{ color: 'var(--warning)', marginLeft: '8px', fontSize: '11px' }}>
+                                    {t('chat.fixedEmployeeBlocked') || '固定员工不开放直连聊天'}
                                 </span>
                             )}
                         </div>

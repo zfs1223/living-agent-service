@@ -3,7 +3,7 @@
  * and applies it to CSS custom properties. Persists to localStorage.
  */
 
-const STORAGE_KEY = 'clawith-accent-color';
+const STORAGE_KEY = 'living-agent-accent-color';
 
 /** Convert hex to RGB */
 function hexToRgb(hex: string): [number, number, number] {

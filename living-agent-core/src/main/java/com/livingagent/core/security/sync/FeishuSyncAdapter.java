@@ -1,7 +1,7 @@
 package com.livingagent.core.security.sync;
 
 import com.livingagent.core.security.Department;
-import com.livingagent.core.security.Employee;
+import com.livingagent.core.security.SecurityIdentity;
 import com.livingagent.core.security.UserIdentity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -69,10 +69,10 @@ public class FeishuSyncAdapter implements HrSyncAdapter {
     }
 
     @Override
-    public List<Employee> fetchEmployees() {
+    public List<SecurityIdentity> fetchEmployees() {
         log.info("Fetching employees from Feishu");
         
-        List<Employee> employees = new ArrayList<>();
+        List<SecurityIdentity> employees = new ArrayList<>();
         
         try {
             String token = getTenantAccessToken();
@@ -84,7 +84,7 @@ public class FeishuSyncAdapter implements HrSyncAdapter {
             List<Map<String, Object>> userList = fetchUserList(token);
             
             for (Map<String, Object> user : userList) {
-                Employee employee = convertToEmployee(user);
+                SecurityIdentity employee = convertToEmployee(user);
                 if (employee != null) {
                     employees.add(employee);
                 }
@@ -137,9 +137,9 @@ public class FeishuSyncAdapter implements HrSyncAdapter {
         List<String> errorList = new ArrayList<>();
         
         try {
-            List<Employee> employees = fetchEmployees();
+            List<SecurityIdentity> employees = fetchEmployees();
             
-            for (Employee emp : employees) {
+            for (SecurityIdentity emp : employees) {
                 try {
                     created++;
                 } catch (Exception e) {
@@ -175,7 +175,7 @@ public class FeishuSyncAdapter implements HrSyncAdapter {
     }
 
     @Override
-    public Employee fetchEmployeeById(String employeeId) {
+    public SecurityIdentity fetchEmployeeById(String employeeId) {
         try {
             String token = getTenantAccessToken();
             if (token == null) return null;
@@ -198,8 +198,8 @@ public class FeishuSyncAdapter implements HrSyncAdapter {
     }
 
     @Override
-    public List<Employee> fetchEmployeesByDepartment(String departmentId) {
-        List<Employee> employees = new ArrayList<>();
+    public List<SecurityIdentity> fetchEmployeesByDepartment(String departmentId) {
+        List<SecurityIdentity> employees = new ArrayList<>();
         
         try {
             String token = getTenantAccessToken();
@@ -215,7 +215,7 @@ public class FeishuSyncAdapter implements HrSyncAdapter {
                 
                 if (userList != null) {
                     for (Map<String, Object> user : userList) {
-                        Employee employee = convertToEmployee(user);
+                        SecurityIdentity employee = convertToEmployee(user);
                         if (employee != null) {
                             employees.add(employee);
                         }
@@ -346,10 +346,10 @@ public class FeishuSyncAdapter implements HrSyncAdapter {
         return response.body();
     }
 
-    private Employee convertToEmployee(Map<String, Object> user) {
+    private SecurityIdentity convertToEmployee(Map<String, Object> user) {
         if (user == null) return null;
         
-        Employee employee = new Employee();
+        SecurityIdentity employee = new SecurityIdentity();
         
         String openId = getString(user, "open_id");
         String unionId = getString(user, "union_id");

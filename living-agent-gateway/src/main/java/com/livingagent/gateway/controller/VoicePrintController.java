@@ -1,5 +1,6 @@
 package com.livingagent.gateway.controller;
 
+import com.livingagent.core.security.AccessGateService;
 import com.livingagent.core.service.voice.SpeakerVerificationService;
 import com.livingagent.core.service.voice.SpeakerVerificationResult;
 import org.slf4j.Logger;
@@ -23,17 +24,23 @@ public class VoicePrintController {
     private static final Logger log = LoggerFactory.getLogger(VoicePrintController.class);
 
     private final SpeakerVerificationService speakerVerificationService;
+    private final AccessGateService accessGateService;
 
-    public VoicePrintController(SpeakerVerificationService speakerVerificationService) {
+    public VoicePrintController(SpeakerVerificationService speakerVerificationService, AccessGateService accessGateService) {
         this.speakerVerificationService = speakerVerificationService;
+        this.accessGateService = accessGateService;
     }
 
     @PostMapping("/register")
     public ResponseEntity<ApiResponse<VoicePrintResponse>> registerVoicePrint(
             @RequestParam("audio") MultipartFile audio,
             @RequestParam("speaker_id") String speakerId,
-            @RequestParam(value = "name", required = false) String name
+            @RequestParam(value = "name", required = false) String name,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.info("Registering voice print for speaker: {}", speakerId);
 
         if (!speakerVerificationService.isEnabled()) {
@@ -72,8 +79,12 @@ public class VoicePrintController {
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<VoicePrintLoginResponse>> voicePrintLogin(
             @RequestParam("audio") MultipartFile audio,
-            @RequestParam(value = "threshold", required = false) Double threshold
+            @RequestParam(value = "threshold", required = false) Double threshold,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.info("Voice print login attempt");
 
         if (!speakerVerificationService.isEnabled()) {
@@ -124,8 +135,12 @@ public class VoicePrintController {
     public ResponseEntity<ApiResponse<VoicePrintResponse>> verifyVoicePrint(
             @RequestParam("audio") MultipartFile audio,
             @RequestParam("speaker_id") String speakerId,
-            @RequestParam(value = "threshold", required = false) Double threshold
+            @RequestParam(value = "threshold", required = false) Double threshold,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.info("Verifying voice print for speaker: {}", speakerId);
 
         if (!speakerVerificationService.isEnabled()) {
@@ -156,7 +171,11 @@ public class VoicePrintController {
     }
 
     @GetMapping
-    public ResponseEntity<ApiResponse<List<VoicePrintInfo>>> listVoicePrints() {
+    public ResponseEntity<ApiResponse<List<VoicePrintInfo>>> listVoicePrints(
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.debug("Listing voice prints");
 
         List<VoicePrintInfo> voicePrints = new ArrayList<>();
@@ -172,7 +191,11 @@ public class VoicePrintController {
     }
 
     @GetMapping("/status")
-    public ResponseEntity<ApiResponse<VoicePrintStatusResponse>> getStatus() {
+    public ResponseEntity<ApiResponse<VoicePrintStatusResponse>> getStatus(
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         VoicePrintStatusResponse response = new VoicePrintStatusResponse(
                 speakerVerificationService.isEnabled(),
                 speakerVerificationService.isUseRemote(),

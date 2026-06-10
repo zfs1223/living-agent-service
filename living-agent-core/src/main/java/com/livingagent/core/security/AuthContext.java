@@ -28,6 +28,7 @@ public class AuthContext {
     private Map<String, Object> metadata;
     private boolean active;
     private String sessionId;
+    private String tenantId;
 
     public AuthContext() {
         this.identity = UserIdentity.EXTERNAL_VISITOR;
@@ -96,6 +97,9 @@ public class AuthContext {
 
     public String getSessionId() { return sessionId; }
     public void setSessionId(String sessionId) { this.sessionId = sessionId; }
+
+    public String getTenantId() { return tenantId; }
+    public void setTenantId(String tenantId) { this.tenantId = tenantId; }
 
     public boolean hasPermission(AccessLevel required) {
         return this.accessLevel.ordinal() >= required.ordinal();

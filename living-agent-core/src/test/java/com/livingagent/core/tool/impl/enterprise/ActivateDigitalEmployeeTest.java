@@ -20,11 +20,11 @@ class ActivateDigitalEmployeeTest {
     private static final String TINGFENG_USER_ID = "ou_8f32e722d4a6ee2c67dc782fd580486e";
     private static final String TINGFENG_REAL_EMAIL = "tingfeng@smilesmartai.com";
 
-    private ChairmanFeishuTool tool;
+    private EnterpriseFeishuTool tool;
 
     @BeforeEach
     void setUp() {
-        tool = new ChairmanFeishuTool(APP_ID, APP_SECRET);
+        tool = new EnterpriseFeishuTool(APP_ID, APP_SECRET);
     }
 
     @Test
@@ -38,7 +38,7 @@ class ActivateDigitalEmployeeTest {
             "action", "get_user",
             "user_id", TINGFENG_USER_ID
         ));
-        ToolContext context = ToolContext.of("test-chairman", "test-session");
+        ToolContext context = ToolContext.of("test-enterprise", "test-session");
         
         ToolResult result = tool.execute(params, context);
         
@@ -64,7 +64,7 @@ class ActivateDigitalEmployeeTest {
             "employee_type", 1,
             "email", TINGFENG_REAL_EMAIL
         ));
-        ToolContext context = ToolContext.of("test-chairman", "test-session");
+        ToolContext context = ToolContext.of("test-enterprise", "test-session");
         
         ToolResult result = tool.execute(params, context);
         
@@ -86,7 +86,7 @@ class ActivateDigitalEmployeeTest {
             "user_id", TINGFENG_USER_ID,
             "email", TINGFENG_REAL_EMAIL
         ));
-        ToolContext context = ToolContext.of("test-chairman", "test-session");
+        ToolContext context = ToolContext.of("test-enterprise", "test-session");
         
         ToolResult result = tool.execute(params, context);
         

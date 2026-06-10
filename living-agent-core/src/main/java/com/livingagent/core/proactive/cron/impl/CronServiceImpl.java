@@ -1,5 +1,6 @@
 package com.livingagent.core.proactive.cron.impl;
 
+import com.livingagent.core.autonomy.TaskMetadataKeys;
 import com.livingagent.core.proactive.cron.CronJob;
 import com.livingagent.core.proactive.cron.CronService;
 import com.livingagent.core.proactive.event.EventHookManager;
@@ -213,7 +214,7 @@ public class CronServiceImpl implements CronService {
             Map<String, Object> payload = new HashMap<>();
             payload.put("jobId", job.jobId());
             payload.put("jobName", job.name());
-            payload.put("taskType", job.taskType());
+            payload.put(TaskMetadataKeys.TASK_TYPE, job.taskType());
             payload.put("taskParams", job.taskParams());
             payload.put("runCount", job.runCount() + 1);
 

@@ -49,6 +49,7 @@ public class RouterNeuron extends AbstractNeuron {
     
     @Override
     public void subscribe(Channel channel) {
+        super.subscribe(channel);
         log.info("RouterNeuron subscribing to channel: {}", channel.getId());
     }
     

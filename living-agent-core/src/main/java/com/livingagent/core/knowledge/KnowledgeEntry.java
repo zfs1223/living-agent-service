@@ -31,6 +31,7 @@ public class KnowledgeEntry {
     private String scopeIdentifier;
     private Instant lastAccessedAt;
     private String promotedFrom;
+    private KnowledgeStatus status;
     
     public KnowledgeEntry() {
         this.entryId = java.util.UUID.randomUUID().toString();
@@ -44,6 +45,7 @@ public class KnowledgeEntry {
         this.createdAt = Instant.now();
         this.updatedAt = Instant.now();
         this.accessCount = 0;
+        this.status = KnowledgeStatus.DRAFT;
     }
     
     public KnowledgeEntry(String key, Object content) {
@@ -182,6 +184,9 @@ public class KnowledgeEntry {
     
     public String getPromotedFrom() { return promotedFrom; }
     public void setPromotedFrom(String promotedFrom) { this.promotedFrom = promotedFrom; }
+    
+    public KnowledgeStatus getStatus() { return status; }
+    public void setStatus(KnowledgeStatus status) { this.status = status; }
     
     @Override
     public String toString() {

@@ -17,6 +17,9 @@ public class GeneratedSkill implements Skill {
     private String content;
     private String skillPath;
     private final Map<String, Object> metadata = new HashMap<>();
+    private String scope = "global";
+    private String ownerId;
+    private String departmentId;
 
     public GeneratedSkill(String name, String description) {
         this.name = name;
@@ -102,5 +105,23 @@ public class GeneratedSkill implements Skill {
     public List<String> getRequiredCapabilities() {
         return List.of();
     }
+
+    @Override
+    public String getScope() { return scope; }
+
+    @Override
+    public void setScope(String scope) { this.scope = scope; }
+
+    @Override
+    public String getOwnerId() { return ownerId; }
+
+    @Override
+    public void setOwnerId(String ownerId) { this.ownerId = ownerId; }
+
+    @Override
+    public String getDepartmentId() { return departmentId; }
+
+    @Override
+    public void setDepartmentId(String departmentId) { this.departmentId = departmentId; }
 }
 

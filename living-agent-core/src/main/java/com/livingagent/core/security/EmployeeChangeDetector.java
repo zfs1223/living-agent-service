@@ -6,7 +6,7 @@ public interface EmployeeChangeDetector {
 
     Optional<DetectedChange> detectFromConversation(String conversationId, String message, String speakerId);
 
-    DetectedChange createChange(String employeeId, EmployeeService.ChangeType changeType, 
+    DetectedChange createChange(String employeeId, AuthEmployeeService.ChangeType changeType, 
                                 String detectedFrom, String details);
 
     void handleChange(DetectedChange change);
@@ -19,7 +19,7 @@ public interface EmployeeChangeDetector {
         private String changeId;
         private String employeeId;
         private String employeeName;
-        private EmployeeService.ChangeType changeType;
+        private AuthEmployeeService.ChangeType changeType;
         private String detectedFrom;
         private String details;
         private String originalValue;
@@ -54,8 +54,8 @@ public interface EmployeeChangeDetector {
         public String getEmployeeName() { return employeeName; }
         public void setEmployeeName(String employeeName) { this.employeeName = employeeName; }
 
-        public EmployeeService.ChangeType getChangeType() { return changeType; }
-        public void setChangeType(EmployeeService.ChangeType changeType) { this.changeType = changeType; }
+        public AuthEmployeeService.ChangeType getChangeType() { return changeType; }
+        public void setChangeType(AuthEmployeeService.ChangeType changeType) { this.changeType = changeType; }
 
         public String getDetectedFrom() { return detectedFrom; }
         public void setDetectedFrom(String detectedFrom) { this.detectedFrom = detectedFrom; }

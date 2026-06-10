@@ -1,7 +1,7 @@
 package com.livingagent.gateway.controller;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-
+import com.livingagent.core.security.AccessGateService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -15,13 +15,22 @@ import java.util.*;
 public class PlazaController {
 
     private static final Logger log = LoggerFactory.getLogger(PlazaController.class);
+    private final AccessGateService accessGateService;
+
+    public PlazaController(AccessGateService accessGateService) {
+        this.accessGateService = accessGateService;
+    }
 
     @GetMapping("/posts")
     public ResponseEntity<ApiResponse<List<PostInfo>>> getPosts(
             @RequestParam(defaultValue = "50") int limit,
             @RequestParam(defaultValue = "0") int offset,
-            @RequestParam(required = false) String tenant_id
+            @RequestParam(required = false) String tenant_id,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.debug("Getting plaza posts, limit: {}, tenant_id: {}", limit, tenant_id);
 
         List<PostInfo> posts = new ArrayList<>();
@@ -42,8 +51,12 @@ public class PlazaController {
 
     @GetMapping("/stats")
     public ResponseEntity<ApiResponse<PlazaStats>> getStats(
-            @RequestParam(required = false) String tenant_id
+            @RequestParam(required = false) String tenant_id,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.debug("Getting plaza stats, tenant_id: {}", tenant_id);
 
         PlazaStats stats = new PlazaStats(
@@ -59,8 +72,12 @@ public class PlazaController {
     @PostMapping("/posts")
     public ResponseEntity<ApiResponse<PostInfo>> createPost(
             @RequestBody CreatePostRequest request,
-            @RequestParam(required = false) String tenant_id
+            @RequestParam(required = false) String tenant_id,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.info("Creating plaza post: {}", request.content());
 
         PostInfo post = new PostInfo(
@@ -81,8 +98,12 @@ public class PlazaController {
     @PostMapping("/posts/{postId}/like")
     public ResponseEntity<ApiResponse<PostInfo>> likePost(
             @PathVariable String postId,
-            @RequestParam(required = false) String tenant_id
+            @RequestParam(required = false) String tenant_id,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.info("Liking post: {}", postId);
         return ResponseEntity.ok(ApiResponse.success(null));
     }
@@ -95,6 +116,10 @@ public class PlazaController {
     ) {
         public static <T> ApiResponse<T> success(T data) {
             return new ApiResponse<>(true, data, null, null);
+        }
+
+        public static <T> ApiResponse<T> error(String error, String description) {
+            return new ApiResponse<>(false, null, error, description);
         }
     }
 

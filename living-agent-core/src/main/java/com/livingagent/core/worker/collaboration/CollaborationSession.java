@@ -4,6 +4,15 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 协作会话 —— 数字员工之间的协作会话模型。
+ *
+ * <p>支持7种协作类型（TASK_CHAIN/PARALLEL/ROUND_ROBIN/DEBATE/CONSENSUS/HIERARCHICAL/PEER_REVIEW），
+ * 每个会话包含多个协作任务，任务之间可有依赖关系。</p>
+ *
+ * <p><b>层次边界</b>：本接口属于 worker 层，面向员工之间的协作。
+ * 大脑层的任务编排请使用 {@code brain.collaboration.LeadOrchestrator}。</p>
+ */
 public interface CollaborationSession {
 
     String getSessionId();

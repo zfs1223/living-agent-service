@@ -1,0 +1,21 @@
+[ {
+  "receiptId" : "3d21be07-7dc7-438f-80d1-193cfda3ce86",
+  "executionId" : "bc27d3d9-9888-4bac-aecf-e3e508b6b70b",
+  "dispatchId" : "58e6c9b5-79e4-4197-b349-e4ca57e5feef",
+  "assignmentId" : "f7a1505e-da17-499f-be59-3bd584dc3995",
+  "employeeCode" : "T09",
+  "employeeNeuronId" : "neuron://tech/frontend/001",
+  "status" : "DEGRADED",
+  "summary" : "任务执行降级（真绘/技术部）：类型=web_development, 目标=开发一个显示红色小球跳动效果的网页\n【重要】模型调用暂不可用，此任务尚未真实完成，需要等待模型恢复后重新处理或人工介入。",
+  "receivedAt" : 1778575222.778697876,
+  "metadata" : {
+    "modelName" : null,
+    "modelProvider" : null,
+    "confidence" : 0.3,
+    "failureReason" : "所有模型调用失败",
+    "outcomeStatus" : "DEGRADED",
+    "degraded" : true,
+    "needsHumanReview" : false,
+    "needsRetry" : true
+  }
+} ]

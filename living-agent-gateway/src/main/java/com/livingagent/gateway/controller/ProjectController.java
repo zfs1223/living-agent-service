@@ -1,6 +1,15 @@
 package com.livingagent.gateway.controller;
 
+import com.livingagent.core.database.entity.TaskEntity;
+import com.livingagent.core.database.repository.TaskRepository;
+import com.livingagent.core.ops.scheduler.TaskCheckout;
 import com.livingagent.core.project.*;
+import com.livingagent.core.runtime.RuntimeEventStore;
+import com.livingagent.core.security.AccessGateService;
+import com.livingagent.core.security.AuthContext;
+import com.livingagent.core.security.auth.UnifiedAuthService;
+import com.livingagent.core.security.auth.UnifiedAuthService.AuthSession;
+import com.livingagent.gateway.security.WorkItemPermissionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -18,9 +27,23 @@ public class ProjectController {
     private static final Logger log = LoggerFactory.getLogger(ProjectController.class);
 
     private final ProjectService projectService;
+    private final AccessGateService accessGateService;
+    private final TaskRepository taskRepository;
+    private final WorkItemPermissionService workItemPermissionService;
+    private final RuntimeEventStore runtimeEventStore;
+    private final UnifiedAuthService unifiedAuthService;
 
-    public ProjectController(ProjectService projectService) {
+    public ProjectController(ProjectService projectService, AccessGateService accessGateService, 
+                             TaskRepository taskRepository,
+                             WorkItemPermissionService workItemPermissionService,
+                             RuntimeEventStore runtimeEventStore,
+                             UnifiedAuthService unifiedAuthService) {
         this.projectService = projectService;
+        this.accessGateService = accessGateService;
+        this.taskRepository = taskRepository;
+        this.workItemPermissionService = workItemPermissionService;
+        this.runtimeEventStore = runtimeEventStore;
+        this.unifiedAuthService = unifiedAuthService;
     }
 
     @GetMapping
@@ -29,9 +52,15 @@ public class ProjectController {
             @RequestParam(required = false) String department,
             @RequestParam(required = false) String manager,
             @RequestParam(defaultValue = "100") int limit,
-            @RequestParam(defaultValue = "0") int offset
+            @RequestParam(defaultValue = "0") int offset,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         log.debug("Listing projects, status: {}, department: {}", status, department);
+
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
+            return ResponseEntity.status(403)
+                    .body(ApiResponse.err("forbidden", "Access denied before routing"));
+        }
 
         ProjectService.ProjectQuery query = new ProjectService.ProjectQuery(
                 status,
@@ -46,14 +75,20 @@ public class ProjectController {
                 .map(this::toSummary)
                 .collect(Collectors.toList());
 
-        return ResponseEntity.ok(ApiResponse.success(summaries));
+        return ResponseEntity.ok(ApiResponse.ok(summaries));
     }
 
     @PostMapping
     public ResponseEntity<ApiResponse<Project>> createProject(
-            @RequestBody CreateProjectRequest request
+            @RequestBody CreateProjectRequest request,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         log.info("Creating project: {}", request.name());
+
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
+            return ResponseEntity.status(403)
+                    .body(ApiResponse.err("forbidden", "Access denied before routing"));
+        }
 
         ProjectService.CreateProjectRequest serviceRequest = new ProjectService.CreateProjectRequest(
                 request.name(),
@@ -62,90 +97,149 @@ public class ProjectController {
                 request.managerId()
         );
         Project project = projectService.createProject(serviceRequest);
-        return ResponseEntity.ok(ApiResponse.success(project));
+        return ResponseEntity.ok(ApiResponse.ok(project));
     }
 
     @GetMapping("/{projectId}")
     public ResponseEntity<ApiResponse<ProjectDetail>> getProject(
-            @PathVariable String projectId
+            @PathVariable String projectId,
+            @RequestHeader(value = "Authorization", required = false) String authorization
     ) {
         log.debug("Getting project: {}", projectId);
 
+        AuthContext ctx = resolveAuthContext(authorization);
+        if (ctx != null && !workItemPermissionService.canViewProject(projectId, ctx)) {
+            return ResponseEntity.status(403)
+                    .body(ApiResponse.err("forbidden", "No permission to view this project"));
+        }
+
         return projectService.getProject(projectId)
-                .map(p -> ResponseEntity.ok(ApiResponse.success(toDetail(p))))
+                .map(p -> ResponseEntity.ok(ApiResponse.ok(toDetail(p))))
                 .orElse(ResponseEntity.status(404)
-                        .body(ApiResponse.error("not_found", "Project not found: " + projectId)));
+                        .body(ApiResponse.err("not_found", "Project not found: " + projectId)));
     }
 
     @PutMapping("/{projectId}")
     public ResponseEntity<ApiResponse<Project>> updateProject(
             @PathVariable String projectId,
-            @RequestBody UpdateProjectRequest request
+            @RequestBody UpdateProjectRequest request,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId,
+            @RequestHeader(value = "Authorization", required = false) String authorization
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403)
+                    .body(ApiResponse.err("forbidden", "Access denied before routing"));
+        }
+
+        AuthContext ctx = resolveAuthContext(authorization);
+        if (ctx != null && !workItemPermissionService.canEditProject(projectId, ctx)) {
+            return ResponseEntity.status(403)
+                    .body(ApiResponse.err("forbidden", "No permission to edit this project"));
+        }
+
         log.info("Updating project: {}", projectId);
 
         return projectService.getProject(projectId)
                 .map(p -> {
                     updateProjectFromRequest(p, request);
-                    return ResponseEntity.ok(ApiResponse.success(p));
+
+                    Map<String, Object> eventData = new java.util.LinkedHashMap<>();
+                    eventData.put("projectId", projectId);
+                    eventData.put("updatedBy", ctx != null ? ctx.getEmployeeId() : employeeId);
+                    runtimeEventStore.appendProjectEvent("_system", projectId, "project_updated", eventData);
+
+                    return ResponseEntity.ok(ApiResponse.ok(p));
                 })
                 .orElse(ResponseEntity.status(404)
-                        .body(ApiResponse.error("not_found", "Project not found: " + projectId)));
+                        .body(ApiResponse.err("not_found", "Project not found: " + projectId)));
     }
 
     @DeleteMapping("/{projectId}")
     public ResponseEntity<ApiResponse<Void>> deleteProject(
-            @PathVariable String projectId
+            @PathVariable String projectId,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId,
+            @RequestHeader(value = "Authorization", required = false) String authorization
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403)
+                    .body(ApiResponse.err("forbidden", "Access denied before routing"));
+        }
+
+        AuthContext ctx = resolveAuthContext(authorization);
+        if (ctx != null && !workItemPermissionService.canManageProject(projectId, ctx)) {
+            return ResponseEntity.status(403)
+                    .body(ApiResponse.err("forbidden", "No permission to delete this project"));
+        }
+
         log.info("Deleting project: {}", projectId);
 
+        Map<String, Object> eventData = new java.util.LinkedHashMap<>();
+        eventData.put("projectId", projectId);
+        eventData.put("deletedBy", ctx != null ? ctx.getEmployeeId() : employeeId);
+        runtimeEventStore.appendProjectEvent("_system", projectId, "project_deleted", eventData);
+
         projectService.deleteProject(projectId);
-        return ResponseEntity.ok(ApiResponse.success(null));
+        return ResponseEntity.ok(ApiResponse.ok(null));
     }
 
     @PostMapping("/{projectId}/start")
     public ResponseEntity<ApiResponse<Project>> startProject(
-            @PathVariable String projectId
+            @PathVariable String projectId,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403)
+                    .body(ApiResponse.err("forbidden", "Access denied before routing"));
+        }
         log.info("Starting project: {}", projectId);
 
         return projectService.getProject(projectId)
                 .map(p -> {
                     p.start();
-                    return ResponseEntity.ok(ApiResponse.success(p));
+                    return ResponseEntity.ok(ApiResponse.ok(p));
                 })
                 .orElse(ResponseEntity.status(404)
-                        .body(ApiResponse.error("not_found", "Project not found: " + projectId)));
+                        .body(ApiResponse.err("not_found", "Project not found: " + projectId)));
     }
 
     @PostMapping("/{projectId}/complete")
     public ResponseEntity<ApiResponse<Project>> completeProject(
-            @PathVariable String projectId
+            @PathVariable String projectId,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403)
+                    .body(ApiResponse.err("forbidden", "Access denied before routing"));
+        }
         log.info("Completing project: {}", projectId);
 
         return projectService.getProject(projectId)
                 .map(p -> {
                     p.complete();
-                    return ResponseEntity.ok(ApiResponse.success(p));
+                    return ResponseEntity.ok(ApiResponse.ok(p));
                 })
                 .orElse(ResponseEntity.status(404)
-                        .body(ApiResponse.error("not_found", "Project not found: " + projectId)));
+                        .body(ApiResponse.err("not_found", "Project not found: " + projectId)));
     }
 
     @PostMapping("/{projectId}/hold")
     public ResponseEntity<ApiResponse<Project>> holdProject(
-            @PathVariable String projectId
+            @PathVariable String projectId,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
+            return ResponseEntity.status(403)
+                    .body(ApiResponse.err("forbidden", "Access denied before routing"));
+        }
         log.info("Holding project: {}", projectId);
 
         return projectService.getProject(projectId)
                 .map(p -> {
                     p.hold();
-                    return ResponseEntity.ok(ApiResponse.success(p));
+                    return ResponseEntity.ok(ApiResponse.ok(p));
                 })
                 .orElse(ResponseEntity.status(404)
-                        .body(ApiResponse.error("not_found", "Project not found: " + projectId)));
+                        .body(ApiResponse.err("not_found", "Project not found: " + projectId)));
     }
 
     @PostMapping("/{projectId}/phases/{phase}/advance")
@@ -157,10 +251,10 @@ public class ProjectController {
 
         try {
             Project project = projectService.advancePhase(projectId, phase);
-            return ResponseEntity.ok(ApiResponse.success(project));
+            return ResponseEntity.ok(ApiResponse.ok(project));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.status(404)
-                    .body(ApiResponse.error("not_found", e.getMessage()));
+                    .body(ApiResponse.err("not_found", e.getMessage()));
         }
     }
 
@@ -171,9 +265,9 @@ public class ProjectController {
         log.debug("Getting project progress: {}", projectId);
 
         return projectService.getProject(projectId)
-                .map(p -> ResponseEntity.ok(ApiResponse.success(buildProgress(p))))
+                .map(p -> ResponseEntity.ok(ApiResponse.ok(buildProgress(p))))
                 .orElse(ResponseEntity.status(404)
-                        .body(ApiResponse.error("not_found", "Project not found: " + projectId)));
+                        .body(ApiResponse.err("not_found", "Project not found: " + projectId)));
     }
 
     @PutMapping("/{projectId}/phases/{phase}/progress")
@@ -188,10 +282,10 @@ public class ProjectController {
         try {
             Project project = projectService.setPhaseProgress(
                     projectId, phase, request.getOrDefault("progress", 0.0));
-            return ResponseEntity.ok(ApiResponse.success(project));
+            return ResponseEntity.ok(ApiResponse.ok(project));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.status(404)
-                    .body(ApiResponse.error("not_found", e.getMessage()));
+                    .body(ApiResponse.err("not_found", e.getMessage()));
         }
     }
 
@@ -199,7 +293,7 @@ public class ProjectController {
     public ResponseEntity<ApiResponse<ProjectStatistics>> getStatistics() {
         log.debug("Getting project statistics");
         ProjectStatistics stats = projectService.getStatistics();
-        return ResponseEntity.ok(ApiResponse.success(stats));
+        return ResponseEntity.ok(ApiResponse.ok(stats));
     }
 
     // Project Tasks Sub-resource
@@ -208,14 +302,11 @@ public class ProjectController {
             @PathVariable String projectId
     ) {
         log.debug("Getting tasks for project: {}", projectId);
-
-        List<ProjectTaskInfo> tasks = List.of(
-                new ProjectTaskInfo("task_001", projectId, "需求分析", "completed", 100),
-                new ProjectTaskInfo("task_002", projectId, "系统设计", "in_progress", 60),
-                new ProjectTaskInfo("task_003", projectId, "开发实现", "pending", 0)
-        );
-
-        return ResponseEntity.ok(ApiResponse.success(tasks));
+        List<TaskEntity> tasks = taskRepository.findByProjectIdOrderByCreatedAtAsc(projectId);
+        List<ProjectTaskInfo> taskInfos = tasks.stream()
+                .map(t -> new ProjectTaskInfo(t.getTaskId(), projectId, t.getDescription(), t.getStatus().toLowerCase(), (int)(t.getPriority() * 10)))
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(ApiResponse.ok(taskInfos));
     }
 
     @PostMapping("/{projectId}/tasks")
@@ -224,16 +315,16 @@ public class ProjectController {
             @RequestBody CreateProjectTaskRequest request
     ) {
         log.info("Creating task for project: {}", projectId);
-
-        ProjectTaskInfo task = new ProjectTaskInfo(
-                "task_" + System.currentTimeMillis(),
-                projectId,
-                request.name(),
-                "pending",
-                0
-        );
-
-        return ResponseEntity.ok(ApiResponse.success(task));
+        TaskEntity entity = new TaskEntity();
+        entity.setTaskId("task_" + System.currentTimeMillis());
+        entity.setProjectId(projectId);
+        entity.setDescription(request.name());
+        entity.setStatus("PENDING");
+        entity.setCreatedAt(Instant.now());
+        entity.setUpdatedAt(Instant.now());
+        TaskEntity saved = taskRepository.save(entity);
+        ProjectTaskInfo task = new ProjectTaskInfo(saved.getTaskId(), projectId, request.name(), "pending", 0);
+        return ResponseEntity.ok(ApiResponse.ok(task));
     }
 
     @PutMapping("/{projectId}/tasks/{taskId}")
@@ -243,16 +334,16 @@ public class ProjectController {
             @RequestBody UpdateProjectTaskRequest request
     ) {
         log.info("Updating task: {} of project: {}", taskId, projectId);
-
-        ProjectTaskInfo task = new ProjectTaskInfo(
-                taskId,
-                projectId,
-                request.name(),
-                request.status(),
-                request.progress()
-        );
-
-        return ResponseEntity.ok(ApiResponse.success(task));
+        TaskEntity entity = taskRepository.findByTaskId(taskId).orElse(null);
+        if (entity == null) {
+            return ResponseEntity.status(404).body(ApiResponse.err("not_found", "Task not found: " + taskId));
+        }
+        if (request.name() != null) entity.setDescription(request.name());
+        if (request.status() != null) entity.setStatus(request.status().toUpperCase());
+        entity.setUpdatedAt(Instant.now());
+        taskRepository.save(entity);
+        ProjectTaskInfo task = new ProjectTaskInfo(taskId, projectId, request.name(), request.status(), request.progress());
+        return ResponseEntity.ok(ApiResponse.ok(task));
     }
 
     @DeleteMapping("/{projectId}/tasks/{taskId}")
@@ -261,8 +352,8 @@ public class ProjectController {
             @PathVariable String taskId
     ) {
         log.info("Deleting task: {} of project: {}", taskId, projectId);
-
-        return ResponseEntity.ok(ApiResponse.success(Map.of("status", "deleted", "taskId", taskId)));
+        taskRepository.findByTaskId(taskId).ifPresent(taskRepository::delete);
+        return ResponseEntity.ok(ApiResponse.ok(Map.of("status", "deleted", "taskId", taskId)));
     }
 
     private ProjectSummary toSummary(Project project) {
@@ -340,11 +431,11 @@ public class ProjectController {
             String error,
             String errorDescription
     ) {
-        public static <T> ApiResponse<T> success(T data) {
+        public static <T> ApiResponse<T> ok(T data) {
             return new ApiResponse<>(true, data, null, null);
         }
 
-        public static <T> ApiResponse<T> error(String error, String description) {
+        public static <T> ApiResponse<T> err(String error, String description) {
             return new ApiResponse<>(false, null, error, description);
         }
     }
@@ -429,4 +520,17 @@ public class ProjectController {
             String status,
             int progress
     ) {}
+
+    private AuthContext resolveAuthContext(String authorization) {
+        if (authorization == null || !authorization.startsWith("Bearer ")) {
+            return null;
+        }
+        String token = authorization.substring(7);
+        if (token.isBlank()) {
+            return null;
+        }
+        return unifiedAuthService.validateSession(token)
+            .map(AuthSession::authContext)
+            .orElse(null);
+    }
 }

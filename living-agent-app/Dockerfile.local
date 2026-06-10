@@ -55,6 +55,12 @@ USER root
 # 设置工作目录
 WORKDIR /app
 
+# 安装 Claude CLI (使用 npm，配置国内镜像源)
+# 基础镜像已包含 Node.js 18+
+RUN npm config set registry https://registry.npmmirror.com && \
+    npm install -g @anthropic-ai/claude-code@2.1.140 && \
+    claude --version || true
+
 # 复制应用 JAR
 COPY --from=builder /build/living-agent-app/target/*.jar app.jar
 
@@ -81,13 +87,14 @@ RUN mkdir -p /tmp/wheels && \
     echo "=== Installing Python packages from local wheels (offline) ===" && \
     pip3 install --no-cache-dir --break-system-packages --no-index --find-links=/tmp/wheels \
         pypdf pdfplumber python-docx openpyxl python-pptx huggingface-hub requests beautifulsoup4 lxml \
+        defusedxml Pillow six markitdown pyyaml python-dotenv markdown-it-py markdown \
         sherpa-ncnn soundfile scipy numpy \
         torch torchaudio transformers \
         librosa Unidecode phonemizer \
         cn2an eng-to-ipa jieba pypinyin \
         mecab-python3 fugashi jaconv \
         nltk unidic-lite num2words pykakasi g2p-en anyascii jamo gruut g2pkk pydub inflect langid loguru cached-path python-mecab-ko python-mecab-ko-dic \
-        funasr modelscope \
+        funasr modelscope \        
     && echo "=== Verifying installations ===" && \
     python3 -c "import numpy; print(f'numpy: {numpy.__version__}')" && \
     python3 -c "import scipy; print(f'scipy: {scipy.__version__}')" && \
@@ -107,7 +114,9 @@ RUN cd /tmp && \
     mkdir -p /opt/llama.cpp && \
     cd /opt/llama.cpp && \
     tar -xvf /tmp/llama-cpp-built.tar && \
-    rm /tmp/llama-cpp-built.tar
+    rm /tmp/llama-cpp-built.tar && \
+    echo "/opt/llama.cpp/build/bin" > /etc/ld.so.conf.d/llama.conf && \
+    ldconfig
 
 # 设置 llama.cpp 环境变量
 ENV LLAMA_CPP_PATH=/opt/llama.cpp
@@ -120,29 +129,29 @@ COPY scripts/python /opt/python_scripts
 COPY living-agent-app/entrypoint.sh /app/entrypoint.sh
 
 # 设置权限 (基础镜像已配置 livingagent 用户)
-RUN mkdir -p /app/data /app/logs /app/lib && \
+RUN mkdir -p /app/data /app/logs /app/lib /home/livingagent/.cache /home/livingagent/.config && \
     chmod +x /app/entrypoint.sh /opt/python_scripts/*.py 2>/dev/null || true && \
-    chown -R livingagent:livingagent /app /opt/python_scripts 2>/dev/null || true
+    chown -R livingagent:livingagent /app /opt/python_scripts /home/livingagent 2>/dev/null || true
 
 # 设置环境变量
 ENV LIVING_AGENT_DATA_PATH=/app/data \
     LIVING_AGENT_SKILLS_PATH=/app/skills \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    LD_LIBRARY_PATH=/app/lib:$LD_LIBRARY_PATH
+    LD_LIBRARY_PATH=/opt/llama.cpp/build/bin:/app/lib:$LD_LIBRARY_PATH
 
 # 切换到非 root 用户
 USER livingagent
 
 # 暴露端口
-EXPOSE 8380
+EXPOSE 8382
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:8380/actuator/health || exit 1
+    CMD curl -f http://localhost:8382/actuator/health || exit 1
 
 # JVM 选项
-ENV JAVA_OPTS="-Xms512m -Xmx1536m -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
+ENV JAVA_OPTS="-Xms512m -Xmx1536m -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8"
 
 # 启动应用 (使用启动脚本，先启动模型守护进程)
 ENTRYPOINT ["/app/entrypoint.sh"]

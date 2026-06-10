@@ -160,7 +160,7 @@
 
 | 序号 | 前端调用 | 状态 | 说明 |
 |------|----------|------|------|
-| 7.1 | `PUT /api/chairman/settings` | ✅ 已修复 | 添加PUT别名映射到batch |
+| 7.1 | `PUT /api/enterprise/settings` | ✅ 已修复 | 添加PUT别名映射到batch |
 
 **文件**: [SystemSettingsController.java](file:///f:/SoarCloudAI/docker/living-agent-service/living-agent-gateway/src/main/java/com/livingagent/gateway/controller/SystemSettingsController.java)
 

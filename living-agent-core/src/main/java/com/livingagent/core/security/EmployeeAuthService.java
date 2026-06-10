@@ -5,29 +5,29 @@ import java.util.Optional;
 
 public interface EmployeeAuthService {
 
-    Employee createEmployee(Employee employee);
+    SecurityIdentity createEmployee(SecurityIdentity employee);
 
-    Employee updateEmployee(Employee employee);
+    SecurityIdentity updateEmployee(SecurityIdentity employee);
 
     void deleteEmployee(String employeeId);
 
-    Optional<Employee> findById(String employeeId);
+    Optional<SecurityIdentity> findById(String employeeId);
 
-    Optional<Employee> findByPhone(String phone);
+    Optional<SecurityIdentity> findByPhone(String phone);
 
-    Optional<Employee> findByEmail(String email);
+    Optional<SecurityIdentity> findByEmail(String email);
 
-    Optional<Employee> findByVoicePrintId(String voicePrintId);
+    Optional<SecurityIdentity> findByVoicePrintId(String voicePrintId);
 
-    Optional<Employee> findByOAuth(String provider, String oauthUserId);
+    Optional<SecurityIdentity> findByOAuth(String provider, String oauthUserId);
 
-    List<Employee> findByDepartment(String department);
+    List<SecurityIdentity> findByDepartment(String department);
 
-    List<Employee> findByIdentity(UserIdentity identity);
+    List<SecurityIdentity> findByIdentity(UserIdentity identity);
 
-    List<Employee> findAllActive();
+    List<SecurityIdentity> findAllActive();
 
-    List<Employee> findAll();
+    List<SecurityIdentity> findAll();
 
     int importFromExcel(byte[] excelData);
 
@@ -43,7 +43,7 @@ public interface EmployeeAuthService {
 
     void updateEmployeeStatus(String employeeId, UserIdentity newIdentity);
 
-    void handleAiDetectedChange(String employeeId, EmployeeService.ChangeType changeType, String detectedFrom, String details);
+    void handleAiDetectedChange(String employeeId, AuthEmployeeService.ChangeType changeType, String detectedFrom, String details);
 
     void setVoicePrintId(String employeeId, String voicePrintId);
 
@@ -51,7 +51,7 @@ public interface EmployeeAuthService {
 
     void recordSync(String employeeId, String source, boolean success, String message);
 
-    List<Employee> getEmployeesNeedingSync();
+    List<SecurityIdentity> getEmployeesNeedingSync();
 
     boolean hasAnyEmployee();
 

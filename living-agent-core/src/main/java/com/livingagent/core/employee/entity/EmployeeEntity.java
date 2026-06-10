@@ -20,6 +20,9 @@ public abstract class EmployeeEntity {
     @Column(length = 50)
     private String department;
 
+    @Column(name = "department_id", length = 64)
+    private String departmentId;
+
     @Column(length = 20)
     private String status;
 
@@ -61,6 +64,9 @@ public abstract class EmployeeEntity {
 
     public String getDepartment() { return department; }
     public void setDepartment(String department) { this.department = department; }
+
+    public String getDepartmentId() { return departmentId; }
+    public void setDepartmentId(String departmentId) { this.departmentId = departmentId; }
 
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }

@@ -1,109 +1,44 @@
 # Living Agent Service 文档中心
 
-> 生命智能体自治系统 - 完整文档索引
+> 版本：2026-05-15
 
-## 核心框架设计文档
+## 核心模块文档（落地指南）
 
-这些文档描述了系统的核心架构和设计原则：
+| 模块 | 文档 | 核心内容 |
+|------|------|----------|
+| **自治编排** | [core/MODULE_AUTONOMY_ORCHESTRATION.md](core/MODULE_AUTONOMY_ORCHESTRATION.md) | 意图分析→任务规划→员工分派→任务执行 |
+| **大脑** | [core/MODULE_BRAIN.md](core/MODULE_BRAIN.md) | 9个大脑 + ReAct执行循环 |
+| **员工** | [core/MODULE_EMPLOYEE.md](core/MODULE_EMPLOYEE.md) | 32人编制 + 能力验证 |
+| **模型池** | [core/MODULE_MODEL_POOL.md](core/MODULE_MODEL_POOL.md) | 模型健康 + 熔断机制 |
+| **网关** | [core/MODULE_GATEWAY.md](core/MODULE_GATEWAY.md) | WebSocket通道 + 权限检查 |
+| **知识记忆** | [core/MODULE_KNOWLEDGE_MEMORY.md](core/MODULE_KNOWLEDGE_MEMORY.md) | 三层知识库 + 晋升机制 |
+| **工具技能** | [core/MODULE_TOOL_SKILL.md](core/MODULE_TOOL_SKILL.md) | 76个技能 + 工具分类 |
+| **安全** | [core/MODULE_SECURITY.md](core/MODULE_SECURITY.md) | 访问级别 + 沙箱执行 |
 
-| 文档 | 说明 |
-|------|------|
-| [01-system-overview.md](./01-system-overview.md) | 系统概述 - 项目定位、核心能力、技术栈 |
-| [02-core-architecture.md](./02-core-architecture.md) | 核心架构 - 整体架构、三层LLM、业务大脑、神经元通讯 |
-| [03-employee-model.md](./03-employee-model.md) | 统一员工模型 - 真实员工与数字员工统一设计 |
-| [04-knowledge-system.md](./04-knowledge-system.md) | 知识体系 - 三层知识库、知识进化 |
-| [05-evolution-system.md](./05-evolution-system.md) | 进化系统 - 信号检测、决策引擎、熔断器 |
-| [06-security-permission.md](./06-security-permission.md) | 安全与权限 - 权限隔离、身份识别、安全沙箱 |
-| [07-deployment-operations.md](./07-deployment-operations.md) | 部署与运维 - 部署架构、运营评判、监控告警 |
-
-## 参考文档 (references/)
-
-API参考和技术规范：
+## 总览文档
 
 | 文档 | 说明 |
 |------|------|
-| [references/API_REFERENCE.md](./references/API_REFERENCE.md) | API接口参考文档 |
+| [ENTERPRISE_LIFEBODY_BUSINESS_FLOW.md](ENTERPRISE_LIFEBODY_BUSINESS_FLOW.md) | 企业生命体完整业务流程 |
+| [CODE_STRUCTURE_AND_FILE_GUIDE.md](CODE_STRUCTURE_AND_FILE_GUIDE.md) | 代码结构详细索引 |
 
-## 分析文档 (analysis/)
-
-架构分析、对比分析和评估报告：
-
-| 文档 | 说明 |
-|------|------|
-| [analysis/architecture-review.md](./analysis/architecture-review.md) | 架构分析报告 |
-| [analysis/clawith-comparison.md](./analysis/clawith-comparison.md) | Clawith对比分析 |
-| [analysis/feishu-integration.md](./analysis/feishu-integration.md) | 飞书集成分析 |
-| [analysis/paperclip-analysis.md](./analysis/paperclip-analysis.md) | 回形针问题分析 |
-| [analysis/workflow-orchestration.md](./analysis/workflow-orchestration.md) | 工作流编排分析 |
-
-## 指南文档 (guides/)
-
-部署指南、开发指南和配置说明：
+## 参考文档
 
 | 文档 | 说明 |
 |------|------|
-| [guides/DEPLOY.md](./guides/DEPLOY.md) | 部署指南 |
-| [guides/SYSTEM_INIT.md](./guides/SYSTEM_INIT.md) | 系统初始化指南 |
-| [guides/database-design.md](./guides/database-design.md) | 数据库设计指南 |
-| [guides/local-models-deployment.md](./guides/local-models-deployment.md) | 本地模型部署指南 |
-| [guides/native-module.md](./guides/native-module.md) | Native模块开发指南 |
-| [guides/audio-pipeline.md](./guides/audio-pipeline.md) | 音频管道优化指南 |
-
-## 规划文档 (planning/)
-
-开发计划、路线图和设计方案：
-
-| 文档 | 说明 |
-|------|------|
-| [planning/DEVELOPMENT_PLAN.md](./planning/DEVELOPMENT_PLAN.md) | 开发计划 - 阶段划分、里程碑、进度跟踪 |
-| [planning/autonomous-operation.md](./planning/autonomous-operation.md) | 自主运营方案 |
-| [planning/human-intervention.md](./planning/human-intervention.md) | 人工干预设计方案 |
-| [planning/compliance-management.md](./planning/compliance-management.md) | 合规管理方案 |
-| [planning/department-isolation.md](./planning/department-isolation.md) | 部门隔离方案 |
-| [planning/project-task-approval.md](./planning/project-task-approval.md) | 项目任务审批设计 |
-| [planning/user-profile-system.md](./planning/user-profile-system.md) | 用户画像系统设计 |
-| [planning/proactive-prediction.md](./planning/proactive-prediction.md) | 主动预判设计 |
-| [planning/operation-assessment.md](./planning/operation-assessment.md) | 运营评判设计 |
-
-## 文档分类说明
-
-### 核心框架设计 (01-07)
-包含系统的核心架构设计，是理解系统的基础文档。
-
-### references/ - 参考文档
-- API接口规范
-- 技术参考
-- 配置参考
-
-### analysis/ - 分析文档
-- 架构分析报告
-- 技术对比分析
-- 集成方案分析
-- 风险评估
-
-### guides/ - 指南文档
-- 部署操作指南
-- 开发配置指南
-- 性能优化指南
-
-### planning/ - 规划文档
-- 开发计划和路线图
-- 功能设计方案
-- 系统规划文档
+| [权限与入口矩阵.md](权限与入口矩阵.md) | 权限入口设计 |
+| [MODEL_RESPONSIBILITY_AND_EXECUTION_OPTIMIZATION_PLAN.md](MODEL_RESPONSIBILITY_AND_EXECUTION_OPTIMIZATION_PLAN.md) | 实施计划 |
 
 ## 快速导航
 
-**新用户入门：**
-1. [01-system-overview.md](./01-system-overview.md) - 了解系统概述
-2. [02-core-architecture.md](./02-core-architecture.md) - 理解核心架构
-3. [guides/DEPLOY.md](./guides/DEPLOY.md) - 快速部署
-
-**开发人员：**
-1. [02-core-architecture.md](./02-core-architecture.md) - 核心架构
-2. [03-employee-model.md](./03-employee-model.md) - 员工模型
-3. [guides/native-module.md](./guides/native-module.md) - Native开发
-
-**运维人员：**
-1. [07-deployment-operations.md](./07-deployment-operations.md) - 部署运维
-2. [guides/DEPLOY.md](./guides/DEPLOY.md) - 部署指南
-3. [guides/database-design.md](./guides/database-design.md) - 数据库设计
+### 想改什么？
+| 需求 | 文档 |
+|------|------|
+| 修改意图分类规则 | `MODULE_AUTONOMY_ORCHESTRATION.md` |
+| 修改 ReAct 执行逻辑 | `MODULE_BRAIN.md` |
+| 添加新员工 | `MODULE_EMPLOYEE.md` |
+| 修改模型健康检查 | `MODULE_MODEL_POOL.md` |
+| 修改 WebSocket 入口 | `MODULE_GATEWAY.md` |
+| 修改知识晋升逻辑 | `MODULE_KNOWLEDGE_MEMORY.md` |
+| 添加新工具 | `MODULE_TOOL_SKILL.md` |
+| 修改权限检查 | `MODULE_SECURITY.md` |

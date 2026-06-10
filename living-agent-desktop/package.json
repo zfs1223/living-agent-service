@@ -1,0 +1,50 @@
+{
+  "name": "living-agent-desktop",
+  "version": "0.1.0",
+  "description": "Living Agent 桌面客户端 - 基于 Electron + Vite + React + TypeScript",
+  "private": true,
+  "main": "dist/main/index.js",
+  "author": "Living Agent Team",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=18.19.0 <19 || >=20.10.0 <21 || >=22.0.0 <23",
+    "npm": ">=10.0.0"
+  },
+  "scripts": {
+    "preinstall": "node scripts/check-deps.js",
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "build:win": "electron-vite build && electron-builder --win --x64",
+    "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
+    "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
+    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "audit:deps": "node scripts/check-deps.js",
+    "audit:security": "npm audit --omit=dev --audit-level=high",
+    "audit:security:full": "npm audit --audit-level=high",
+    "verify:lockfile": "node scripts/verify-lockfile.js"
+  },
+  "dependencies": {
+    "ws": "8.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "25.9.1",
+    "@types/react": "19.2.16",
+    "@types/react-dom": "19.2.3",
+    "@types/ws": "8.18.1",
+    "@vitejs/plugin-react": "5.2.0",
+    "electron": "42.3.3",
+    "electron-builder": "26.8.1",
+    "electron-vite": "5.0.0",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "typescript": "6.0.3",
+    "vite": "7.3.5"
+  },
+  "overrides": {
+    "electron-store": "8.2.0",
+    "glob": "10.4.5",
+    "braces": "3.0.3",
+    "minimatch": "9.0.5"
+  }
+}

@@ -1,5 +1,8 @@
 package com.livingagent.core.worker.collaboration.impl;
 
+import com.livingagent.core.autonomy.CodeReviewWorkflowService;
+import com.livingagent.core.autonomy.CodeReviewWorkflowService.ReviewStage;
+import com.livingagent.core.employee.registry.FixedEmployeeRegistry;
 import com.livingagent.core.worker.collaboration.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,7 +20,16 @@ public class CollaborationServiceImpl implements CollaborationService {
 
     private static final Logger log = LoggerFactory.getLogger(CollaborationServiceImpl.class);
 
+    private final FixedEmployeeRegistry fixedEmployeeRegistry;
+    private final CodeReviewWorkflowService codeReviewWorkflowService;
+
     private final Map<String, CollaborationSessionImpl> sessions = new ConcurrentHashMap<>();
+
+    public CollaborationServiceImpl(FixedEmployeeRegistry fixedEmployeeRegistry,
+                                    CodeReviewWorkflowService codeReviewWorkflowService) {
+        this.fixedEmployeeRegistry = fixedEmployeeRegistry;
+        this.codeReviewWorkflowService = codeReviewWorkflowService;
+    }
 
     @Override
     public CollaborationSession createSession(CollaborationRequest request) {
@@ -134,8 +146,55 @@ public class CollaborationServiceImpl implements CollaborationService {
         
         session.completeTask(taskId, output);
         log.info("Completed task {} in session {}", taskId, sessionId);
-        
+
+        // PEER_REVIEW 类型：代码任务完成后自动推进审查状态机
+        if (session.getType() == CollaborationSession.CollaborationType.PEER_REVIEW) {
+            advancePeerReviewState(session, taskId, output);
+        }
+
         checkAndCompleteSession(session);
+    }
+
+    /**
+     * PEER_REVIEW 协作类型：任务完成后自动推进审查状态机。
+     * - 开发任务完成 → CODE_SUBMITTED
+     * - 审查任务完成 → REVIEW_APPROVED 或 REVIEW_CHANGES_REQUESTED
+     */
+    private void advancePeerReviewState(CollaborationSessionImpl session, String taskId,
+                                         Map<String, Object> output) {
+        String reviewTaskId = (String) session.getContext().getOrDefault("reviewTaskId", taskId);
+        codeReviewWorkflowService.getByTaskId(reviewTaskId).ifPresent(state -> {
+            ReviewStage currentStage = state.stage();
+            String taskName = session.getTasks().stream()
+                .filter(t -> t.taskId().equals(taskId))
+                .map(CollaborationSession.CollaborationTask::name)
+                .findFirst().orElse("");
+
+            try {
+                if (taskName.contains("开发") || taskName.contains("develop") || taskName.contains("write")) {
+                    // 开发任务完成 → CODE_SUBMITTED
+                    if (currentStage == ReviewStage.DEVELOPER_WRITING) {
+                        codeReviewWorkflowService.advanceStage(reviewTaskId, ReviewStage.CODE_SUBMITTED, Map.of());
+                        log.info("PEER_REVIEW: task {} developer completed, advanced to CODE_SUBMITTED", taskId);
+                    }
+                } else if (taskName.contains("审查") || taskName.contains("review")) {
+                    // 审查任务完成 → 根据输出决定 APPROVED 或 CHANGES_REQUESTED
+                    String reviewVerdict = output != null ? (String) output.getOrDefault("verdict", "") : "";
+                    if ("APPROVED".equalsIgnoreCase(reviewVerdict)) {
+                        codeReviewWorkflowService.approve(reviewTaskId, Map.of());
+                        log.info("PEER_REVIEW: task {} reviewer approved", taskId);
+                    } else {
+                        @SuppressWarnings("unchecked")
+                        List<String> findings = output != null && output.containsKey("findings")
+                            ? (List<String>) output.get("findings") : List.of("审查未通过，需要修改");
+                        codeReviewWorkflowService.requestChanges(reviewTaskId, findings, Map.of());
+                        log.info("PEER_REVIEW: task {} reviewer requested changes: {}", taskId, findings);
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("PEER_REVIEW: failed to advance review state for task {}: {}", taskId, e.getMessage());
+            }
+        });
     }
 
     private void checkAndCompleteSession(CollaborationSessionImpl session) {
@@ -206,22 +265,65 @@ public class CollaborationServiceImpl implements CollaborationService {
 
     @Override
     public List<CollaborationRecommendation> recommendCollaborators(String sessionId, String taskDescription) {
-        return List.of(
-            new CollaborationRecommendation(
-                "emp-tech-001",
-                "技术专家A",
-                0.92,
-                "具有相关技术经验，成功率95%",
-                List.of("java", "architecture", "debugging")
-            ),
-            new CollaborationRecommendation(
-                "emp-tech-002",
-                "技术专家B",
-                0.88,
-                "擅长系统设计，响应速度快",
-                List.of("design", "optimization", "review")
-            )
-        );
+        List<FixedEmployeeRegistry.FixedEmployeeDefinition> allDefs = fixedEmployeeRegistry.getAllDefinitions();
+        if (allDefs.isEmpty()) {
+            log.warn("No fixed employee definitions found, returning empty recommendations");
+            return List.of();
+        }
+
+        String descLower = taskDescription != null ? taskDescription.toLowerCase() : "";
+        List<CollaborationRecommendation> recommendations = new ArrayList<>();
+
+        for (FixedEmployeeRegistry.FixedEmployeeDefinition def : allDefs) {
+            double score = computeMatchScore(def, descLower);
+            if (score > 0.3) {
+                recommendations.add(new CollaborationRecommendation(
+                    def.neuronId(),
+                    def.name(),
+                    score,
+                    String.format("%s (%s)，具备能力: %s",
+                        def.title(), def.departmentName(),
+                        def.capabilities() != null ? String.join(", ", def.capabilities()) : "无"),
+                    def.capabilities() != null ? def.capabilities() : List.of()
+                ));
+            }
+        }
+
+        recommendations.sort((a, b) -> Double.compare(b.matchScore(), a.matchScore()));
+        return recommendations.stream().limit(5).collect(Collectors.toList());
+    }
+
+    private double computeMatchScore(FixedEmployeeRegistry.FixedEmployeeDefinition def, String descLower) {
+        double score = 0.0;
+        int matched = 0;
+
+        if (def.capabilities() != null) {
+            for (String cap : def.capabilities()) {
+                if (descLower.contains(cap.toLowerCase())) {
+                    matched++;
+                }
+            }
+            if (!def.capabilities().isEmpty()) {
+                score += 0.5 * ((double) matched / def.capabilities().size());
+            }
+        }
+
+        if (def.roles() != null) {
+            for (String role : def.roles()) {
+                if (descLower.contains(role.toLowerCase())) {
+                    matched++;
+                }
+            }
+            if (!def.roles().isEmpty()) {
+                score += 0.3 * ((double) matched / def.roles().size());
+            }
+        }
+
+        if (def.department() != null && descLower.contains(def.department().toLowerCase())) {
+            score += 0.2;
+        }
+
+        return Math.min(1.0, score);
     }
 
     private static class CollaborationSessionImpl implements CollaborationSession {

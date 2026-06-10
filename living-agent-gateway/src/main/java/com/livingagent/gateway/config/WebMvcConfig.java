@@ -39,9 +39,26 @@ public class WebMvcConfig implements WebMvcConfigurer {
                 );
         
         registry.addInterceptor(departmentPermissionInterceptor)
-                .addPathPatterns("/api/dept/**", "/api/chairman/**")
+                .addPathPatterns(
+                    "/api/dept/**",
+                    "/api/enterprise/**",
+                    "/api/tech/**",
+                    "/api/hr/**",
+                    "/api/finance/**",
+                    "/api/sales/**",
+                    "/api/admin/**",
+                    "/api/cs/**",
+                    "/api/legal/**",
+                    "/api/ops/**",
+                    "/api/model-pool/**",
+                    "/api/brain-models/**",
+                    "/api/windows-automation/**",
+                    "/api/v1/proxy/**",
+                    "/api/evolution/**"
+                )
                 .excludePathPatterns(
                     "/api/dept/my",
+                    "/api/enterprise/settings/notification_bar/public",
                     "/error"
                 );
     }

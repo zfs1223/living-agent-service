@@ -1,0 +1,39 @@
+[ {
+  "receiptId" : "bdc8b708-c75f-46f0-8687-ff1d461b67f5",
+  "executionId" : "2c068b31-d05f-4e2f-83a5-23ed0ae9bdfa",
+  "dispatchId" : "a47c5b93-3c82-489d-b6b0-36c5caa32aa4",
+  "assignmentId" : "df886aa1-9466-4529-8738-4a1e3d6d26cc",
+  "employeeCode" : "T09",
+  "employeeNeuronId" : "neuron://tech/frontend/001",
+  "status" : "COMPLETED",
+  "summary" : "任务执行完成（工具驱动）\n\n员工: 真绘 (T09)\n任务类型: 游戏网页开发\n使用工具: [llm_code_generation, file_write]\n产物文件:\n- index.html (html): data/artifacts/tech/2c068b31-d05f-4e2f-83a5-23ed0ae9bdfa/index.html\n执行结果: Web 任务已完成，生成 1 个文件",
+  "receivedAt" : 1778750639.004040442,
+  "metadata" : {
+    "modelName" : "tool_executor",
+    "modelProvider" : "tool_executor",
+    "confidence" : 0.9,
+    "failureReason" : null,
+    "outcomeStatus" : "COMPLETED",
+    "needsHumanReview" : false,
+    "needsRetry" : false
+  }
+}, {
+  "receiptId" : "ece4a38d-2051-4d79-a270-8edd8057ff72",
+  "executionId" : "2c068b31-d05f-4e2f-83a5-23ed0ae9bdfa",
+  "dispatchId" : "dbb3ca4a-36d9-4234-9fbd-089627391e64",
+  "assignmentId" : "521e5189-74ad-4ac6-96a1-389944f3819b",
+  "employeeCode" : "T01",
+  "employeeNeuronId" : "neuron://tech/code-reviewer/001",
+  "status" : "COMPLETED",
+  "summary" : "任务执行完成（工具驱动）\n\n员工: 真砺 (T01)\n任务类型: 游戏网页开发\n使用工具: [llm_code_generation, file_write]\n产物文件:\n- index.html (html): data/artifacts/tech/2c068b31-d05f-4e2f-83a5-23ed0ae9bdfa/index.html\n执行结果: Web 任务已完成，生成 1 个文件",
+  "receivedAt" : 1778750779.569647625,
+  "metadata" : {
+    "modelName" : "tool_executor",
+    "modelProvider" : "tool_executor",
+    "confidence" : 0.9,
+    "failureReason" : null,
+    "outcomeStatus" : "COMPLETED",
+    "needsHumanReview" : false,
+    "needsRetry" : false
+  }
+} ]

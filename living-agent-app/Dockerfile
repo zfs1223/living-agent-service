@@ -72,6 +72,10 @@ RUN apk add --no-cache \
     sqlite-libs \
     && rm -rf /var/cache/apk/*
 
+ENV CLAUDE_CLI_VERSION=2.1.140
+
+RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}
+
 # 安装 Python 包 (文档处理工具)
 RUN pip3 install --no-cache-dir --break-system-packages \
     pypdf \
@@ -111,7 +115,8 @@ COPY living-agent-skill/src/main/resources/skills /app/skills
 
 # 创建必要目录
 RUN mkdir -p /app/data /app/logs /app/.cache /app/.config && \
-    chown -R livingagent:livingagent /app
+    mkdir -p /home/livingagent/.cache /home/livingagent/.config && \
+    chown -R livingagent:livingagent /app /home/livingagent
 
 # 设置环境变量
 ENV LIVING_AGENT_DATA_PATH=/app/data \
@@ -124,14 +129,14 @@ ENV LIVING_AGENT_DATA_PATH=/app/data \
 USER livingagent
 
 # 暴露端口
-EXPOSE 8380
+EXPOSE 8382
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:8380/actuator/health || exit 1
+    CMD curl -f http://localhost:8382/actuator/health || exit 1
 
 # JVM 选项
-ENV JAVA_OPTS="-Xms512m -Xmx1536m -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
+ENV JAVA_OPTS="-Xms512m -Xmx1536m -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8"
 
 # 启动应用
 ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]

@@ -2,10 +2,13 @@ package com.livingagent.core.proactive.suggestion;
 
 import com.livingagent.core.proactive.alert.AlertNotifier;
 import com.livingagent.core.proactive.alert.AlertNotifier.Alert;
+import com.livingagent.core.proactive.llm.LlmProactiveAdvisor;
+import com.livingagent.core.proactive.llm.LlmRiskAssessor;
 import com.livingagent.core.proactive.predictor.PatternPredictor;
 import com.livingagent.core.proactive.predictor.RiskPredictor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.time.ZonedDateTime;
@@ -13,12 +16,15 @@ import java.time.ZoneId;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
+@Component
 public class ProactiveSuggestionService {
 
     private static final Logger log = LoggerFactory.getLogger(ProactiveSuggestionService.class);
 
     private final PatternPredictor patternPredictor;
     private final RiskPredictor riskPredictor;
+    private final LlmProactiveAdvisor llmProactiveAdvisor;
+    private final LlmRiskAssessor llmRiskAssessor;
     private final List<AlertNotifier> notifiers;
     private final Map<String, List<Suggestion>> userSuggestions = new ConcurrentHashMap<>();
     private final Map<String, Instant> lastSuggestionTime = new ConcurrentHashMap<>();
@@ -31,12 +37,34 @@ public class ProactiveSuggestionService {
             RiskPredictor riskPredictor,
             List<AlertNotifier> notifiers
     ) {
+        this(patternPredictor, riskPredictor, null, null, notifiers);
+    }
+
+    public ProactiveSuggestionService(
+            PatternPredictor patternPredictor,
+            RiskPredictor riskPredictor,
+            LlmProactiveAdvisor llmProactiveAdvisor,
+            LlmRiskAssessor llmRiskAssessor,
+            List<AlertNotifier> notifiers
+    ) {
         this.patternPredictor = patternPredictor;
         this.riskPredictor = riskPredictor;
+        this.llmProactiveAdvisor = llmProactiveAdvisor;
+        this.llmRiskAssessor = llmRiskAssessor;
         this.notifiers = notifiers != null ? new ArrayList<>(notifiers) : new ArrayList<>();
     }
 
     public List<Suggestion> generateSuggestions(String userId) {
+        Map<String, Object> context = buildSuggestionContext(userId);
+        List<Suggestion> llmSuggestions = generateLlmSuggestions(userId, context);
+        if (!llmSuggestions.isEmpty()) {
+            return llmSuggestions.stream()
+                .filter(s -> s.confidence() >= CONFIDENCE_THRESHOLD)
+                .sorted(Comparator.comparingDouble(s -> -s.confidence()))
+                .limit(5)
+                .toList();
+        }
+
         List<Suggestion> suggestions = new ArrayList<>();
 
         suggestions.addAll(generateTimeBasedSuggestions(userId));
@@ -49,6 +77,114 @@ public class ProactiveSuggestionService {
                 .filter(s -> s.confidence() >= CONFIDENCE_THRESHOLD)
                 .limit(5)
                 .toList();
+    }
+
+    private Map<String, Object> buildSuggestionContext(String userId) {
+        Map<String, Object> context = new LinkedHashMap<>();
+        context.put("userId", userId);
+        context.put("generatedAt", Instant.now().toString());
+        context.put("timezone", "Asia/Shanghai");
+
+        if (patternPredictor != null) {
+            patternPredictor.predictNextAction(userId).ifPresent(action -> context.put("predictedAction", Map.of(
+                "action", action.predictedAction(),
+                "confidence", action.confidence(),
+                "patternId", action.basedOnPattern()
+            )));
+            context.put("behaviorInsights", patternPredictor.getUserInsights(userId).stream()
+                .map(insight -> Map.of(
+                    "type", insight.insightType(),
+                    "name", insight.insightName(),
+                    "description", insight.description(),
+                    "confidence", insight.confidence()
+                ))
+                .toList());
+        }
+
+        if (riskPredictor != null) {
+            context.put("riskAlerts", riskPredictor.getActiveAlerts().stream()
+                .map(alert -> Map.of(
+                    "alertId", alert.alertId(),
+                    "indicatorId", alert.indicatorId(),
+                    "indicatorName", alert.indicatorName(),
+                    "level", alert.level().name(),
+                    "severity", alert.level().getSeverity(),
+                    "probability", alert.probability(),
+                    "recommendation", alert.recommendation()
+                ))
+                .toList());
+        }
+
+        return context;
+    }
+
+    private List<Suggestion> generateLlmSuggestions(String userId, Map<String, Object> context) {
+        if (llmProactiveAdvisor == null) {
+            return List.of();
+        }
+        try {
+            List<Suggestion> suggestions = llmProactiveAdvisor.generateSuggestions(userId, context, 5).stream()
+                .filter(suggestion -> suggestion != null && suggestion.confidence() >= CONFIDENCE_THRESHOLD)
+                .map(this::fromLlmSuggestion)
+                .toList();
+            if (!suggestions.isEmpty()) {
+                log.debug("Generated {} LLM proactive suggestions for user {}", suggestions.size(), userId);
+            }
+            return suggestions;
+        } catch (Exception e) {
+            log.warn("LLM proactive suggestion failed for user {}: {}", userId, e.getMessage());
+            return List.of();
+        }
+    }
+
+    private Suggestion fromLlmSuggestion(LlmProactiveAdvisor.ProactiveSuggestion suggestion) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("source", suggestion.source());
+        metadata.put("category", suggestion.category());
+        metadata.put("triggerReason", suggestion.triggerReason());
+        metadata.put("expectedBenefit", suggestion.expectedBenefit());
+        metadata.put("riskNote", suggestion.riskNote());
+        metadata.put("recommendedActions", suggestion.recommendedActions());
+        metadata.put("requiresUserConfirmation", suggestion.requiresUserConfirmation());
+        if (suggestion.recommendedActions() != null && !suggestion.recommendedActions().isEmpty()) {
+            metadata.put("action", suggestion.recommendedActions().get(0));
+        }
+        return new Suggestion(
+            suggestion.suggestionId(),
+            suggestion.userId(),
+            suggestion.title(),
+            suggestion.description(),
+            mapSuggestionType(suggestion.category()),
+            suggestion.confidence(),
+            metadata,
+            Instant.now()
+        );
+    }
+
+    private SuggestionType mapSuggestionType(String category) {
+        if (category == null) {
+            return SuggestionType.INSIGHT;
+        }
+        String normalized = category.toLowerCase(Locale.ROOT);
+        if (normalized.contains("risk") || normalized.contains("warning") || normalized.contains("风险")) {
+            return SuggestionType.WARNING;
+        }
+        if (normalized.contains("report") || normalized.contains("周报") || normalized.contains("报告")) {
+            return SuggestionType.REPORT;
+        }
+        if (normalized.contains("workflow") || normalized.contains("流程")) {
+            return SuggestionType.WORKFLOW;
+        }
+        if (normalized.contains("learn") || normalized.contains("学习")) {
+            return SuggestionType.LEARNING;
+        }
+        if (normalized.contains("remind") || normalized.contains("提醒")) {
+            return SuggestionType.REMINDER;
+        }
+        if (normalized.contains("action") || normalized.contains("操作")) {
+            return SuggestionType.ACTION;
+        }
+        return SuggestionType.INSIGHT;
     }
 
     private List<Suggestion> generateTimeBasedSuggestions(String userId) {
@@ -150,25 +286,69 @@ public class ProactiveSuggestionService {
             
             for (var alert : alerts) {
                 if (alert.level().getSeverity() >= 3) {
-                    suggestions.add(new Suggestion(
-                            "sugg_" + System.currentTimeMillis() + "_risk_" + alert.indicatorId(),
-                            userId,
-                            "风险预警建议",
-                            String.format("检测到风险: %s。%s", alert.indicatorName(), alert.recommendation()),
-                            SuggestionType.WARNING,
-                            alert.probability(),
-                            Map.of(
-                                    "indicatorId", alert.indicatorId(),
-                                    "level", alert.level().name(),
-                                    "alertId", alert.alertId()
-                            ),
-                            Instant.now()
-                    ));
+                    Optional<LlmRiskAssessor.RiskAssessmentResult> llmAssessment = assessRiskWithLlm(alert);
+                    if (llmAssessment.isPresent()) {
+                        LlmRiskAssessor.RiskAssessmentResult assessment = llmAssessment.get();
+                        suggestions.add(new Suggestion(
+                                "sugg_" + System.currentTimeMillis() + "_risk_" + alert.indicatorId(),
+                                userId,
+                                "风险预警建议",
+                                String.format("%s。影响范围：%s。建议：%s", assessment.evidence(), assessment.impactScope(), assessment.recommendedAction()),
+                                SuggestionType.WARNING,
+                                Math.max(alert.probability(), assessment.confidence()),
+                                Map.of(
+                                        "indicatorId", alert.indicatorId(),
+                                        "level", assessment.level().name(),
+                                        "alertId", alert.alertId(),
+                                        "assessmentId", assessment.assessmentId(),
+                                        "requiresApproval", assessment.requiresApproval(),
+                                        "requiresHumanIntervention", assessment.requiresHumanIntervention(),
+                                        "source", assessment.source()
+                                ),
+                                Instant.now()
+                        ));
+                    } else {
+                        suggestions.add(new Suggestion(
+                                "sugg_" + System.currentTimeMillis() + "_risk_" + alert.indicatorId(),
+                                userId,
+                                "风险预警建议",
+                                String.format("检测到风险: %s。%s", alert.indicatorName(), alert.recommendation()),
+                                SuggestionType.WARNING,
+                                alert.probability(),
+                                Map.of(
+                                        "indicatorId", alert.indicatorId(),
+                                        "level", alert.level().name(),
+                                        "alertId", alert.alertId(),
+                                        "source", "rule_based_fallback"
+                                ),
+                                Instant.now()
+                        ));
+                    }
                 }
             }
         }
 
         return suggestions;
+    }
+
+    private Optional<LlmRiskAssessor.RiskAssessmentResult> assessRiskWithLlm(RiskPredictor.RiskAlert alert) {
+        if (llmRiskAssessor == null || alert == null) {
+            return Optional.empty();
+        }
+        try {
+            Map<String, Object> indicators = new LinkedHashMap<>();
+            indicators.put("alertId", alert.alertId());
+            indicators.put("indicatorId", alert.indicatorId());
+            indicators.put("indicatorName", alert.indicatorName());
+            indicators.put("level", alert.level().name());
+            indicators.put("severity", alert.level().getSeverity());
+            indicators.put("probability", alert.probability());
+            indicators.put("ruleRecommendation", alert.recommendation());
+            return llmRiskAssessor.assessRisk("proactive_suggestion", indicators);
+        } catch (Exception e) {
+            log.warn("LLM risk assessment failed for alert {}: {}", alert.alertId(), e.getMessage());
+            return Optional.empty();
+        }
     }
 
     public void pushSuggestion(String userId, Suggestion suggestion) {

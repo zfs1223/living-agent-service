@@ -5,12 +5,14 @@ mod channel_jni;
 mod security_jni;
 mod memory_jni;
 mod knowledge_jni;
+mod compact_jni;
 
 pub use audio_jni::*;
 pub use channel_jni::*;
 pub use security_jni::*;
 pub use memory_jni::*;
 pub use knowledge_jni::*;
+pub use compact_jni::*;
 
 use jni::objects::{JByteArray, JString};
 use jni::sys::jstring;

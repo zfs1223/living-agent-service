@@ -606,7 +606,7 @@ async def push_default_skills_to_existing_agents():
 │                                                                             │
 │  【管理层 - 董事长专属】                                                       │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │  ChairmanFeishuTool (已实现)                                         │   │
+│  │  EnterpriseFeishuTool (已实现)                                         │   │
 │  │  ├── 创建/管理部门 → tenant_access_token                            │   │
 │  │  ├── 创建/管理员工 → tenant_access_token                            │   │
 │  │  ├── 创建审批流程 → tenant_access_token                             │   │
@@ -657,7 +657,7 @@ class FeishuService:
 
 | 组件 | 文件 | 功能 | 权限级别 |
 |------|------|------|---------|
-| **ChairmanFeishuTool** | `tool/impl/enterprise/ChairmanFeishuTool.java` | 董事长专属，全部权限 | 管理层 |
+| **EnterpriseFeishuTool** | `tool/impl/enterprise/EnterpriseFeishuTool.java` | 董事长专属，全部权限 | 管理层 |
 | **HrFeishuTool** | `tool/impl/enterprise/HrFeishuTool.java` | HR专属，通讯录+部门管理 | 管理层 |
 | **EmployeeFeishuTool** | `tool/impl/enterprise/EmployeeFeishuTool.java` | 普通员工，基础消息+查询 | 使用层 |
 | **FeishuOAuthService** | `security/auth/impl/FeishuOAuthService.java` | OAuth 登录 | 通用 |
@@ -668,7 +668,7 @@ class FeishuService:
 | 功能 | 来源 | 说明 |
 |------|------|------|
 | **普通数字员工飞书功能** | 🔥 直接复用 Clawith-main | `EmployeeFeishuTool` 可参考 Clawith-main 的 `FeishuService` |
-| **董事长飞书管理功能** | ✅ 已实现 | `ChairmanFeishuTool` 已有完整实现 |
+| **董事长飞书管理功能** | ✅ 已实现 | `EnterpriseFeishuTool` 已有完整实现 |
 | **OAuth 登录** | ✅ 已实现 | `FeishuOAuthService` 已实现 |
 | **多维表格/文档 API** | 📝 待实现 | 可参考 Clawith-main 实现 |
 
@@ -1115,7 +1115,7 @@ async def _check_new_agent_messages(trigger):
 {agents.map(agent => ...)}  // Agent 列表
 
 // Living-Agent-Service 需要改为
-<NavLink to="/chairman">总经理看板</NavLink>
+<NavLink to="/enterprise">总经理看板</NavLink>
 <NavLink to="/projects">项目流程</NavLink>
 <NavLink to="/agents">Agent 中心</NavLink>
 <NavLink to="/approvals">任务审核</NavLink>
@@ -1292,7 +1292,7 @@ async def _check_new_agent_messages(trigger):
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  【管理层 - 董事长专属】                                                       │
-│  ├── ChairmanFeishuTool (已实现)                                            │
+│  ├── EnterpriseFeishuTool (已实现)                                            │
 │  ├── 功能: 创建部门、管理员工、配置审批流程                                   │
 │  ├── 权限: tenant_access_token (管理员权限)                                 │
 │  └── 状态: ✅ 已完成，无需参考 Clawith-main                                  │

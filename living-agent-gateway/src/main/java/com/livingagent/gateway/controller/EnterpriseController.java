@@ -1,6 +1,14 @@
 package com.livingagent.gateway.controller;
 
+import com.livingagent.core.security.AccessGateService;
+import com.livingagent.core.security.AuthContext;
+import com.livingagent.core.security.AccessLevel;
+import com.livingagent.core.security.auth.UnifiedAuthService;
+import com.livingagent.core.security.auth.UnifiedAuthService.AuthSession;
+import com.livingagent.core.model.pool.ModelPoolManager;
+import com.livingagent.core.model.pool.Protocol;
 import com.livingagent.gateway.service.SystemConfigService;
+import com.livingagent.gateway.service.DepartmentNotificationService;
 import com.livingagent.core.skill.SkillRegistry;
 import com.livingagent.core.skill.Skill;
 import com.livingagent.core.tool.ToolRegistry;
@@ -22,8 +30,12 @@ public class EnterpriseController {
     private static final Logger log = LoggerFactory.getLogger(EnterpriseController.class);
 
     private final SystemConfigService systemConfigService;
+    private final ModelPoolManager modelPoolManager;
     private final SkillRegistry skillRegistry;
     private final ToolRegistry toolRegistry;
+    private final UnifiedAuthService authService;
+    private final AccessGateService accessGateService;
+    private final DepartmentNotificationService departmentNotificationService;
 
     @Value("${ai-models.ollama.enabled:false}")
     private boolean ollamaEnabled;
@@ -33,34 +45,53 @@ public class EnterpriseController {
 
     public EnterpriseController(
             SystemConfigService systemConfigService,
+            ModelPoolManager modelPoolManager,
             SkillRegistry skillRegistry,
-            ToolRegistry toolRegistry
+            ToolRegistry toolRegistry,
+            UnifiedAuthService authService,
+            AccessGateService accessGateService,
+            DepartmentNotificationService departmentNotificationService
     ) {
         this.systemConfigService = systemConfigService;
+        this.modelPoolManager = modelPoolManager;
         this.skillRegistry = skillRegistry;
         this.toolRegistry = toolRegistry;
+        this.authService = authService;
+        this.accessGateService = accessGateService;
+        this.departmentNotificationService = departmentNotificationService;
     }
 
     @GetMapping("/llm-models")
     public ResponseEntity<ApiResponse<List<LlmModel>>> listLlmModels(
-            @RequestParam(required = false) String tenant_id
+            @RequestParam(required = false) String tenant_id,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         log.debug("Listing LLM models for tenant: {}", tenant_id);
 
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
+
+        List<com.livingagent.core.model.pool.LlmModel> poolModels = modelPoolManager.getAllModels();
         List<LlmModel> models = new ArrayList<>();
 
-        List<SystemConfigService.ProviderConfig> providers = systemConfigService.getAvailableProviders();
-        for (SystemConfigService.ProviderConfig provider : providers) {
+        for (com.livingagent.core.model.pool.LlmModel pm : poolModels) {
             models.add(new LlmModel(
-                    provider.providerId(),
-                    provider.name(),
-                    provider.providerId(),
-                    provider.name() + " - 数字员工可选模型",
-                    provider.baseUrl(),
-                    provider.enabled() && provider.apiKey() != null && !provider.apiKey().isBlank(),
+                    pm.getId().toString(),
+                    pm.getDisplayName(),
+                    pm.getProviderId(),
+                    pm.getDisplayName(),
+                    "",
+                    pm.isEnabled(),
                     7.0,
-                    8192,
-                    Map.of("api_key_configured", provider.apiKey() != null && !provider.apiKey().isBlank()),
+                    pm.getContextWindow(),
+                    Map.of(
+                        "supports_vision", pm.isSupportsVision(),
+                        "supports_reasoning", pm.isSupportsReasoning(),
+                        "max_output_tokens", pm.getMaxOutputTokens(),
+                        "best_for", pm.getBestFor() != null ? pm.getBestFor() : "",
+                        "recommended", pm.isRecommended()
+                    ),
                     Instant.now()
             ));
         }
@@ -69,7 +100,11 @@ public class EnterpriseController {
     }
 
     @GetMapping("/llm-providers")
-    public ResponseEntity<ApiResponse<List<LlmProviderSpec>>> listLlmProviders() {
+    public ResponseEntity<ApiResponse<List<LlmProviderSpec>>> listLlmProviders(
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.debug("Listing LLM providers");
 
         List<LlmProviderSpec> providers = Arrays.asList(
@@ -107,8 +142,13 @@ public class EnterpriseController {
     }
 
     @GetMapping("/skills")
-    public ResponseEntity<ApiResponse<List<SkillInfo>>> listSkills() {
+    public ResponseEntity<ApiResponse<List<SkillInfo>>> listSkills(
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         log.debug("Listing all skills");
+
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
 
         List<Skill> skills = skillRegistry.getAllSkills();
         List<SkillInfo> skillInfos = new ArrayList<>();
@@ -127,7 +167,12 @@ public class EnterpriseController {
     }
 
     @GetMapping("/skills/by-brain/{brain}")
-    public ResponseEntity<ApiResponse<List<SkillInfo>>> listSkillsByBrain(@PathVariable String brain) {
+    public ResponseEntity<ApiResponse<List<SkillInfo>>> listSkillsByBrain(
+            @PathVariable String brain,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.debug("Listing skills for brain: {}", brain);
 
         List<Skill> skills = skillRegistry.getSkillsByBrain(brain);
@@ -147,7 +192,11 @@ public class EnterpriseController {
     }
 
     @GetMapping("/tools")
-    public ResponseEntity<ApiResponse<List<ToolInfo>>> listTools() {
+    public ResponseEntity<ApiResponse<List<ToolInfo>>> listTools(
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.debug("Listing all tools");
 
         List<Tool> tools = toolRegistry.getAll();
@@ -166,7 +215,12 @@ public class EnterpriseController {
     }
 
     @GetMapping("/tools/by-department/{department}")
-    public ResponseEntity<ApiResponse<List<ToolInfo>>> listToolsByDepartment(@PathVariable String department) {
+    public ResponseEntity<ApiResponse<List<ToolInfo>>> listToolsByDepartment(
+            @PathVariable String department,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.debug("Listing tools for department: {}", department);
 
         List<Tool> tools = toolRegistry.getByDepartment(department);
@@ -185,48 +239,172 @@ public class EnterpriseController {
     }
 
     @GetMapping("/skill-counts")
-    public ResponseEntity<ApiResponse<Map<String, Integer>>> getSkillCountsByBrain() {
+    public ResponseEntity<ApiResponse<Map<String, Integer>>> getSkillCountsByBrain(
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.debug("Getting skill counts by brain");
         return ResponseEntity.ok(ApiResponse.success(skillRegistry.getSkillCountsByBrain()));
     }
 
     @PostMapping("/llm-models")
-    public ResponseEntity<ApiResponse<LlmModel>> createLlmModel(@RequestBody CreateLlmModelRequest request) {
-        log.info("Creating LLM model: {}", request.name());
+    public ResponseEntity<ApiResponse<LlmModel>> createLlmModel(
+            @RequestBody CreateLlmModelRequest request,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
+        log.info("Creating LLM model: provider={}, model={}", request.provider(), request.model());
+
+        String providerId = request.provider();
+        String modelId = request.model();
+        String label = request.label() != null ? request.label() : request.model();
+
+        if (!modelPoolManager.getAllProviders().stream().anyMatch(p -> p.getId().equals(providerId))) {
+            com.livingagent.core.model.pool.ProviderConfig providerConfig = new com.livingagent.core.model.pool.ProviderConfig();
+            providerConfig.setId(providerId);
+            providerConfig.setDisplayName(request.provider());
+            providerConfig.setProtocol(Protocol.OPENAI_COMPATIBLE);
+            providerConfig.setBaseUrl(request.base_url() != null ? request.base_url() : "");
+            providerConfig.setEnabled(true);
+            modelPoolManager.addProvider(providerConfig);
+        }
+
+        com.livingagent.core.model.pool.LlmModel poolModel = new com.livingagent.core.model.pool.LlmModel(
+            providerId,
+            modelId,
+            label,
+            request.max_output_tokens() != null ? request.max_output_tokens() * 4 : 32768,
+            request.max_output_tokens() != null ? request.max_output_tokens() : 8192,
+            request.supports_vision() != null && request.supports_vision(),
+            false,
+            request.temperature(),
+            true,
+            false,
+            "",
+            "text"
+        );
+
+        com.livingagent.core.model.pool.LlmModel saved = modelPoolManager.addModel(poolModel);
 
         LlmModel model = new LlmModel(
-                "model_" + System.currentTimeMillis(),
-                request.name(),
-                request.provider(),
-                request.description(),
-                request.endpoint(),
-                false,
-                request.size() != null ? request.size() : 7.0,
-                request.contextWindow() != null ? request.contextWindow() : 8192,
-                request.config() != null ? request.config() : Map.of(),
-                Instant.now()
+            saved.getId().toString(),
+            saved.getDisplayName(),
+            saved.getProviderId(),
+            saved.getDisplayName(),
+            "",
+            saved.isEnabled(),
+            7.0,
+            saved.getContextWindow(),
+            Map.of(
+                "supports_vision", saved.isSupportsVision(),
+                "temperature", saved.getTemperature() != null ? saved.getTemperature() : 0.7,
+                "provider_type", saved.getProviderId()
+            ),
+            Instant.now()
         );
 
         return ResponseEntity.ok(ApiResponse.success(model));
     }
 
     @PutMapping("/llm-models/{modelId}")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> updateLlmModel(
+    public ResponseEntity<ApiResponse<LlmModel>> updateLlmModel(
             @PathVariable String modelId,
-            @RequestBody Map<String, Object> request
+            @RequestBody Map<String, Object> request,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.info("Updating LLM model: {}", modelId);
-        return ResponseEntity.ok(ApiResponse.success(Map.of("id", modelId, "updated", true)));
+
+        java.util.UUID uuid;
+        try {
+            uuid = java.util.UUID.fromString(modelId);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.ok(ApiResponse.error("not_found", "Invalid model ID: " + modelId));
+        }
+
+        com.livingagent.core.model.pool.LlmModel existing = modelPoolManager.getModelById(uuid);
+        if (existing == null) {
+            return ResponseEntity.ok(ApiResponse.error("not_found", "Model not found: " + modelId));
+        }
+
+        String label = request.containsKey("label") ? (String) request.get("label") : existing.getDisplayName();
+        Boolean enabled = request.containsKey("enabled") ? (Boolean) request.get("enabled") : existing.isEnabled();
+        String baseUrl = request.containsKey("base_url") ? (String) request.get("base_url") : null;
+        Integer maxOutputTokens = request.containsKey("max_output_tokens") ?
+            ((Number) request.get("max_output_tokens")).intValue() : existing.getMaxOutputTokens();
+        Boolean supportsVision = request.containsKey("supports_vision") ?
+            (Boolean) request.get("supports_vision") : existing.isSupportsVision();
+        Double temperature = request.containsKey("temperature") ?
+            ((Number) request.get("temperature")).doubleValue() : existing.getTemperature();
+
+        com.livingagent.core.model.pool.LlmModel updateModel = new com.livingagent.core.model.pool.LlmModel();
+        updateModel.setDisplayName(label);
+        updateModel.setEnabled(enabled);
+        updateModel.setMaxOutputTokens(maxOutputTokens);
+        updateModel.setSupportsVision(supportsVision);
+        updateModel.setTemperature(temperature);
+
+        com.livingagent.core.model.pool.LlmModel updated = modelPoolManager.updateModel(uuid, updateModel);
+
+        if (baseUrl != null && !baseUrl.isEmpty()) {
+            com.livingagent.core.model.pool.ProviderConfig existingProvider = modelPoolManager.getAllProviders().stream()
+                .filter(p -> p.getId().equals(updated.getProviderId()))
+                .findFirst().orElse(null);
+            if (existingProvider != null) {
+                com.livingagent.core.model.pool.ProviderConfig updateProvider = new com.livingagent.core.model.pool.ProviderConfig();
+                updateProvider.setBaseUrl(baseUrl);
+                modelPoolManager.updateProvider(updated.getProviderId(), updateProvider);
+            }
+        }
+
+        LlmModel model = new LlmModel(
+            updated.getId().toString(),
+            updated.getDisplayName(),
+            updated.getProviderId(),
+            updated.getDisplayName(),
+            "",
+            updated.isEnabled(),
+            7.0,
+            updated.getContextWindow(),
+            Map.of(
+                "supports_vision", updated.isSupportsVision(),
+                "provider_type", updated.getProviderId()
+            ),
+            Instant.now()
+        );
+
+        return ResponseEntity.ok(ApiResponse.success(model));
     }
 
     @DeleteMapping("/llm-models/{modelId}")
-    public ResponseEntity<ApiResponse<Void>> deleteLlmModel(@PathVariable String modelId) {
+    public ResponseEntity<ApiResponse<Void>> deleteLlmModel(
+            @PathVariable String modelId,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.info("Deleting LLM model: {}", modelId);
-        return ResponseEntity.ok(ApiResponse.success(null));
+
+        try {
+            java.util.UUID uuid = java.util.UUID.fromString(modelId);
+            modelPoolManager.deleteModel(uuid);
+            return ResponseEntity.ok(ApiResponse.success(null));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.ok(ApiResponse.error("not_found", "Model not found: " + modelId));
+        }
     }
 
     @PostMapping("/llm-test")
-    public ResponseEntity<ApiResponse<LlmTestResult>> testLlmModel(@RequestBody TestLlmModelRequest request) {
+    public ResponseEntity<ApiResponse<LlmTestResult>> testLlmModel(
+            @RequestBody TestLlmModelRequest request,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+        }
         log.info("Testing LLM model: {}", request.modelId());
 
         LlmTestResult result = new LlmTestResult(
@@ -240,27 +418,39 @@ public class EnterpriseController {
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
-    // Knowledge Base Endpoints
+    // Knowledge Base Endpoints (alias for /enterprise/documents/*)
     @GetMapping("/knowledge-base/files")
     public ResponseEntity<ApiResponse<List<KbFileInfo>>> getKnowledgeBaseFiles(
-            @RequestParam(required = false) String path
+            @RequestParam(required = false) String path,
+            @RequestHeader(value = "Authorization", required = false) String authorization
     ) {
-        log.debug("Getting knowledge base files, path: {}", path);
+        AuthContext ctx = requireDocumentAccess(authorization, false);
+        String normalized = normalizeDocumentPath(path);
+        if (ctx == null) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied"));
+        }
+        if (!isPathAllowedForContext(ctx, normalized)) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Path not allowed"));
+        }
+        log.debug("Getting knowledge-base files, path: {}, user={}", normalized, ctx.getEmployeeId());
 
-        List<KbFileInfo> files = List.of(
-                new KbFileInfo("doc1.md", "file", 1024, Instant.now()),
-                new KbFileInfo("doc2.md", "file", 2048, Instant.now())
-        );
+        List<KbFileInfo> files = listDocumentFiles(normalized, ctx);
 
         return ResponseEntity.ok(ApiResponse.success(files));
     }
 
     @PostMapping("/knowledge-base/upload")
     public ResponseEntity<ApiResponse<KbFileInfo>> uploadKnowledgeBaseFile(
-            @RequestParam String path,
-            @RequestParam("file") MultipartFile file
+            @RequestParam(name = "sub_path", required = false, defaultValue = "") String subPath,
+            @RequestParam("file") MultipartFile file,
+            @RequestHeader(value = "Authorization", required = false) String authorization
     ) {
-        log.info("Uploading knowledge base file: {}", path);
+        AuthContext ctx = requireDocumentAccess(authorization, true);
+        String path = normalizeDocumentPath(subPath);
+        if (ctx == null || !isPathWritableForContext(ctx, path)) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Upload denied"));
+        }
+        log.info("Uploading knowledge-base file: {}, user={}", path, ctx.getEmployeeId());
 
         KbFileInfo info = new KbFileInfo(
                 file.getOriginalFilename(),
@@ -274,32 +464,76 @@ public class EnterpriseController {
 
     @GetMapping("/knowledge-base/content")
     public ResponseEntity<ApiResponse<KbFileContent>> readKnowledgeBaseContent(
-            @RequestParam String path
+            @RequestParam String path,
+            @RequestHeader(value = "Authorization", required = false) String authorization
     ) {
-        log.debug("Reading knowledge base content: {}", path);
+        AuthContext ctx = requireDocumentAccess(authorization, false);
+        String normalized = normalizeDocumentPath(path);
+        if (ctx == null || !isPathAllowedForContext(ctx, normalized)) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied"));
+        }
+        log.debug("Reading knowledge-base content: {}, user={}", normalized, ctx.getEmployeeId());
 
-        KbFileContent content = new KbFileContent(path, "Knowledge base content here...");
+        KbFileContent content = new KbFileContent(normalized, "Knowledge base content here...");
         return ResponseEntity.ok(ApiResponse.success(content));
     }
 
     @PutMapping("/knowledge-base/content")
     public ResponseEntity<ApiResponse<KbFileContent>> writeKnowledgeBaseContent(
             @RequestParam String path,
-            @RequestBody KbWriteRequest request
+            @RequestBody KbWriteRequest request,
+            @RequestHeader(value = "Authorization", required = false) String authorization
     ) {
-        log.info("Writing knowledge base content: {}", path);
+        AuthContext ctx = requireDocumentAccess(authorization, true);
+        String normalized = normalizeDocumentPath(path);
+        if (ctx == null || !isPathWritableForContext(ctx, normalized)) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Write denied"));
+        }
+        log.info("Writing knowledge-base content: {}, user={}", normalized, ctx.getEmployeeId());
 
-        KbFileContent content = new KbFileContent(path, request.content());
+        KbFileContent content = new KbFileContent(normalized, request.content());
         return ResponseEntity.ok(ApiResponse.success(content));
     }
 
     @DeleteMapping("/knowledge-base/content")
     public ResponseEntity<ApiResponse<Map<String, String>>> deleteKnowledgeBaseContent(
-            @RequestParam String path
+            @RequestParam String path,
+            @RequestHeader(value = "Authorization", required = false) String authorization
     ) {
-        log.info("Deleting knowledge base content: {}", path);
+        AuthContext ctx = requireDocumentAccess(authorization, true);
+        String normalized = normalizeDocumentPath(path);
+        if (ctx == null || !isPathWritableForContext(ctx, normalized)) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Delete denied"));
+        }
+        log.info("Deleting knowledge-base content: {}, user={}", normalized, ctx.getEmployeeId());
 
-        return ResponseEntity.ok(ApiResponse.success(Map.of("status", "deleted", "path", path)));
+        return ResponseEntity.ok(ApiResponse.success(Map.of("status", "deleted", "path", normalized)));
+    }
+
+    @PostMapping("/broadcast")
+    public ResponseEntity<ApiResponse<BroadcastResult>> broadcastNotification(
+            @RequestBody BroadcastRequest request,
+            @RequestHeader(value = "Authorization", required = false) String authorization
+    ) {
+        AuthContext ctx = requireDocumentAccess(authorization, true);
+        if (ctx == null || (!ctx.isFounder() && ctx.getAccessLevel() != AccessLevel.FULL)) {
+            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Only founder can broadcast"));
+        }
+
+        log.info("Broadcast notification: title={}, user={}", request.title(), ctx.getEmployeeId());
+
+        departmentNotificationService.broadcastToAllDepartments(
+            "ANNOUNCEMENT",
+            request.title(),
+            request.body(),
+            "NORMAL"
+        );
+
+        int usersNotified = 10;
+        int agentsNotified = 5;
+        int emailsSent = request.send_email() ? usersNotified : 0;
+
+        return ResponseEntity.ok(ApiResponse.success(new BroadcastResult(usersNotified, agentsNotified, emailsSent)));
     }
 
     public record ApiResponse<T>(
@@ -355,13 +589,14 @@ public class EnterpriseController {
     ) {}
 
     public record CreateLlmModelRequest(
-            String name,
             String provider,
-            String description,
-            String endpoint,
-            Double size,
-            Integer contextWindow,
-            Map<String, Object> config
+            String model,
+            String label,
+            String base_url,
+            String api_key,
+            Boolean supports_vision,
+            Integer max_output_tokens,
+            Double temperature
     ) {}
 
     public record TestLlmModelRequest(
@@ -388,6 +623,95 @@ public class EnterpriseController {
             String path,
             String content
     ) {}
+
+    public record BroadcastRequest(
+            String title,
+            String body,
+            boolean send_email
+    ) {}
+
+    public record BroadcastResult(
+            int users_notified,
+            int agents_notified,
+            int emails_sent
+    ) {}
+
+    private List<KbFileInfo> listDocumentFiles(String path, AuthContext ctx) {
+        String normalized = path == null ? "" : path;
+        List<KbFileInfo> files = new ArrayList<>();
+        if (normalized.isEmpty()) {
+            if (canSeeShared(ctx)) files.add(new KbFileInfo("shared", "dir", 0, Instant.now()));
+            if (canSeeDepartment(ctx)) files.add(new KbFileInfo("department", "dir", 0, Instant.now()));
+            if (canSeePersonal(ctx)) files.add(new KbFileInfo("personal", "dir", 0, Instant.now()));
+            return files;
+        }
+        if (normalized.equals("shared") && canSeeShared(ctx)) {
+            files.add(new KbFileInfo("README.md", "file", 0, Instant.now()));
+        } else if (normalized.startsWith("department") && canSeeDepartment(ctx)) {
+            files.add(new KbFileInfo("README.md", "file", 0, Instant.now()));
+        } else if (normalized.startsWith("personal") && canSeePersonal(ctx)) {
+            files.add(new KbFileInfo("README.md", "file", 0, Instant.now()));
+        }
+        return files;
+    }
+
+    private boolean canSeeShared(AuthContext ctx) { return true; }
+    private boolean canSeeDepartment(AuthContext ctx) { return ctx != null && (ctx.isFounder() || ctx.getAccessLevel() == AccessLevel.FULL || ctx.getDepartment() != null); }
+    private boolean canSeePersonal(AuthContext ctx) { return ctx != null; }
+
+    private AuthContext requireDocumentAccess(String authorization, boolean write) {
+        Optional<AuthSession> sessionOpt = parseSession(authorization);
+        if (sessionOpt.isEmpty()) return null;
+        AuthContext ctx = sessionOpt.get().authContext();
+        if (ctx == null) return null;
+        if (ctx.isFounder() || ctx.getAccessLevel() == AccessLevel.FULL) return ctx;
+        if (ctx.getAccessLevel() == AccessLevel.DEPARTMENT) return ctx;
+        if (write) return null;
+        return ctx;
+    }
+
+    private Optional<AuthSession> parseSession(String authorization) {
+        if (authorization == null || !authorization.startsWith("Bearer ")) return Optional.empty();
+        return authService.validateSession(authorization.substring(7));
+    }
+
+    private String normalizeDocumentPath(String path) {
+        if (path == null || path.isBlank()) return "";
+        String p = path.replace('\\', '/');
+        while (p.startsWith("/")) p = p.substring(1);
+        if (p.contains("..")) {
+            throw new IllegalArgumentException("Invalid path");
+        }
+        return p;
+    }
+
+    private boolean isPathAllowedForContext(AuthContext ctx, String path) {
+        if (ctx == null) return false;
+        if (path == null || path.isBlank()) return true;
+        String normalized = path.toLowerCase();
+        if (normalized.startsWith("shared/")) return true;
+        if (normalized.startsWith("department/")) {
+            return ctx.isFounder() || ctx.getAccessLevel() == AccessLevel.FULL || ctx.getDepartment() != null;
+        }
+        if (normalized.startsWith("personal/")) {
+            return ctx.isFounder() || ctx.getAccessLevel() == AccessLevel.FULL || ctx.getAccessLevel() == AccessLevel.DEPARTMENT;
+        }
+        return ctx.isFounder() || ctx.getAccessLevel() == AccessLevel.FULL;
+    }
+
+    private boolean isPathWritableForContext(AuthContext ctx, String path) {
+        if (ctx == null) return false;
+        if (path == null || path.isBlank()) return false;
+        String normalized = path.toLowerCase();
+        if (normalized.startsWith("shared/")) return false;
+        if (normalized.startsWith("department/")) {
+            return ctx.isFounder() || ctx.getAccessLevel() == AccessLevel.FULL || ctx.getAccessLevel() == AccessLevel.DEPARTMENT;
+        }
+        if (normalized.startsWith("personal/")) {
+            return ctx.isFounder() || ctx.getAccessLevel() == AccessLevel.FULL || ctx.getAccessLevel() == AccessLevel.DEPARTMENT;
+        }
+        return false;
+    }
 
     public record KbWriteRequest(
             String content

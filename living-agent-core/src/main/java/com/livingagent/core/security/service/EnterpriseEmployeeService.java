@@ -138,6 +138,15 @@ public class EnterpriseEmployeeService {
         });
     }
 
+    public void updateTenantId(String employeeId, String tenantId) {
+        employeeRepository.findById(employeeId).ifPresent(entity -> {
+            entity.setTenantId(tenantId);
+            entity.setUpdatedAt(Instant.now());
+            employeeRepository.save(entity);
+            log.info("Updated tenantId for auth context {}: {}", employeeId, tenantId);
+        });
+    }
+
     private EnterpriseEmployeeEntity toEntity(AuthContext ctx) {
         EnterpriseEmployeeEntity entity = new EnterpriseEmployeeEntity();
         entity.setEmployeeId(ctx.getEmployeeId());
@@ -155,6 +164,7 @@ public class EnterpriseEmployeeService {
         entity.setOauthUserId(ctx.getOauthUserId());
         entity.setJoinDate(ctx.getJoinDate());
         entity.setActive(ctx.isActive());
+        entity.setTenantId(ctx.getTenantId());
         entity.setSyncSource(ctx.getSyncSource());
         entity.setLastSyncTime(ctx.getLastSyncTime());
         return entity;
@@ -178,6 +188,7 @@ public class EnterpriseEmployeeService {
         }
         entity.setFounder(ctx.isFounder());
         entity.setActive(ctx.isActive());
+        if (ctx.getTenantId() != null) entity.setTenantId(ctx.getTenantId());
         if (ctx.getVoicePrintId() != null) entity.setVoicePrintId(ctx.getVoicePrintId());
         if (ctx.getOauthProvider() != null) entity.setOauthProvider(ctx.getOauthProvider());
         if (ctx.getOauthUserId() != null) entity.setOauthUserId(ctx.getOauthUserId());
@@ -211,6 +222,7 @@ public class EnterpriseEmployeeService {
         ctx.setJoinDate(entity.getJoinDate());
         ctx.setLeaveDate(entity.getLeaveDate());
         ctx.setActive(entity.isActive());
+        ctx.setTenantId(entity.getTenantId());
         ctx.setSyncSource(entity.getSyncSource());
         ctx.setLastSyncTime(entity.getLastSyncTime());
         return ctx;

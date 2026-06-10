@@ -50,4 +50,9 @@ public interface EnterpriseEmployeeRepository extends JpaRepository<EnterpriseEm
 
     @Query("SELECT e FROM EnterpriseEmployeeEntity e WHERE e.identity = :identity AND e.active = true")
     List<EnterpriseEmployeeEntity> findActiveByIdentity(@Param("identity") String identity);
+
+    @Query("SELECT e FROM EnterpriseEmployeeEntity e WHERE e.active = true AND e.departmentName = :deptName")
+    List<EnterpriseEmployeeEntity> findActiveByDepartmentName(@Param("deptName") String departmentName);
+
+    Optional<EnterpriseEmployeeEntity> findByEmployeeId(String employeeId);
 }

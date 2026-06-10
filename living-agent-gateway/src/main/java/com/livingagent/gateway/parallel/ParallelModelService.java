@@ -5,6 +5,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.Executors;
 
 import org.slf4j.Logger;
@@ -144,6 +145,20 @@ public class ParallelModelService {
     
     public void shutdown() {
         parallelExecutor.shutdown();
+    }
+
+    @jakarta.annotation.PreDestroy
+    public void destroy() {
+        parallelExecutor.shutdown();
+        try {
+            if (!parallelExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
+                parallelExecutor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            parallelExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+        log.info("ParallelModelService shutdown complete");
     }
     
     public static class ParallelResult {

@@ -1,7 +1,7 @@
 package com.livingagent.core.knowledge.impl;
 
 import com.livingagent.core.knowledge.*;
-import com.livingagent.core.knowledge.native_.NativeKnowledge;
+import com.livingagent.core.knowledge.nativestore.NativeKnowledge;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

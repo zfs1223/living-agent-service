@@ -2,7 +2,7 @@
 
 // ─── 用户身份与权限 ───
 
-export type UserIdentity = 'INTERNAL_ACTIVE' | 'INTERNAL_PROBATION' | 'INTERNAL_DEPARTED' | 'INTERNAL_CHAIRMAN' | 'EXTERNAL_VISITOR' | 'EXTERNAL_PARTNER';
+export type UserIdentity = 'INTERNAL_ACTIVE' | 'INTERNAL_PROBATION' | 'INTERNAL_DEPARTED' | 'INTERNAL_ENTERPRISE' | 'EXTERNAL_VISITOR' | 'EXTERNAL_PARTNER';
 export type AccessLevel = 'CHAT_ONLY' | 'LIMITED' | 'DEPARTMENT' | 'FULL';
 
 export interface User {
@@ -14,7 +14,7 @@ export interface User {
     role: 'platform_admin' | 'org_admin' | 'agent_admin' | 'member';
     tenant_id?: string;
     title?: string;
-    department_id?: string;
+    department_code?: string; // 部门业务 code (如 tech, hr, finance)
     department_name?: string;
     feishu_open_id?: string;
     dingtalk_open_id?: string;
@@ -133,7 +133,7 @@ export interface Agent {
     avatar_url?: string;
     role_description: string;
     bio?: string;
-    status: 'creating' | 'running' | 'idle' | 'stopped' | 'error';
+    status: 'creating' | 'running' | 'idle' | 'stopped' | 'error' | 'disconnected';
     creator_id: string;
     primary_model_id?: string;
     fallback_model_id?: string;
@@ -148,7 +148,8 @@ export interface Agent {
     last_heartbeat_at?: string;
     timezone?: string;
     context_window_size?: number;
-    agent_type?: 'native' | 'openclaw';
+    agent_type?: 'native' | 'openclaw' | 'digital' | 'human';
+    origin?: 'human' | 'fixed' | 'evolved' | 'personal';
     openclaw_last_seen?: string;
     created_at: string;
     last_active_at?: string;

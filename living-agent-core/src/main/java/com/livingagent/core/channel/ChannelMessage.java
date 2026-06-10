@@ -21,6 +21,7 @@ public class ChannelMessage {
         TEXT,
         AUDIO,
         IMAGE,
+        SENSOR_DATA,
         TOOL_CALL,
         TOOL_RESULT,
         CONTROL,
@@ -82,5 +83,11 @@ public class ChannelMessage {
                                         String targetChannelId, String sessionId, String error) {
         return new ChannelMessage(sourceChannelId, sourceNeuronId, targetChannelId,
                                   sessionId, MessageType.ERROR, error);
+    }
+
+    public static ChannelMessage sensorData(String sourceChannelId, String sourceNeuronId,
+                                             String targetChannelId, String sessionId, Object data) {
+        return new ChannelMessage(sourceChannelId, sourceNeuronId, targetChannelId,
+                                  sessionId, MessageType.SENSOR_DATA, data);
     }
 }

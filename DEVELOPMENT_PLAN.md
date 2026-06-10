@@ -2833,7 +2833,7 @@ double netProfit = project.netProfit();        // 净利润
 │  │  └── /dept/ops (运营部) - OpsBrain                                  │   │
 │  │                                                                     │   │
 │  │  董事长层 (需要登录 + 董事长身份)                                       │   │
-│  │  └── /chairman (董事长专属) - MainBrain + 所有大脑                   │   │
+│  │  └── /enterprise (董事长专属) - MainBrain + 所有大脑                   │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │  已完成任务:                                                                 │
@@ -2842,7 +2842,7 @@ double netProfit = project.netProfit();        // 净利润
 │  │  ├── ✅ DepartmentApiController - 部门API控制器                      │   │
 │  │  ├── ✅ DepartmentPermissionInterceptor - 部门权限拦截器             │   │
 │  │  ├── ✅ DepartmentDataFilter - 部门数据过滤器 (已集成到拦截器)        │   │
-│  │  └── ✅ ChairmanApiController - 董事长API控制器                      │   │
+│  │  └── ✅ EnterpriseApiController - 董事长API控制器                      │   │
 │  │                                                                     │   │
 │  │  18.2 部门WebSocket频道 ✅                                            │   │
 │  │  ├── ✅ DepartmentWebSocketHandler - 部门WebSocket处理器             │   │
@@ -2857,7 +2857,7 @@ double netProfit = project.netProfit();        // 净利润
 │  │  └── ✅ DepartmentNotificationService - 部门通知服务                 │   │
 │  │                                                                     │   │
 │  │  18.4 董事长专属功能 ✅                                               │   │
-│  │  ├── ✅ ChairmanDashboardService - 董事长仪表盘服务 (已集成到控制器)  │   │
+│  │  ├── ✅ EnterpriseDashboardService - 董事长仪表盘服务 (已集成到控制器)  │   │
 │  │  ├── ✅ GlobalOverviewController - 全局概览控制器 (已集成)            │   │
 │  │  ├── ✅ EmployeeManagementController - 员工管理控制器 (已集成)        │   │
 │  │  └── ✅ SystemSettingsController - 系统配置控制器                    │   │
@@ -2893,7 +2893,7 @@ double netProfit = project.netProfit();        // 净利润
 | `/api/cs/*` | cs部门 | 客服部专属API |
 | `/api/legal/*` | legal部门 | 法务部专属API |
 | `/api/ops/*` | ops部门 | 运营部专属API |
-| `/api/chairman/*` | 董事长 | 董事长专属API |
+| `/api/enterprise/*` | 董事长 | 董事长专属API |
 
 #### 18.2 部门WebSocket频道设计
 
@@ -2908,7 +2908,7 @@ double netProfit = project.netProfit();        // 净利润
 | `/ws/dept/cs` | cs部门 | 客服部群聊频道 |
 | `/ws/dept/legal` | legal部门 | 法务部群聊频道 |
 | `/ws/dept/ops` | ops部门 | 运营部群聊频道 |
-| `/ws/chairman` | 董事长 | 董事长专属频道 |
+| `/ws/enterprise` | 董事长 | 董事长专属频道 |
 
 ---
 
@@ -3496,7 +3496,7 @@ double netProfit = project.netProfit();        // 净利润
 │  └── 人脸识别 (EyeNeuron)                                                    │
 │                                                                             │
 │  Step 2: 权限级别确定                                                        │
-│  ├── INTERNAL_CHAIRMAN → FULL (董事长)                                       │
+│  ├── INTERNAL_ENTERPRISE → FULL (董事长)                                       │
 │  ├── INTERNAL_ACTIVE → DEPARTMENT (在职员工)                                 │
 │  ├── INTERNAL_PROBATION → LIMITED (试用期)                                   │
 │  ├── INTERNAL_DEPARTED → CHAT_ONLY (离职)                                    │
@@ -4137,7 +4137,7 @@ Week 7-8: P2 迭代开发支持
 
 | 层级 | 组件 | 功能 | 状态 |
 |------|------|------|------|
-| 管理层 | ChairmanFeishuTool | 创建部门、管理员工、配置审批 | ✅ 已实现 |
+| 管理层 | EnterpriseFeishuTool | 创建部门、管理员工、配置审批 | ✅ 已实现 |
 | 使用层 | EmployeeFeishuTool | 发消息、看日程、编辑文档 | 🔜 待增强 |
 
 #### 22.4.2 参考 Clawith-main 实现

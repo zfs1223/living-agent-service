@@ -1,0 +1,12 @@
+{
+  "data" : {
+    "requestId" : "8abe2ee0-46a2-4035-bcea-0526762930a1",
+    "department" : "tech",
+    "brain" : "neuron://tech/tech-brain/001",
+    "intent" : "game_development",
+    "readinessStatus" : "NEEDS_CLARIFICATION",
+    "clarificationQuestions" : [ "项目的具体交付时间节点是什么？", "是否有现成的游戏设计文档（GDD），还是由技术团队兼任设计工作？", "目标发布平台是Web、PC还是移动端？这决定技术栈和人员技能匹配度。" ]
+  },
+  "type" : "clarification_requested",
+  "timestamp" : "2026-05-19T10:27:54.939193226Z"
+}

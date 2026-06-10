@@ -108,6 +108,20 @@ public class HardwareResourceMonitor {
         scheduler.shutdown();
         log.info("Hardware resource monitor stopped");
     }
+
+    @jakarta.annotation.PreDestroy
+    public void destroy() {
+        scheduler.shutdown();
+        try {
+            if (!scheduler.awaitTermination(10, TimeUnit.SECONDS)) {
+                scheduler.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            scheduler.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+        log.info("HardwareResourceMonitor shutdown complete");
+    }
     
     public static class ResourceSnapshot {
         public final long availableMemoryMB;

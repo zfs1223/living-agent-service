@@ -1,8 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { agentApi, taskApi, activityApi } from '../services/api';
+import { useAuthStore } from '../stores';
+import { usePolling } from '../hooks/usePolling';
+import EnterpriseDashboard from './Dashboard/EnterpriseDashboard';
 import type { Agent, Task } from '../types';
 
 /* ────── Inline SVG Icons (monochrome) ────── */
@@ -36,6 +39,18 @@ const Icons = {
     activity: (
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M1 8h3l2-5 3 10 2-5h4" />
+        </svg>
+    ),
+    trendingUp: (
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M1.5 11.5l4-4 3 3 6-6" />
+            <path d="M10.5 4.5h4v4" />
+        </svg>
+    ),
+    coin: (
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="8" cy="8" r="5.5" />
+            <path d="M8 5.5v5M6.5 6.5c0-.8.7-1.5 1.5-1.5s1.5.7 1.5 1.5S8.8 8 8 8s-1.5.7-1.5 1.5S7.2 11 8 11s1.5-.7 1.5-1.5" />
         </svg>
     ),
     plus: (
@@ -122,6 +137,8 @@ function StatsBar({ agents, allTasks }: { agents: Agent[]; allTasks: Task[] }) {
         if (!a.last_active_at) return false;
         return Date.now() - new Date(a.last_active_at).getTime() < 3600000;
     }).length;
+    const atRiskAgents = agents.filter(a => a.status === 'error' || a.status === 'disconnected' || a.status === 'stopped').length;
+    const totalTasks = allTasks.length;
 
     const stats = [
         { icon: Icons.users, label: t('dashboard.stats.agents'), value: totalAgents, sub: t('dashboard.stats.online', { count: activeAgents }) },
@@ -130,13 +147,21 @@ function StatsBar({ agents, allTasks }: { agents: Agent[]; allTasks: Task[] }) {
         { icon: Icons.clock, label: t('dashboard.stats.recentlyActive'), value: recentlyActive, sub: t('dashboard.stats.lastHour') },
     ];
 
+    const enterpriseSignals = [
+        { icon: Icons.activity, label: t('dashboard.enterprise.totalTasks', 'Total Tasks'), value: totalTasks, sub: t('dashboard.enterprise.totalTasksSub', 'All agent tasks currently tracked') },
+        { icon: Icons.users, label: t('dashboard.enterprise.atRisk', 'Risk / Offline'), value: atRiskAgents, sub: t('dashboard.enterprise.atRiskSub', 'Needs attention') },
+        { icon: Icons.coin, label: t('dashboard.enterprise.costHint', 'Cost / Tokens'), value: formatTokens(totalTokensToday), sub: t('dashboard.enterprise.costHintSub', 'Today') },
+        { icon: Icons.trendingUp, label: t('dashboard.enterprise.execution', 'Execution'), value: activeAgents, sub: t('dashboard.enterprise.executionSub', 'Running or idle') },
+    ];
+
     return (
-        <div style={{
-            display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1px',
-            background: 'var(--border-subtle)', borderRadius: 'var(--radius-lg)',
-            overflow: 'hidden', marginBottom: '24px',
-            border: '1px solid var(--border-subtle)',
-        }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+            <div style={{
+                display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1px',
+                background: 'var(--border-subtle)', borderRadius: '20px',
+                overflow: 'hidden',
+                border: '1px solid var(--border-subtle)',
+            }}>
             {stats.map((s, i) => (
                 <div key={i} style={{
                     background: 'var(--bg-secondary)', padding: '16px 20px',
@@ -155,6 +180,33 @@ function StatsBar({ agents, allTasks }: { agents: Agent[]; allTasks: Task[] }) {
                     <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{s.sub}</div>
                 </div>
             ))}
+            </div>
+
+            <div style={{
+                display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1px',
+                background: 'var(--border-subtle)', borderRadius: '20px',
+                overflow: 'hidden',
+                border: '1px solid var(--border-subtle)',
+            }}>
+            {enterpriseSignals.map((s, i) => (
+                <div key={i} style={{
+                    background: 'var(--bg-secondary)', padding: '16px 20px',
+                    display: 'flex', flexDirection: 'column', gap: '2px',
+                }}>
+                    <div style={{
+                        fontSize: '12px', color: 'var(--text-tertiary)',
+                        display: 'flex', alignItems: 'center', gap: '6px',
+                        marginBottom: '4px',
+                    }}>
+                        <span style={{ display: 'flex', opacity: 0.7 }}>{s.icon}</span> {s.label}
+                    </div>
+                    <div style={{ fontSize: '24px', fontWeight: 600, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
+                        {s.value}
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{s.sub}</div>
+                </div>
+            ))}
+            </div>
         </div>
     );
 }
@@ -353,7 +405,48 @@ function ActivityFeed({ activities, agents }: { activities: any[]; agents: Agent
 export default function Dashboard() {
     const { t } = useTranslation();
     const navigate = useNavigate();
+    const user = useAuthStore((s) => s.user);
     const currentTenant = localStorage.getItem('current_tenant_id') || '';
+
+    if (!user) {
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+                <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-tertiary)', fontSize: '13px' }}>
+                    {t('common.loading')}
+                </div>
+            </div>
+        );
+    }
+
+    if (user.identity === 'INTERNAL_ENTERPRISE' || user.access_level === 'FULL') {
+        return <EnterpriseDashboard />;
+    }
+
+    if (user.department_code) {
+        navigate(`/departments/${encodeURIComponent(user.department_code)}/overview`, { replace: true });
+        return null;
+    }
+
+    if (user.access_level === 'LIMITED' || user.access_level === 'CHAT_ONLY') {
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+                <div style={{
+                    borderRadius: '24px',
+                    padding: '22px',
+                    background: 'linear-gradient(135deg, rgba(24,144,255,0.12), rgba(12,18,28,0.82) 45%, rgba(5,6,10,0.96) 100%)',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    boxShadow: '0 24px 60px rgba(0,0,0,0.18)',
+                }}>
+                    <h1 style={{ fontSize: '28px', lineHeight: 1.1, fontWeight: 700, margin: 0, color: 'var(--text-primary)', letterSpacing: '-0.04em' }}>
+                        {t('dashboard.workspace.title', '个人工作台')}
+                    </h1>
+                    <p style={{ margin: '12px 0 0', color: 'var(--text-secondary)', fontSize: '13px', lineHeight: 1.75 }}>
+                        {t('dashboard.workspace.subtitle', '查看您的任务和可访问的数字员工')}
+                    </p>
+                </div>
+            </div>
+        );
+    }
 
     const { data: agents = [], isLoading } = useQuery({
         queryKey: ['agents', currentTenant],
@@ -366,36 +459,33 @@ export default function Dashboard() {
     const [allActivities, setAllActivities] = useState<any[]>([]);
     const [agentActivities, setAgentActivities] = useState<Record<string, any[]>>({});
 
+    const fetchData = useCallback(async () => {
+        try {
+            const taskResults = await Promise.allSettled(agents.map(a => taskApi.list(a.id)));
+            const tasks: Task[] = [];
+            taskResults.forEach(r => { if (r.status === 'fulfilled') tasks.push(...r.value); });
+            setAllTasks(tasks);
+        } catch (e) { console.error('Failed to fetch tasks:', e); }
 
-    useEffect(() => {
-        if (agents.length === 0) return;
-        const fetchData = async () => {
-            try {
-                const taskResults = await Promise.allSettled(agents.map(a => taskApi.list(a.id)));
-                const tasks: Task[] = [];
-                taskResults.forEach(r => { if (r.status === 'fulfilled') tasks.push(...r.value); });
-                setAllTasks(tasks);
-            } catch (e) { console.error('Failed to fetch tasks:', e); }
+        try {
+            const actResults = await Promise.allSettled(agents.map(a => activityApi.list(a.id, 5)));
+            const activities: any[] = [];
+            const perAgent: Record<string, any[]> = {};
+            actResults.forEach((r, i) => {
+                if (r.status === 'fulfilled') {
+                    perAgent[agents[i].id] = r.value;
+                    activities.push(...r.value.map((v: any) => ({ ...v, agent_id: agents[i].id })));
+                }
+            });
+            activities.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+            setAllActivities(activities.slice(0, 20));
+            setAgentActivities(perAgent);
+        } catch (e) { console.error('Failed to fetch activities:', e); }
+    }, [agents]);
 
-            try {
-                const actResults = await Promise.allSettled(agents.map(a => activityApi.list(a.id, 5)));
-                const activities: any[] = [];
-                const perAgent: Record<string, any[]> = {};
-                actResults.forEach((r, i) => {
-                    if (r.status === 'fulfilled') {
-                        perAgent[agents[i].id] = r.value;
-                        activities.push(...r.value.map((v: any) => ({ ...v, agent_id: agents[i].id })));
-                    }
-                });
-                activities.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-                setAllActivities(activities.slice(0, 20));
-                setAgentActivities(perAgent);
-            } catch (e) { console.error('Failed to fetch activities:', e); }
-        };
-        fetchData();
-        const interval = setInterval(fetchData, 30000);
-        return () => clearInterval(interval);
-    }, [agents.map(a => a.id).join(',')]);
+    useEffect(() => { if (agents.length > 0) fetchData(); }, [agents.length, fetchData]);
+
+    usePolling(fetchData, 30000, agents.length > 0);
 
     // Group tasks by agent
     const tasksByAgent = new Map<string, Task[]>();
@@ -404,32 +494,50 @@ export default function Dashboard() {
         tasksByAgent.get(t.agent_id)!.push(t);
     });
 
-    // Greeting
-    const hour = new Date().getHours();
-    const greeting = hour < 6 ? '🌙 ' + t('dashboard.greeting.lateNight') : hour < 12 ? '☀️ ' + t('dashboard.greeting.morning') : hour < 18 ? '🌤️ ' + t('dashboard.greeting.afternoon') : '🌙 ' + t('dashboard.greeting.evening');
+    const activeAgents = agents.filter(a => a.status === 'running' || a.status === 'idle').length;
+    const atRiskAgents = agents.filter(a => a.status === 'error' || a.status === 'disconnected' || a.status === 'stopped').length;
 
     return (
-        <div>
-            {/* Header */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
             <div style={{
-                display: 'flex', justifyContent: 'space-between',
-                alignItems: 'center', marginBottom: '28px',
+                borderRadius: '24px',
+                padding: '22px',
+                background: 'linear-gradient(135deg, rgba(24,144,255,0.12), rgba(12,18,28,0.82) 45%, rgba(5,6,10,0.96) 100%)',
+                border: '1px solid rgba(255,255,255,0.08)',
+                boxShadow: '0 24px 60px rgba(0,0,0,0.18)',
+                position: 'relative',
+                overflow: 'hidden',
             }}>
-                <div>
-                    <h1 style={{ fontSize: '20px', fontWeight: 600, margin: 0, marginBottom: '2px', letterSpacing: '-0.02em' }}>
-                        {greeting}
-                    </h1>
-                    <p style={{ fontSize: '13px', color: 'var(--text-tertiary)', margin: 0 }}>
-                        {t('dashboard.totalAgents', { count: agents.length })}
-                    </p>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', marginBottom: '18px', alignItems: 'flex-start' }}>
+                    <div style={{ maxWidth: '720px' }}>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '6px 10px', borderRadius: '999px', background: 'rgba(255,255,255,0.08)', color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '14px' }}>
+                            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--accent-primary)', boxShadow: '0 0 18px rgba(24,144,255,0.9)' }} />
+                            {t('dashboard.enterprise.overviewBadge', 'Enterprise Operations Overview')}
+                        </div>
+                        <h1 style={{ fontSize: '28px', lineHeight: 1.1, fontWeight: 700, margin: 0, color: 'var(--text-primary)', letterSpacing: '-0.04em' }}>
+                            {t('dashboard.enterprise.title', '董事长经营总览')}
+                        </h1>
+                        <p style={{ margin: '12px 0 0', color: 'var(--text-secondary)', fontSize: '13px', lineHeight: 1.75, maxWidth: '68ch' }}>
+                            {t('dashboard.enterprise.subtitle', '这里汇总公司运转、任务执行、数字员工产出、风险信号和成本趋势，帮助董事长快速判断业务健康度与战略节奏。')}
+                        </p>
+                    </div>
+                    <div style={{ display: 'grid', gap: '10px', minWidth: '260px', alignSelf: 'stretch' }}>
+                        <div style={{ padding: '14px 16px', borderRadius: '18px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>{t('dashboard.enterprise.focus', 'Current Focus')}</div>
+                            <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)' }}>{t('dashboard.enterprise.focusValue', '公司运行与收益监控')}</div>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                            <div style={{ padding: '12px 14px', borderRadius: '16px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{t('dashboard.enterprise.activeAgents', 'Active Agents')}</div>
+                                <div style={{ fontSize: '22px', fontWeight: 700, marginTop: '6px' }}>{activeAgents}</div>
+                            </div>
+                            <div style={{ padding: '12px 14px', borderRadius: '16px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{t('dashboard.enterprise.riskAgents', 'Risk')}</div>
+                                <div style={{ fontSize: '22px', fontWeight: 700, marginTop: '6px', color: atRiskAgents > 0 ? 'var(--warning)' : 'var(--success)' }}>{atRiskAgents}</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <button
-                    className="btn btn-primary"
-                    onClick={() => navigate('/agents/new')}
-                    style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-                >
-                    {Icons.plus} {t('nav.newAgent')}
-                </button>
             </div>
 
             {isLoading ? (
@@ -437,7 +545,7 @@ export default function Dashboard() {
                     {t('common.loading')}
                 </div>
             ) : agents.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '80px' }}>
+                <div style={{ textAlign: 'center', padding: '80px', border: '1px solid var(--border-subtle)', borderRadius: '24px', background: 'var(--bg-secondary)' }}>
                     <div style={{ color: 'var(--text-tertiary)', marginBottom: '4px', fontSize: '32px' }}>
                         {Icons.bot}
                     </div>
@@ -450,17 +558,12 @@ export default function Dashboard() {
                 </div>
             ) : (
                 <>
-                    {/* Stats Bar */}
-                    <StatsBar agents={agents} allTasks={allTasks} />
-
-                    {/* Agent List Card */}
                     <div style={{
                         border: '1px solid var(--border-subtle)',
-                        borderRadius: 'var(--radius-lg)',
+                        borderRadius: '24px',
                         overflow: 'hidden',
-                        marginBottom: '32px',
+                        background: 'rgba(255,255,255,0.02)',
                     }}>
-                        {/* Agent List Header */}
                         <div style={{
                             display: 'grid',
                             gridTemplateColumns: '220px 1fr 150px 100px',
@@ -468,6 +571,7 @@ export default function Dashboard() {
                             fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 500,
                             textTransform: 'uppercase' as const, letterSpacing: '0.05em',
                             borderBottom: '1px solid var(--border-subtle)',
+                            background: 'rgba(255,255,255,0.03)',
                         }}>
                             <span>{t('dashboard.table.agent')}</span>
                             <span>{t('dashboard.table.latestActivity')}</span>
@@ -475,7 +579,6 @@ export default function Dashboard() {
                             <span style={{ textAlign: 'right' }}>{t('dashboard.table.active')}</span>
                         </div>
 
-                        {/* Agent Rows (scrollable) */}
                         <div style={{ maxHeight: '350px', overflowY: 'auto' }}>
                             {agents
                                 .sort((a, b) => {
@@ -497,27 +600,50 @@ export default function Dashboard() {
                         </div>
                     </div>
 
-                    {/* Recent Activity */}
-                    <div style={{
-                        border: '1px solid var(--border-subtle)',
-                        borderRadius: 'var(--radius-lg)', overflow: 'hidden',
-                    }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1.15fr 0.85fr', gap: '18px' }}>
                         <div style={{
-                            padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)',
-                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                            border: '1px solid var(--border-subtle)',
+                            borderRadius: '24px', overflow: 'hidden', background: 'rgba(255,255,255,0.02)',
                         }}>
-                            <h3 style={{
-                                margin: 0, fontSize: '13px', fontWeight: 500,
-                                display: 'flex', alignItems: 'center', gap: '6px',
-                                color: 'var(--text-secondary)',
+                            <div style={{
+                                padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                background: 'rgba(255,255,255,0.03)',
                             }}>
-                                <span style={{ display: 'flex', opacity: 0.6 }}>{Icons.activity}</span>
-                                {t('dashboard.globalActivity')}
-                            </h3>
-                            <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{t('dashboard.recentCount', { count: 20 })}</span>
+                                <h3 style={{ margin: 0, fontSize: '13px', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)' }}>
+                                    <span style={{ display: 'flex', opacity: 0.6 }}>{Icons.activity}</span>
+                                    {t('dashboard.globalActivity')}
+                                </h3>
+                                <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{t('dashboard.recentCount', { count: 20 })}</span>
+                            </div>
+                            <div style={{ padding: '4px', maxHeight: '320px', overflowY: 'auto' }}>
+                                <ActivityFeed activities={allActivities} agents={agents} />
+                            </div>
                         </div>
-                        <div style={{ padding: '4px', maxHeight: '320px', overflowY: 'auto' }}>
-                            <ActivityFeed activities={allActivities} agents={agents} />
+
+                        <div style={{
+                            border: '1px solid var(--border-subtle)',
+                            borderRadius: '24px', background: 'rgba(255,255,255,0.02)', overflow: 'hidden',
+                        }}>
+                            <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)', background: 'rgba(255,255,255,0.03)' }}>
+                                <h3 style={{ margin: 0, fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)' }}>
+                                    {t('dashboard.enterprise.quickActions', 'Quick Actions')}
+                                </h3>
+                            </div>
+                            <div style={{ padding: '14px', display: 'grid', gap: '10px' }}>
+                                <button className="btn btn-secondary" onClick={() => navigate('/enterprise')} style={{ justifyContent: 'space-between' }}>
+                                    <span>{t('dashboard.enterprise.settings', 'Company Settings')}</span>
+                                    <span>↗</span>
+                                </button>
+                                <button className="btn btn-secondary" onClick={() => navigate('/agents/new')} style={{ justifyContent: 'space-between' }}>
+                                    <span>{t('nav.newAgent')}</span>
+                                    <span>+</span>
+                                </button>
+                                <button className="btn btn-secondary" onClick={() => navigate('/projects')} style={{ justifyContent: 'space-between' }}>
+                                    <span>{t('nav.projects', 'Projects')}</span>
+                                    <span>↗</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </>

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Listing</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        h1 {
+            color: #333;
+        }
+        ul {
+            list-style-type: none;
+            padding: 0;
+        }
+        li {
+            margin: 5px 0;
+            padding: 8px;
+            background-color: #fff;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Working Directory File Listing</h1>
+    <ul id="fileList">
+        <!-- Files will be listed here -->
+    </ul>
+
+    <script>
+        // Simulate fetching file list from a server or local directory
+        const files = ['index.html', 'style.css', 'script.js', 'README.md', 'package.json'];
+
+        const fileListElement = document.getElementById('fileList');
+        files.forEach(file => {
+            const listItem = document.createElement('li');
+            listItem.textContent = file;
+            fileListElement.appendChild(listItem);
+        });
+    </script>
+</body>
+</html>

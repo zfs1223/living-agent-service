@@ -1,0 +1,20 @@
+{
+  "data" : {
+    "executionId" : "409108a9-438a-46c9-a109-dae1ca4cbf37",
+    "receiptStatus" : "COMPLETED",
+    "employeeCode" : "T02",
+    "dispatchId" : "b3998365-fb13-431d-acc5-17ccf8c6b15b"
+  },
+  "type" : "execution_receipt_recorded",
+  "timestamp" : "2026-05-20T08:19:45.906744785Z"
+}
+{
+  "data" : {
+    "executionId" : "409108a9-438a-46c9-a109-dae1ca4cbf37",
+    "receiptStatus" : "COMPLETED",
+    "employeeCode" : "T09",
+    "dispatchId" : "88a5fef8-4b56-471d-86e1-3672de0a186d"
+  },
+  "type" : "execution_receipt_recorded",
+  "timestamp" : "2026-05-20T08:20:53.970274706Z"
+}

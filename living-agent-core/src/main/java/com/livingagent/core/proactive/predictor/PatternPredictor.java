@@ -2,12 +2,14 @@ package com.livingagent.core.proactive.predictor;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
+@Component
 public class PatternPredictor {
 
     private static final Logger log = LoggerFactory.getLogger(PatternPredictor.class);

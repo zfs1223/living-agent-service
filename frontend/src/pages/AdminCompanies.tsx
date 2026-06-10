@@ -1,26 +1,11 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { adminApi } from '../services/api';
-import { useAuthStore } from '../stores';
+import { adminApi, fetchJson } from '../services/api';
+import { useAuthStore, getToken } from '../stores';
 import { saveAccentColor, getSavedAccentColor } from '../utils/theme';
 import { IconFilter } from '@tabler/icons-react';
 import PlatformDashboard from './PlatformDashboard';
 import { copyToClipboard } from '../utils/clipboard';
-
-// Helper for authenticated JSON fetch
-async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
-    const token = localStorage.getItem('token');
-    const res = await fetch(`/api${url}`, {
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        ...options,
-    });
-    if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: res.statusText }));
-        throw new Error(err.detail || res.statusText);
-    }
-    return res.json();
-}
-
 
 // Format large token numbers with K/M/B suffixes
 function formatTokens(n: number | null | undefined): string {
@@ -126,7 +111,7 @@ function PlatformTab() {
         // Load platform toggles
         adminApi.getPlatformSettings().then(setSettings).catch(() => { });
         // Load notification bar
-        const token = localStorage.getItem('token');
+        const token = getToken();
         fetch('/api/enterprise/system-settings/notification_bar', {
             headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         }).then(r => r.json()).then(d => {
@@ -157,7 +142,7 @@ function PlatformTab() {
     const saveNotificationBar = async () => {
         setNbSaving(true);
         try {
-            const token = localStorage.getItem('token');
+            const token = getToken();
             await fetch('/api/enterprise/system-settings/notification_bar', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
@@ -837,7 +822,7 @@ function EditCompanyModal({ company, onClose, onUpdated }: { company: any, onClo
                             className="form-input"
                             value={ssoDomain}
                             onChange={e => setSsoDomain(e.target.value)}
-                            placeholder={t('admin.ssoDomainPlaceholder', 'e.g. acme.clawith.com')}
+                            placeholder={t('admin.ssoDomainPlaceholder', 'e.g. acme.living-agent.com')}
                             style={{ fontSize: '13px' }}
                         />
                     </div>

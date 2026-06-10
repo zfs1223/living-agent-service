@@ -1,5 +1,8 @@
 package com.livingagent.core.workflow;
 
+import com.livingagent.core.autonomy.TaskMetadataKeys;
+import com.livingagent.core.database.entity.TaskEntity;
+import com.livingagent.core.database.repository.TaskRepository;
 import com.livingagent.core.neuron.Neuron;
 import com.livingagent.core.project.*;
 import com.livingagent.core.channel.Channel;
@@ -22,13 +25,15 @@ public class WorkflowOrchestrator {
 
     private final ProjectService projectService;
     private final ChannelManager channelManager;
+    private final TaskRepository taskRepository;
     private final Map<String, PhaseHandler> phaseHandlers = new ConcurrentHashMap<>();
     private final Map<String, WorkflowExecution> activeWorkflows = new ConcurrentHashMap<>();
     private WorkflowMonitor monitor;
 
-    public WorkflowOrchestrator(ProjectService projectService, ChannelManager channelManager) {
+    public WorkflowOrchestrator(ProjectService projectService, ChannelManager channelManager, TaskRepository taskRepository) {
         this.projectService = projectService;
         this.channelManager = channelManager;
+        this.taskRepository = taskRepository;
         registerDefaultHandlers();
     }
 
@@ -151,6 +156,9 @@ public class WorkflowOrchestrator {
             execution.addPhaseResult(phase.getCode(), result);
         }
 
+        // 自动更新该阶段关联的任务状态为完成
+        updateRelatedTasksOnPhaseComplete(projectId, phase);
+
         if (monitor != null) {
             monitor.completeExecution(projectId);
         }
@@ -159,6 +167,32 @@ public class WorkflowOrchestrator {
 
         if (shouldAutoAdvance(project, phase)) {
             advancePhase(projectId);
+        }
+    }
+
+    /**
+     * 阶段完成时，自动更新该阶段的所有关联任务状态为完成
+     */
+    private void updateRelatedTasksOnPhaseComplete(String projectId, ProjectPhase phase) {
+        try {
+            List<TaskEntity> relatedTasks = taskRepository.findByProjectIdOrderByCreatedAtAsc(projectId);
+            int updated = 0;
+            for (TaskEntity task : relatedTasks) {
+                if (!"COMPLETED".equals(task.getStatus()) && !"FAILED".equals(task.getStatus())) {
+                    task.setStatus("COMPLETED");
+                    task.setCompletedAt(Instant.now());
+                    task.setUpdatedAt(Instant.now());
+                    taskRepository.save(task);
+                    updated++;
+                }
+            }
+            if (updated > 0) {
+                log.info("Auto-updated {} tasks to COMPLETED for project {} phase {}",
+                    updated, projectId, phase.getDisplayName());
+            }
+        } catch (Exception e) {
+            log.warn("Failed to auto-update tasks for project {} phase {}: {}",
+                projectId, phase.getDisplayName(), e.getMessage());
         }
     }
 
@@ -192,7 +226,7 @@ public class WorkflowOrchestrator {
         if (channelOpt.isPresent()) {
             Channel channel = channelOpt.get();
             Map<String, Object> payload = new HashMap<>();
-            payload.put("projectId", projectId);
+            payload.put(TaskMetadataKeys.PROJECT_ID, projectId);
             payload.put("phase", phase.getCode());
             payload.put("phaseName", phase.getDisplayName());
             payload.put("event", "PHASE_START");
@@ -215,7 +249,7 @@ public class WorkflowOrchestrator {
         if (channelOpt.isPresent()) {
             Channel channel = channelOpt.get();
             Map<String, Object> payload = new HashMap<>();
-            payload.put("projectId", projectId);
+            payload.put(TaskMetadataKeys.PROJECT_ID, projectId);
             payload.put("phase", phase.getCode());
             payload.put("phaseName", phase.getDisplayName());
             payload.put("event", "PHASE_COMPLETE");

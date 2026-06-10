@@ -172,7 +172,7 @@ public class DingTalkOAuthService implements OAuthService {
 
         if (founderService != null && founderService.isFirstUser()) {
             founderService.assignFounderRole(authContext);
-            log.info("First user detected, assigned Chairman role: {}", authContext.getName());
+            log.info("First user detected, assigned Enterprise role: {}", authContext.getName());
         } else {
             authContext.setIdentity(UserIdentity.INTERNAL_ACTIVE);
         }

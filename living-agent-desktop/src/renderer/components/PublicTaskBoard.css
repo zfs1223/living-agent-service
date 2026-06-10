@@ -1,0 +1,191 @@
+/**
+ * 桌面端公共任务栏样式
+ * 与 web 端 PublicTaskBoard.css 视觉一致，但类名前缀加 .desktop-public-task-board
+ * 防止与宿主页面其他组件类名冲突
+ */
+
+.desktop-public-task-board.public-task-board {
+  font-family: inherit;
+  color: #333;
+  background: #fff;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.desktop-public-task-board .board-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.desktop-public-task-board .board-header h3 {
+  margin: 0;
+  font-size: 18px;
+  color: #1f1f1f;
+}
+
+.desktop-public-task-board .my-credits {
+  font-size: 14px;
+  color: #666;
+}
+
+.desktop-public-task-board .credit-value {
+  color: #fa8c16;
+  font-weight: 600;
+  font-size: 16px;
+  margin-left: 4px;
+}
+
+.desktop-public-task-board .board-description p {
+  margin: 0 0 16px;
+  color: #888;
+  font-size: 13px;
+}
+
+.desktop-public-task-board .loading-state,
+.desktop-public-task-board .empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: #999;
+}
+
+.desktop-public-task-board .empty-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+}
+
+.desktop-public-task-board .empty-state p {
+  margin: 8px 0 4px;
+  font-size: 15px;
+  color: #666;
+}
+
+.desktop-public-task-board .empty-state span {
+  font-size: 12px;
+  color: #aaa;
+}
+
+.desktop-public-task-board .error-banner {
+  background: #fff2f0;
+  color: #cf1322;
+  border: 1px solid #ffccc7;
+  padding: 8px 12px;
+  border-radius: 4px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.desktop-public-task-board .task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.desktop-public-task-board .task-card {
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+  padding: 12px 16px;
+  background: #fafafa;
+  transition: box-shadow 0.2s;
+}
+
+.desktop-public-task-board .task-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.desktop-public-task-board .task-header {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.desktop-public-task-board .difficulty-badge,
+.desktop-public-task-board .priority-badge {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 500;
+}
+
+.desktop-public-task-board .task-body h4 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  color: #1f1f1f;
+}
+
+.desktop-public-task-board .task-description {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #555;
+  line-height: 1.5;
+}
+
+.desktop-public-task-board .task-meta {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 8px;
+}
+
+.desktop-public-task-board .meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.desktop-public-task-board .meta-label {
+  font-size: 11px;
+  color: #aaa;
+}
+
+.desktop-public-task-board .meta-value {
+  font-size: 13px;
+  color: #333;
+  font-weight: 500;
+}
+
+.desktop-public-task-board .task-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px dashed #eee;
+  padding-top: 8px;
+  margin-top: 4px;
+}
+
+.desktop-public-task-board .task-reward {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.desktop-public-task-board .reward-label {
+  font-size: 12px;
+  color: #999;
+}
+
+.desktop-public-task-board .reward-value {
+  font-size: 14px;
+  color: #fa8c16;
+  font-weight: 600;
+}
+
+.desktop-public-task-board .claim-btn {
+  background: #1890ff;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 16px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.desktop-public-task-board .claim-btn:hover:not(:disabled) {
+  background: #40a9ff;
+}
+
+.desktop-public-task-board .claim-btn:disabled {
+  background: #d9d9d9;
+  cursor: not-allowed;
+}

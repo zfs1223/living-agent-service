@@ -19,8 +19,8 @@
 | AgentApiController | `/api/agents` |
 | DepartmentApiController | `/api/dept` |
 | DepartmentController | `/api/departments` |
-| ChairmanApiController | `/api/chairman` |
-| SystemSettingsController | `/api/chairman/settings` |
+| EnterpriseApiController | `/api/enterprise` |
+| SystemSettingsController | `/api/enterprise/settings` |
 | EmployeeController | `/api/employees` |
 | PlazaController | `/api/plaza` |
 | MessageController | `/api/messages` |
@@ -44,9 +44,9 @@
 |---------|------------|---------|------|
 | `/api/org/users` | `/api/org/users` | ✅ 已存在 | 正常 |
 | `/api/tenants/{id}` | `/api/tenants/{tenantId}` | ✅ 已添加 | 正常 |
-| `/api/enterprise/stats` | 无 | 使用 `/api/chairman/dashboard` | ✅ 已修复 |
+| `/api/enterprise/stats` | 无 | 使用 `/api/enterprise/dashboard` | ✅ 已修复 |
 | `/api/enterprise/knowledge-base/files` | `/api/knowledge` | 修改前端调用 | 待测试 |
-| `/api/enterprise/system-settings/*` | `/api/chairman/settings` | 修改前端调用 | 待测试 |
+| `/api/enterprise/system-settings/*` | `/api/enterprise/settings` | 修改前端调用 | 待测试 |
 | `/api/voiceprints` | `/api/auth/voiceprint` | 修改前端调用 | 待测试 |
 | `/api/offices` | `/api/office` | 修改前端调用 | 待测试 |
 | `/api/evolution/*` | `/api/admin/*` | 修改前端调用 | 待测试 |

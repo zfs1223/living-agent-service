@@ -1,0 +1,30 @@
+{
+  "data" : {
+    "executionId" : "caa51b40-1451-4827-8287-6167f5e5f066",
+    "receiptStatus" : "DEGRADED",
+    "employeeCode" : "T01",
+    "dispatchId" : "9fb0a05c-5548-4d3b-a62f-549f8e9d94dc"
+  },
+  "type" : "execution_receipt_recorded",
+  "timestamp" : "2026-06-09T04:28:21.363066189Z"
+}
+{
+  "data" : {
+    "executionId" : "caa51b40-1451-4827-8287-6167f5e5f066",
+    "receiptStatus" : "DEGRADED",
+    "employeeCode" : "T02",
+    "dispatchId" : "58c211bc-e46d-4e75-aab9-78300b3a4098"
+  },
+  "type" : "execution_receipt_recorded",
+  "timestamp" : "2026-06-09T04:32:22.436639581Z"
+}
+{
+  "data" : {
+    "executionId" : "caa51b40-1451-4827-8287-6167f5e5f066",
+    "receiptStatus" : "COMPLETED",
+    "employeeCode" : "T07",
+    "dispatchId" : "886d074a-51c1-4341-b30a-b9f6c63c77b3"
+  },
+  "type" : "execution_receipt_recorded",
+  "timestamp" : "2026-06-09T04:33:41.564342723Z"
+}

@@ -3,7 +3,9 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { agentApi, channelApi, enterpriseApi, skillApi } from '../services/api';
+import { modelPoolApi } from '../services/modelPoolApi';
 import { useAuthStore } from '../stores';
+import { useToastStore } from '../stores/toastStore';
 import ChannelConfig from '../components/ChannelConfig';
 import { copyToClipboard } from '../utils/clipboard';
 
@@ -78,7 +80,7 @@ export default function AgentCreate() {
 
     // 判断是否为个人数字人创建模式（普通员工创建协助数字人）
     const isPersonalMode = searchParams.get('type') === 'personal';
-    const isChairman = user?.identity === 'INTERNAL_CHAIRMAN' || user?.access_level === 'FULL';
+    const isEnterprise = user?.identity === 'INTERNAL_ENTERPRISE' || user?.access_level === 'FULL';
 
     const [form, setForm] = useState({
         name: '',
@@ -97,10 +99,10 @@ export default function AgentCreate() {
     });
     const [channelValues, setChannelValues] = useState<Record<string, string>>({});
 
-    // Fetch LLM models for step 1
+    // Fetch LLM models for step 1 - from model pool
     const { data: models = [] } = useQuery({
-        queryKey: ['llm-models'],
-        queryFn: enterpriseApi.llmModels,
+        queryKey: ['model-pool', 'models'],
+        queryFn: () => modelPoolApi.models.list(),
     });
 
     // Fetch templates
@@ -263,8 +265,8 @@ export default function AgentCreate() {
             name: form.name,
             agent_type: agentType,
             role_description: form.role_description,
-            personality: agentType === 'native' ? form.personality : undefined,
-            boundaries: agentType === 'native' ? form.boundaries : undefined,
+            personality: agentType === 'native' ? (form.personality || null) : undefined,
+            boundaries: agentType === 'native' ? (form.boundaries || null) : undefined,
             primary_model_id: agentType === 'native' ? (form.primary_model_id || undefined) : undefined,
             fallback_model_id: agentType === 'native' ? (form.fallback_model_id || undefined) : undefined,
             template_id: form.template_id || undefined,
@@ -310,17 +312,17 @@ export default function AgentCreate() {
                                 padding: '12px', background: 'var(--bg-secondary)', borderRadius: '6px',
                                 fontSize: '11px', lineHeight: 1.6, overflow: 'auto', maxHeight: '280px',
                                 border: '1px solid var(--border-default)', whiteSpace: 'pre-wrap',
-                            }}>{`Please create a skill file at skills/clawith_sync.md with the following content, then add "Check Clawith inbox using the clawith_sync skill and process any pending messages" to your HEARTBEAT.md:
+                            }}>{`Please create a skill file at skills/living_agent_sync.md with the following content, then add "Check Living Agent inbox using the living_agent_sync skill and process any pending messages" to your HEARTBEAT.md:
 
 ---
-name: clawith_sync
-description: Sync with Clawith platform — check inbox, submit results, and send messages.
+name: living_agent_sync
+description: Sync with Living Agent platform — check inbox, submit results, and send messages.
 ---
 
-# Clawith Sync
+# Living Agent Sync
 
 ## When to use
-Check for new messages from the Clawith platform during every heartbeat cycle.
+Check for new messages from the Living Agent platform during every heartbeat cycle.
 You can also proactively send messages to people and agents in your relationships.
 
 ## Instructions
@@ -333,7 +335,7 @@ Make an HTTP GET request:
 The response contains a \`messages\` array. Each message includes:
 - \`id\` — unique message ID (use this for reporting)
 - \`content\` — the message text
-- \`sender_user_name\` — name of the Clawith user who sent it
+- \`sender_user_name\` — name of the Living Agent user who sent it
 - \`sender_user_id\` — unique ID of the sender
 - \`conversation_id\` — the conversation this message belongs to
 - \`history\` — array of previous messages in this conversation for context
@@ -365,7 +367,7 @@ The system auto-detects the best channel. For agents, the reply appears in your 
 For humans, the message is delivered via their available channel (e.g. Feishu).`}</pre>
                             <button className="btn btn-ghost" style={{ position: 'absolute', top: '4px', right: '4px', fontSize: '11px' }}
                                 onClick={() => {
-                                    const text = `Please create a skill file at skills/clawith_sync.md with the following content, then add "Check Clawith inbox using the clawith_sync skill and process any pending messages" to your HEARTBEAT.md:\n\n---\nname: clawith_sync\ndescription: Sync with Clawith platform — check inbox, submit results, and send messages.\n---\n\n# Clawith Sync\n\n## When to use\nCheck for new messages from the Clawith platform during every heartbeat cycle.\nYou can also proactively send messages to people and agents in your relationships.\n\n## Instructions\n\n### 1. Check inbox\nMake an HTTP GET request:\n- URL: ${window.location.origin}/api/gateway/poll\n- Header: X-Api-Key: ${createdApiKey}\n\nThe response contains a \`messages\` array. Each message includes:\n- \`id\` — unique message ID (use this for reporting)\n- \`content\` — the message text\n- \`sender_user_name\` — name of the Clawith user who sent it\n- \`sender_user_id\` — unique ID of the sender\n- \`conversation_id\` — the conversation this message belongs to\n- \`history\` — array of previous messages in this conversation for context\n\nThe response also contains a \`relationships\` array describing your colleagues:\n- \`name\` — the person or agent name\n- \`type\` — "human" or "agent"\n- \`role\` — relationship type (e.g. collaborator, supervisor)\n- \`channels\` — available communication channels (e.g. ["feishu"], ["agent"])\n\n**IMPORTANT**: Use the \`history\` array to understand conversation context before replying.\nDifferent \`sender_user_name\` values mean different people — address them accordingly.\n\n### 2. Report results\nFor each completed message, make an HTTP POST request:\n- URL: ${window.location.origin}/api/gateway/report\n- Header: X-Api-Key: ${createdApiKey}\n- Header: Content-Type: application/json\n- Body: {"message_id": "<id from the message>", "result": "<your response>"}\n\n### 3. Send a message to someone\nTo proactively contact a person or agent, make an HTTP POST request:\n- URL: ${window.location.origin}/api/gateway/send-message\n- Header: X-Api-Key: ${createdApiKey}\n- Header: Content-Type: application/json\n- Body: {"target": "<name of person or agent>", "content": "<your message>"}\n\nThe system auto-detects the best channel. For agents, the reply appears in your next poll.\nFor humans, the message is delivered via their available channel (e.g. Feishu).`;
+                                    const text = `Please create a skill file at skills/living_agent_sync.md with the following content, then add "Check Living Agent inbox using the living_agent_sync skill and process any pending messages" to your HEARTBEAT.md:\n\n---\nname: living_agent_sync\ndescription: Sync with Living Agent platform — check inbox, submit results, and send messages.\n---\n\n# Living Agent Sync\n\n## When to use\nCheck for new messages from the Living Agent platform during every heartbeat cycle.\nYou can also proactively send messages to people and agents in your relationships.\n\n## Instructions\n\n### 1. Check inbox\nMake an HTTP GET request:\n- URL: ${window.location.origin}/api/gateway/poll\n- Header: X-Api-Key: ${createdApiKey}\n\nThe response contains a \`messages\` array. Each message includes:\n- \`id\` — unique message ID (use this for reporting)\n- \`content\` — the message text\n- \`sender_user_name\` — name of the Living Agent user who sent it\n- \`sender_user_id\` — unique ID of the sender\n- \`conversation_id\` — the conversation this message belongs to\n- \`history\` — array of previous messages in this conversation for context\n\nThe response also contains a \`relationships\` array describing your colleagues:\n- \`name\` — the person or agent name\n- \`type\` — "human" or "agent"\n- \`role\` — relationship type (e.g. collaborator, supervisor)\n- \`channels\` — available communication channels (e.g. ["feishu"], ["agent"])\n\n**IMPORTANT**: Use the \`history\` array to understand conversation context before replying.\nDifferent \`sender_user_name\` values mean different people — address them accordingly.\n\n### 2. Report results\nFor each completed message, make an HTTP POST request:\n- URL: ${window.location.origin}/api/gateway/report\n- Header: X-Api-Key: ${createdApiKey}\n- Header: Content-Type: application/json\n- Body: {"message_id": "<id from the message>", "result": "<your response>"}\n\n### 3. Send a message to someone\nTo proactively contact a person or agent, make an HTTP POST request:\n- URL: ${window.location.origin}/api/gateway/send-message\n- Header: X-Api-Key: ${createdApiKey}\n- Header: Content-Type: application/json\n- Body: {"target": "<name of person or agent>", "content": "<your message>"}\n\nThe system auto-detects the best channel. For agents, the reply appears in your next poll.\nFor humans, the message is delivered via their available channel (e.g. Feishu).`;
                                     copyToClipboard(text);
                                 }}
                             >{t('common.copy', 'Copy')}</button>
@@ -414,7 +416,7 @@ For humans, the message is delivered via their available channel (e.g. Feishu).`
                 }}
             >
                 <div style={{ fontWeight: 600, fontSize: '14px', marginBottom: '4px' }}>{t('openclaw.nativeTitle', 'Platform Hosted')}</div>
-                <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{t('openclaw.nativeDesc', 'Full agent running on Clawith platform')}</div>
+                <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{t('openclaw.nativeDesc', 'Full agent running on Living Agent platform')}</div>
             </div>
             <div
                 onClick={() => { setAgentType('openclaw'); setStep(0); }}
@@ -622,7 +624,7 @@ For humans, the message is delivered via their available channel (e.g. Feishu).`
                                                         template_id: '',
                                                     }));
                                                 } catch {
-                                                    alert('Invalid JSON file');
+                                                    useToastStore.getState().showToast('Invalid JSON file', 'error');
                                                 }
                                             };
                                             reader.readAsText(file);
@@ -663,8 +665,11 @@ For humans, the message is delivered via their available channel (e.g. Feishu).`
                                             <input type="radio" name="model" checked={form.primary_model_id === m.id}
                                                 onChange={() => { setForm({ ...form, primary_model_id: m.id }); clearFieldError('primary_model_id'); }} />
                                             <div>
-                                                <div style={{ fontWeight: 500, fontSize: '13px' }}>{m.label}</div>
-                                                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{m.provider}/{m.model}</div>
+                                                <div style={{ fontWeight: 500, fontSize: '13px' }}>{m.displayName || m.modelName}</div>
+                                                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                                                    {m.providerId}{m.contextWindow ? ` · ${m.contextWindow.toLocaleString()} context` : ''}
+                                                    {m.recommended ? ' · 推荐' : ''}
+                                                </div>
                                             </div>
                                         </label>
                                     ))}
@@ -863,7 +868,7 @@ For humans, the message is delivered via their available channel (e.g. Feishu).`
             {/* Summary sidebar */}
             {selectedModel && (
                 <div style={{ marginTop: '16px', padding: '12px', background: 'var(--bg-elevated)', borderRadius: '8px', fontSize: '12px', color: 'var(--text-secondary)', maxWidth: '640px', marginBottom: '80px' }}>
-                    <strong>{form.name || t('wizard.summary.unnamed')}</strong> · {t('wizard.summary.model')}: {selectedModel.label}
+                    <strong>{form.name || t('wizard.summary.unnamed')}</strong> · {t('wizard.summary.model')}: {selectedModel.displayName || selectedModel.modelName}
                     {form.max_tokens_per_day && ` · ${t('wizard.summary.dailyLimit')}: ${Number(form.max_tokens_per_day).toLocaleString()}`}
                 </div>
             )}

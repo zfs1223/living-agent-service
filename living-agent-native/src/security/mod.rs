@@ -1,10 +1,12 @@
 mod validator;
 mod policy;
 mod sandbox;
+mod bash_validator;
 
 pub use validator::{SecurityValidator, ValidationResult};
 pub use policy::{CommandPolicy, PathPolicy, SecurityPolicy};
 pub use sandbox::{Sandbox, SandboxConfig};
+pub use bash_validator::{BashSecurityValidator, BashValidationResult, BashThreatType};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SecurityLevel {

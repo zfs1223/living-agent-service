@@ -1,6 +1,6 @@
 package com.livingagent.core.security.sync;
 
-import com.livingagent.core.security.Employee;
+import com.livingagent.core.security.SecurityIdentity;
 import com.livingagent.core.security.Department;
 
 import java.util.List;
@@ -13,7 +13,7 @@ public interface HrSyncAdapter {
     
     boolean testConnection();
     
-    List<Employee> fetchEmployees();
+    List<SecurityIdentity> fetchEmployees();
     
     List<Department> fetchDepartments();
     
@@ -21,9 +21,9 @@ public interface HrSyncAdapter {
     
     SyncResult syncDepartments();
     
-    Employee fetchEmployeeById(String employeeId);
-    
-    List<Employee> fetchEmployeesByDepartment(String departmentId);
+    SecurityIdentity fetchEmployeeById(String employeeId);
+
+    List<SecurityIdentity> fetchEmployeesByDepartment(String departmentId);
     
     record SyncResult(
             int totalProcessed,

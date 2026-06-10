@@ -26,6 +26,7 @@ public class GitLabTool implements Tool {
     private final HttpClient httpClient;
     private String gitlabUrl;
     private String accessToken;
+    private Map<String, String> employeeAccounts;
 
     private final AtomicLong totalCalls = new AtomicLong(0);
     private final AtomicLong successfulCalls = new AtomicLong(0);
@@ -63,6 +64,24 @@ public class GitLabTool implements Tool {
         this.accessToken = accessToken;
     }
 
+    public void setEmployeeAccounts(Map<String, String> employeeAccounts) {
+        this.employeeAccounts = employeeAccounts != null ? employeeAccounts : Map.of();
+        log.info("GitLabTool configured with {} employee accounts: {}",
+            this.employeeAccounts.size(),
+            this.employeeAccounts.keySet());
+    }
+
+    private String resolveAccessToken(ToolContext context) {
+        if (context != null && context.employeeCode() != null && employeeAccounts != null) {
+            String employeeToken = employeeAccounts.get(context.employeeCode());
+            if (employeeToken != null && !employeeToken.isEmpty()) {
+                log.debug("Using employee-specific GitLab token for employee: {}", context.employeeCode());
+                return employeeToken;
+            }
+        }
+        return accessToken;
+    }
+
     @Override
     public String getName() { return NAME; }
 
@@ -88,26 +107,28 @@ public class GitLabTool implements Tool {
         long startTime = System.currentTimeMillis();
         totalCalls.incrementAndGet();
 
-        if (gitlabUrl == null || accessToken == null) {
+        if (gitlabUrl == null) {
             return ToolResult.failure(
                 java.util.UUID.randomUUID().toString(),
                 NAME,
-                "GitLab未配置，请设置gitlabUrl和accessToken",
+                "GitLab未配置，请设置gitlabUrl",
                 Duration.ZERO
             );
         }
 
+        String effectiveToken = resolveAccessToken(context);
+
         try {
             String action = params.getString("action");
             Object result = switch (action) {
-                case "list_projects" -> listProjects(params);
-                case "get_project" -> getProject(params);
-                case "list_mrs" -> listMergeRequests(params);
-                case "get_mr" -> getMergeRequest(params);
-                case "create_mr_comment" -> createMrComment(params);
-                case "list_commits" -> listCommits(params);
-                case "get_file" -> getFile(params);
-                case "search" -> search(params);
+                case "list_projects" -> listProjects(params, effectiveToken);
+                case "get_project" -> getProject(params, effectiveToken);
+                case "list_mrs" -> listMergeRequests(params, effectiveToken);
+                case "get_mr" -> getMergeRequest(params, effectiveToken);
+                case "create_mr_comment" -> createMrComment(params, effectiveToken);
+                case "list_commits" -> listCommits(params, effectiveToken);
+                case "get_file" -> getFile(params, effectiveToken);
+                case "search" -> search(params, effectiveToken);
                 default -> throw new IllegalArgumentException("未知操作: " + action);
             };
 
@@ -135,59 +156,59 @@ public class GitLabTool implements Tool {
         }
     }
 
-    private Object listProjects(ToolParams params) throws Exception {
+    private Object listProjects(ToolParams params, String token) throws Exception {
         String endpoint = "/api/v4/projects";
         String query = params.getString("search_query");
         if (query != null && !query.isEmpty()) {
             endpoint += "?search=" + URLEncoder.encode(query, "UTF-8");
         }
-        return doGet(endpoint);
+        return doGet(endpoint, token);
     }
 
-    private Object getProject(ToolParams params) throws Exception {
+    private Object getProject(ToolParams params, String token) throws Exception {
         String projectId = params.getString("project_id");
         if (projectId == null) {
             throw new IllegalArgumentException("缺少project_id参数");
         }
-        return doGet("/api/v4/projects/" + URLEncoder.encode(projectId, "UTF-8"));
+        return doGet("/api/v4/projects/" + URLEncoder.encode(projectId, "UTF-8"), token);
     }
 
-    private Object listMergeRequests(ToolParams params) throws Exception {
+    private Object listMergeRequests(ToolParams params, String token) throws Exception {
         String projectId = params.getString("project_id");
         String endpoint = projectId != null
             ? "/api/v4/projects/" + URLEncoder.encode(projectId, "UTF-8") + "/merge_requests"
             : "/api/v4/merge_requests";
-        return doGet(endpoint);
+        return doGet(endpoint, token);
     }
 
-    private Object getMergeRequest(ToolParams params) throws Exception {
+    private Object getMergeRequest(ToolParams params, String token) throws Exception {
         String projectId = params.getString("project_id");
         Integer mrIid = params.getInteger("mr_iid");
         if (projectId == null || mrIid == null) {
             throw new IllegalArgumentException("缺少project_id或mr_iid参数");
         }
-        return doGet("/api/v4/projects/" + URLEncoder.encode(projectId, "UTF-8") + 
-                    "/merge_requests/" + mrIid);
+        return doGet("/api/v4/projects/" + URLEncoder.encode(projectId, "UTF-8") +
+                    "/merge_requests/" + mrIid, token);
     }
 
-    private Object createMrComment(ToolParams params) throws Exception {
+    private Object createMrComment(ToolParams params, String token) throws Exception {
         String projectId = params.getString("project_id");
         Integer mrIid = params.getInteger("mr_iid");
         String comment = params.getString("comment");
-        
+
         if (projectId == null || mrIid == null || comment == null) {
             throw new IllegalArgumentException("缺少必要参数");
         }
 
         String body = "{\"body\":\"" + escapeJson(comment) + "\"}";
-        return doPost("/api/v4/projects/" + URLEncoder.encode(projectId, "UTF-8") + 
-                     "/merge_requests/" + mrIid + "/notes", body);
+        return doPost("/api/v4/projects/" + URLEncoder.encode(projectId, "UTF-8") +
+                     "/merge_requests/" + mrIid + "/notes", body, token);
     }
 
-    private Object listCommits(ToolParams params) throws Exception {
+    private Object listCommits(ToolParams params, String token) throws Exception {
         String projectId = params.getString("project_id");
         String ref = params.getString("ref");
-        
+
         if (projectId == null) {
             throw new IllegalArgumentException("缺少project_id参数");
         }
@@ -196,52 +217,56 @@ public class GitLabTool implements Tool {
         if (ref != null) {
             endpoint += "?ref_name=" + URLEncoder.encode(ref, "UTF-8");
         }
-        return doGet(endpoint);
+        return doGet(endpoint, token);
     }
 
-    private Object getFile(ToolParams params) throws Exception {
+    private Object getFile(ToolParams params, String token) throws Exception {
         String projectId = params.getString("project_id");
         String filePath = params.getString("file_path");
         String ref = params.getString("ref");
-        
+
         if (projectId == null || filePath == null) {
             throw new IllegalArgumentException("缺少project_id或file_path参数");
         }
 
-        String endpoint = "/api/v4/projects/" + URLEncoder.encode(projectId, "UTF-8") + 
+        String endpoint = "/api/v4/projects/" + URLEncoder.encode(projectId, "UTF-8") +
                          "/repository/files/" + URLEncoder.encode(filePath, "UTF-8");
         if (ref != null) {
             endpoint += "?ref=" + URLEncoder.encode(ref, "UTF-8");
         }
-        return doGet(endpoint);
+        return doGet(endpoint, token);
     }
 
-    private Object search(ToolParams params) throws Exception {
+    private Object search(ToolParams params, String token) throws Exception {
         String query = params.getString("search_query");
         if (query == null || query.isEmpty()) {
             throw new IllegalArgumentException("缺少search_query参数");
         }
-        return doGet("/api/v4/search?query=" + URLEncoder.encode(query, "UTF-8"));
+        return doGet("/api/v4/search?query=" + URLEncoder.encode(query, "UTF-8"), token);
     }
 
-    private Object doGet(String endpoint) throws Exception {
-        HttpRequest request = HttpRequest.newBuilder()
+    private Object doGet(String endpoint, String token) throws Exception {
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
             .uri(URI.create(gitlabUrl + endpoint))
-            .header("PRIVATE-TOKEN", accessToken)
-            .GET()
-            .build();
+            .GET();
+        if (token != null && !token.isEmpty()) {
+            builder.header("PRIVATE-TOKEN", token);
+        }
+        HttpRequest request = builder.build();
 
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         return parseResponse(response);
     }
 
-    private Object doPost(String endpoint, String body) throws Exception {
-        HttpRequest request = HttpRequest.newBuilder()
+    private Object doPost(String endpoint, String body, String token) throws Exception {
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
             .uri(URI.create(gitlabUrl + endpoint))
-            .header("PRIVATE-TOKEN", accessToken)
             .header("Content-Type", "application/json")
-            .POST(HttpRequest.BodyPublishers.ofString(body))
-            .build();
+            .POST(HttpRequest.BodyPublishers.ofString(body));
+        if (token != null && !token.isEmpty()) {
+            builder.header("PRIVATE-TOKEN", token);
+        }
+        HttpRequest request = builder.build();
 
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         return parseResponse(response);

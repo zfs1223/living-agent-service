@@ -4,7 +4,7 @@ import com.livingagent.core.proactive.alert.AlertNotifier;
 import com.livingagent.core.proactive.alert.AlertNotifier.Alert;
 import com.livingagent.core.proactive.event.EventHookManager;
 import com.livingagent.core.proactive.event.HookEvent;
-import com.livingagent.core.security.Employee;
+import com.livingagent.core.security.SecurityIdentity;
 import com.livingagent.core.security.UserIdentity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,7 +47,7 @@ public class EmployeeOnboardingHandler {
         }
     }
 
-    public OnboardingResult prepareOnboarding(Employee employee) {
+    public OnboardingResult prepareOnboarding(SecurityIdentity employee) {
         log.info("Preparing onboarding for new employee: {}", employee.getName());
 
         OnboardingChecklist checklist = generateChecklist(employee);
@@ -68,7 +68,7 @@ public class EmployeeOnboardingHandler {
         );
     }
 
-    private OnboardingChecklist generateChecklist(Employee employee) {
+    private OnboardingChecklist generateChecklist(SecurityIdentity employee) {
         List<ChecklistItem> items = new ArrayList<>();
 
         items.add(new ChecklistItem(
@@ -154,7 +154,7 @@ public class EmployeeOnboardingHandler {
         );
     }
 
-    private List<OnboardingTask> createOnboardingTasks(Employee employee, OnboardingChecklist checklist) {
+    private List<OnboardingTask> createOnboardingTasks(SecurityIdentity employee, OnboardingChecklist checklist) {
         List<OnboardingTask> tasks = new ArrayList<>();
         
         for (ChecklistItem item : checklist.items()) {
@@ -177,7 +177,7 @@ public class EmployeeOnboardingHandler {
         return tasks;
     }
 
-    private void notifyRelevantParties(Employee employee, OnboardingChecklist checklist) {
+    private void notifyRelevantParties(SecurityIdentity employee, OnboardingChecklist checklist) {
         Set<String> parties = new HashSet<>();
         parties.add("HR");
         parties.add("IT");
@@ -207,7 +207,7 @@ public class EmployeeOnboardingHandler {
         }
     }
 
-    private String buildNotificationContent(Employee employee, OnboardingChecklist checklist) {
+    private String buildNotificationContent(SecurityIdentity employee, OnboardingChecklist checklist) {
         StringBuilder content = new StringBuilder();
         
         content.append("### 新员工入职准备\n\n");
@@ -242,7 +242,7 @@ public class EmployeeOnboardingHandler {
             String name = event.getString("name");
             String department = event.getString("department");
             
-            Employee employee = new Employee();
+            SecurityIdentity employee = new SecurityIdentity();
             employee.setEmployeeId(employeeId);
             employee.setName(name);
             employee.setDepartment(department);

@@ -7,10 +7,11 @@ spring:
   profiles:
     active: dev
   
+ 
   datasource:
-    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/livingagent}
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/livingagent?charSet=UTF-8}
     username: ${DATABASE_USERNAME:livingagent}
-    password: ${DATABASE_PASSWORD:livingagent123}
+    password: ${DATABASE_PASSWORD:}
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 20
@@ -22,11 +23,11 @@ spring:
   
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: none
+    open-in-view: false
     show-sql: false
     properties:
       hibernate:
-        dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: true
         jdbc:
           batch_size: 50
@@ -67,6 +68,11 @@ logging:
   level:
     root: INFO
     com.livingagent: DEBUG
+    # 降噪：高频非关键日志降为 INFO
+    com.livingagent.core.employee.impl.DigitalEmployee: INFO
+    com.livingagent.core.evolution: INFO
+    com.livingagent.core.knowledge: INFO
+    com.livingagent.gateway.service.FounderService: INFO
 
 # ===========================================
 # 本地AI模型配置 (参考dialogue-service)
@@ -81,7 +87,7 @@ ai-models:
   # ===========================================
   ollama:
     enabled: ${OLLAMA_ENABLED:true}
-    base-url: ${OLLAMA_BASE_URL:http://192.168.0.249:2025}
+    base-url: ${OLLAMA_BASE_URL:http://host.docker.internal:11434}
     # 当前可用模型: qwen3.5:9b, qwen2.5:3b, qwen2.5:latest, deepseek-r1:14b, llama3.2:latest
     # 部署 qwen3.5:27b 后改为: qwen3.5:27b
     default-model: ${OLLAMA_DEFAULT_MODEL:qwen3.5:9b}
@@ -102,14 +108,14 @@ ai-models:
         description: "Qwen2.5 7.6B - 中等规模模型"
         max-tokens: 4096
         temperature: 0.7
-      - name: deepseek-r1:14b
+      - name: deepseek-r1:1.5b
         enabled: true
-        description: "DeepSeek R1 14B - 推理增强模型"
+        description: "DeepSeek R1 1.5B - 推理增强模型"
         max-tokens: 4096
         temperature: 0.7
-      - name: llama3.2:latest
+      - name: llama3:8B
         enabled: true
-        description: "Llama3.2 3.2B - Meta轻量模型"
+        description: "Llama3 8B - Meta轻量模型"
         max-tokens: 2048
         temperature: 0.7
       - name: qwen2.5-coder:3b
@@ -137,37 +143,14 @@ ai-models:
         python-script: ${PYTHON_SCRIPTS_PATH:/opt/python_scripts}/llm/run_qwen3.py
       # Qwen3.5-2B - 默认工具神经元模型 (通过 Ollama)
       - name: qwen3.5-2b
-        type: ollama
-        enabled: ${OLLAMA_ENABLED:true}
-        ollama-url: ${OLLAMA_BASE_URL:http://192.168.0.249:2025}
-        ollama-model: qwen3.5:2b
-        max-tokens: 4096
-        temperature: 0.7
-        description: "Qwen3.5-2B - 默认工具神经元模型"
-      # BitNet-1.58-3B - 资源受限场景备选
-      - name: bitnet-1.58-3b
         type: local
         enabled: true
-        model-path: ${AI_MODELS_PATH:/app/ai-models}/BitNet/ggml-model-i2_s.gguf
-        binary-path: ${AI_MODELS_PATH:/app/ai-models}/BitNet/compiled/bin/llama-cli
+        model-path: ${AI_MODELS_PATH:/app/ai-models}/Qwen3.5-2B-GGUF/Qwen3.5-2B-Q4_K_M.gguf
         max-tokens: 2048
         temperature: 0.7
-        description: "BitNet-1.58-3B - 资源受限场景备选"
-      # Ollama 远程模型作为本地模型的补充
-      - name: ollama-qwen3.5
-        type: ollama
-        enabled: ${OLLAMA_ENABLED:true}
-        ollama-url: ${OLLAMA_BASE_URL:http://192.168.0.249:2025}
-        ollama-model: qwen3.5:9b
-        max-tokens: 4096
-        temperature: 0.7
-      - name: ollama-deepseek
-        type: ollama
-        enabled: ${OLLAMA_ENABLED:true}
-        ollama-url: ${OLLAMA_BASE_URL:http://192.168.0.249:2025}
-        ollama-model: deepseek-r1:14b
-        max-tokens: 4096
-        temperature: 0.7
+        python-script: ${PYTHON_SCRIPTS_PATH:/opt/python_scripts}/llm/run_qwen3.py
+      # BitNet-1.58-3B - 资源受限场景备选
+      
   
   # ASR配置 - 本地FunASR/Sherpa-NCNN
   asr:
@@ -229,6 +212,38 @@ agent:
     timeout-sec: 60
 
 # ===========================================
+# 工具开关配置
+# ===========================================
+tool:
+  claude-cli:
+    enabled: ${CLAUDE_CLI_ENABLED:false}
+  openproject:
+    base-url: ${OPENPROJECT_BASE_URL:}
+    api-token: ${OPENPROJECT_API_TOKEN:}
+  jira:
+    base-url: ${JIRA_BASE_URL:}
+    email: ${JIRA_EMAIL:}
+    api-token: ${JIRA_API_TOKEN:}
+    employee-accounts:
+      T02: ${JIRA_TOKEN_T02:}
+      C02: ${JIRA_TOKEN_C02:}
+  gitlab:
+    base-url: ${GITLAB_BASE_URL:}
+    access-token: ${GITLAB_ACCESS_TOKEN:}
+    employee-accounts:
+      T01: ${GITLAB_TOKEN_T01:}
+      T02: ${GITLAB_TOKEN_T02:}
+      T03: ${GITLAB_TOKEN_T03:}
+      T09: ${GITLAB_TOKEN_T09:}
+      T10: ${GITLAB_TOKEN_T10:}
+  jenkins:
+    base-url: ${JENKINS_BASE_URL:}
+    username: ${JENKINS_USERNAME:}
+    api-token: ${JENKINS_API_TOKEN:}
+    employee-accounts:
+      T03: ${JENKINS_TOKEN_T03:}
+
+# ===========================================
 # Tool Neuron 模型选择配置
 # ===========================================
 tool-neuron:
@@ -264,6 +279,12 @@ channels:
     text:
       id: channel://perception/text
       type: UNICAST
+    sensor:
+      id: channel://perception/sensor-data
+      type: BROADCAST
+    sensor-alert:
+      id: channel://perception/sensor-alert
+      type: BROADCAST
   dispatch:
     tech:
       id: channel://tech/tasks
@@ -311,6 +332,51 @@ living-agent:
       base-url: ${MEMOS_BASE_URL:http://memos:8381}
   knowledge:
     backend: sqlite
+  brain:
+    compact:
+      enabled: true
+      native-enabled: ${LIVING_AGENT_COMPACT_NATIVE_ENABLED:false}
+      context-limit: 50000
+      persist-dir: ${LIVING_AGENT_DATA_PATH:/app/data}/compact-outputs
+  worktree:
+    repo-root: ${LIVING_AGENT_DATA_PATH:/app/data}/repo
+  professional-knowledge:
+    enabled: ${PROFESSIONAL_KNOWLEDGE_ENABLED:true}
+    agency-agents-path: ${AGENCY_AGENTS_PATH:/app/data/agency-agents}
+  claude-cli:
+    enabled: ${CLAUDE_CLI_ENABLED:true}
+    command: claude
+    workspace: ./agent_workspace
+    default-output-format: stream-json
+    dangerously-skip-permissions: true
+    allowed-dirs:
+      - ./agent_workspace
+    max-concurrent-sessions: 3
+    session-timeout-minutes: 30
+    job-timeout-minutes: 60
+    proxy:
+      enabled: ${CLAUDE_CLI_PROXY_ENABLED:true}
+      base-url: ${CLAUDE_CLI_PROXY_BASE_URL:http://localhost:8480/api/v1/proxy/anthropic}
+      api-url: ${CLAUDE_CLI_PROXY_API_URL:http://localhost:8480/api/v1/proxy/anthropic/v1}
+      api-key-placeholder: sk-living-agent-claude-proxy
+      auth-token: ${CLAUDE_CLI_PROXY_AUTH_TOKEN:}
+      require-auth: ${CLAUDE_CLI_PROXY_REQUIRE_AUTH:false}
+      default-brain-id: ${CLAUDE_CLI_PROXY_DEFAULT_BRAIN:tech}
+      default-department-id: ${CLAUDE_CLI_PROXY_DEFAULT_DEPT:tech}
+      default-task-type: ${CLAUDE_CLI_PROXY_DEFAULT_TASK:code_generation}
+      stream-timeout-seconds: ${CLAUDE_CLI_PROXY_STREAM_TIMEOUT:600}
+      max-input-tokens: 120000
+      max-output-tokens: 8192
+      audit-enabled: ${CLAUDE_CLI_PROXY_AUDIT_ENABLED:true}
+      push-stream-events: ${CLAUDE_CLI_PROXY_PUSH_EVENTS:true}
+      virtual-model-mapping:
+        claude-sonnet-4-20250514: balanced
+        claude-sonnet-4: balanced
+        claude-opus-4-20250514: powerful
+        claude-opus-4: powerful
+        claude-haiku-4-20250514: fast
+        claude-haiku-4: fast
+
 
 # ===========================================
 # 记忆系统配置
@@ -321,13 +387,38 @@ memory:
   # SQLite 配置 (本地缓存/兜底)
   sqlite:
     path: ${LIVING_AGENT_DATA_PATH:/app/data}/memory.db
-  # MemOS 配置 (完整模式)
+  # MemPalace 配置 (实时记忆层 - 本地 stdio MCP)
+  mempalace:
+    enabled: ${MEMPALACE_ENABLED:false}
+    palace-path: ${MEMPALACE_PATH:/app/data/palace}
+    python-command: ${MEMPALACE_PYTHON:python}
+    timeout-ms: 5000
+  # MemOS 配置 (长期记忆层)
   memos:
     enabled: ${MEMOS_ENABLED:false}
     base-url: ${MEMOS_BASE_URL:http://memos:8381}
     timeout: 30000
     default-cube-id: ${MEMOS_DEFAULT_CUBE_ID:living-agent}
     user-id: ${MEMOS_USER_ID:living-agent-system}
+  # 路由策略
+  routing:
+    realtime:
+      provider: mempalace
+      priority: HIGH
+      timeout-ms: 100
+    longterm:
+      provider: memos
+      priority: MEDIUM
+      timeout-ms: 500
+    fallback:
+      provider: sqlite
+      priority: LOW
+      timeout-ms: 10
+  # 同步配置
+  sync:
+    enabled: true
+    interval-minutes: 60
+    batch-size: 100
   # 查询配置
   query:
     max-results: 20
@@ -342,6 +433,14 @@ security:
   workspace-only: true
   max-actions-per-hour: 100
   max-cost-per-day-cents: 0
+
+# ===========================================
+# 认证 Cookie 配置
+# ===========================================
+auth:
+  cookie:
+    # Secure 标志：生产环境必须为 true（仅 HTTPS 传输），开发环境可设为 false
+    secure: ${AUTH_COOKIE_SECURE:true}
 
 # ===========================================
 # Python脚本路径配置
@@ -390,12 +489,44 @@ lifecycle:
 feishu:
   enabled: ${FEISHU_ENABLED:true}
   webhook-key: ${FEISHU_WEBHOOK_KEY:}
-  chairman:
-    app-id: ${FEISHU_CHAIRMAN_APP_ID:cli_a920321f3b7a5cc1}
-    app-secret: ${FEISHU_CHAIRMAN_APP_SECRET:gmU0opRuS3Aps30BWR84ghkv7ELrkncG}
+  enterprise:
+    app-id: ${FEISHU_ENTERPRISE_APP_ID:}
+    app-secret: ${FEISHU_ENTERPRISE_APP_SECRET:}
   hr:
     app-id: ${FEISHU_HR_APP_ID:}
     app-secret: ${FEISHU_HR_APP_SECRET:}
   employee:
     app-id: ${FEISHU_EMPLOYEE_APP_ID:}
     app-secret: ${FEISHU_EMPLOYEE_APP_SECRET:}
+
+# ===========================================
+# RuView WiFi 感知服务配置
+# ===========================================
+ruview:
+  api:
+    base-url: ${RUVIEW_API_BASE_URL:http://ruview-sensing:3000}
+    timeout-ms: ${RUVIEW_API_TIMEOUT_MS:5000}
+  polling:
+    enabled: ${RUVIEW_POLLING_ENABLED:true}
+    interval-seconds: ${RUVIEW_POLLING_INTERVAL_SECONDS:10}
+  zones:
+    meeting-room-a:
+      id: zone-meeting-a
+      name: "会议室A"
+      max-occupancy: 10
+    meeting-room-b:
+      id: zone-meeting-b
+      name: "会议室B"
+      max-occupancy: 8
+    open-office:
+      id: zone-open-office
+      name: "开放办公区"
+      max-occupancy: 30
+  alerts:
+    fall-detection:
+      enabled: true
+      cooldown-seconds: 300
+    over-capacity:
+      enabled: true
+    intrusion:
+      enabled: true

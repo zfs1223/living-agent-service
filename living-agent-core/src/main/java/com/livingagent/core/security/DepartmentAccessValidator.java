@@ -47,7 +47,7 @@ public class DepartmentAccessValidator {
         ));
         
         addResourcePolicy(new AccessPolicy(
-            "api://chairman/*",
+            "api://enterprise/*",
             ResourceType.API,
             AccessLevel.FULL,
             "董事长专属API，仅FULL权限可访问"
@@ -93,8 +93,9 @@ public class DepartmentAccessValidator {
         
         AccessPolicy policy = findMatchingPolicy(resource);
         if (policy == null) {
-            log.debug("No policy found for resource: {}, allowing access", resource);
-            return ValidationResult.success();
+            // 安全原则：无匹配策略时默认拒绝，遵循最小权限原则
+            log.warn("No access policy found for resource: {}, denying access by default. User: {}", resource, context.getEmployeeId());
+            return ValidationResult.failure("无匹配的访问策略，默认拒绝访问");
         }
         
         AccessLevel requiredLevel = policy.requiredLevel();

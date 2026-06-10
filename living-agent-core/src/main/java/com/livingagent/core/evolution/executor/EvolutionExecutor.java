@@ -6,6 +6,10 @@ import com.livingagent.core.evolution.engine.EvolutionDecisionEngine.EvolutionDe
 import com.livingagent.core.evolution.engine.EvolutionDecisionEngine.EvolutionStrategy;
 import com.livingagent.core.evolution.memory.EvolutionMemoryGraph;
 import com.livingagent.core.evolution.signal.EvolutionSignal;
+import com.livingagent.core.knowledge.BestPractice;
+import com.livingagent.core.knowledge.KnowledgeEntry;
+import com.livingagent.core.knowledge.LayeredKnowledgeBase;
+import com.livingagent.core.knowledge.KnowledgeScope;
 import com.livingagent.core.skill.Skill;
 import com.livingagent.core.skill.SkillRegistry;
 import com.livingagent.core.tool.impl.SkillInstaller;
@@ -20,7 +24,9 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.Executors;
+import java.util.stream.Collectors;
 
 @Component
 public class EvolutionExecutor {
@@ -32,6 +38,7 @@ public class EvolutionExecutor {
     private final SkillRegistry skillRegistry;
     private final EvolutionDecisionEngine decisionEngine;
     private final EvolutionMemoryGraph memoryGraph;
+    private LayeredKnowledgeBase knowledgeBase;
     
     private final ExecutorService executorService = Executors.newFixedThreadPool(2);
     private final Map<String, EvolutionResult> recentResults = new ConcurrentHashMap<>();
@@ -48,6 +55,11 @@ public class EvolutionExecutor {
         this.skillRegistry = skillRegistry;
         this.decisionEngine = decisionEngine;
         this.memoryGraph = memoryGraph;
+    }
+    
+    @Autowired(required = false)
+    public void setKnowledgeBase(LayeredKnowledgeBase knowledgeBase) {
+        this.knowledgeBase = knowledgeBase;
     }
     
     public EvolutionResult execute(EvolutionSignal signal) {
@@ -113,38 +125,206 @@ public class EvolutionExecutor {
         }
         
         String feedback = signal.getContent();
+        
+        String professionalKnowledge = fetchProfessionalKnowledge(existingSkill.getName(), signal.getBrainDomain());
+        
+        Map<String, Object> repairContext = new HashMap<>();
+        repairContext.put("feedback", feedback);
+        repairContext.put("professionalKnowledge", professionalKnowledge);
+        repairContext.put("skillId", skillId);
+        
         Skill refinedSkill = skillGenerator.refineSkill(existingSkill, feedback);
+        
+        if (professionalKnowledge != null && !professionalKnowledge.isEmpty()) {
+            refinedSkill = enhanceSkillWithKnowledge(refinedSkill, professionalKnowledge);
+        }
         
         if (refinedSkill != null && skillGenerator.validateSkill(refinedSkill)) {
             skillRegistry.registerSkill(refinedSkill);
             
+            if (knowledgeBase != null) {
+                storeEvolutionKnowledge(refinedSkill, signal.getBrainDomain(), "repair");
+            }
+            
             return EvolutionResult.success(signal, decision)
                     .withGeneratedSkill(refinedSkill.getName())
-                    .withAction("skill_refined");
+                    .withAction("skill_refined_with_knowledge");
         }
         
         return EvolutionResult.failed(signal, decision, "Skill refinement validation failed");
     }
     
+    private String fetchProfessionalKnowledge(String skillName, String brainDomain) {
+        if (knowledgeBase == null) {
+            log.debug("KnowledgeBase not available, skipping professional knowledge fetch");
+            return null;
+        }
+        
+        try {
+            List<KnowledgeEntry> l3Knowledge = knowledgeBase.getSharedKnowledge();
+            List<KnowledgeEntry> l2Knowledge = brainDomain != null 
+                    ? knowledgeBase.getDepartmentKnowledge(brainDomain) 
+                    : List.of();
+            
+            StringBuilder knowledgeBuilder = new StringBuilder();
+            
+            List<KnowledgeEntry> relevantKnowledge = l3Knowledge.stream()
+                    .filter(e -> isRelevantToSkill(e, skillName))
+                    .limit(3)
+                    .collect(Collectors.toList());
+            
+            for (KnowledgeEntry entry : relevantKnowledge) {
+                knowledgeBuilder.append(entry.getContent().toString()).append("\n\n");
+            }
+            
+            List<KnowledgeEntry> l2Relevant = l2Knowledge.stream()
+                    .filter(e -> isRelevantToSkill(e, skillName))
+                    .limit(2)
+                    .collect(Collectors.toList());
+            
+            for (KnowledgeEntry entry : l2Relevant) {
+                knowledgeBuilder.append(entry.getContent().toString()).append("\n\n");
+            }
+            
+            String result = knowledgeBuilder.toString().trim();
+            if (!result.isEmpty()) {
+                log.info("Fetched {} chars of professional knowledge for skill {} from domain {}", 
+                        result.length(), skillName, brainDomain);
+            }
+            return result.isEmpty() ? null : result;
+            
+        } catch (Exception e) {
+            log.warn("Failed to fetch professional knowledge: {}", e.getMessage());
+            return null;
+        }
+    }
+    
+    private boolean isRelevantToSkill(KnowledgeEntry entry, String skillName) {
+        String content = entry.getContent() != null ? entry.getContent().toString().toLowerCase() : "";
+        String key = entry.getKey() != null ? entry.getKey().toLowerCase() : "";
+        String skillLower = skillName != null ? skillName.toLowerCase() : "";
+        
+        if (skillLower.isEmpty()) {
+            return false;
+        }
+        
+        return content.contains(skillLower) || key.contains(skillLower);
+    }
+    
+    private Skill enhanceSkillWithKnowledge(Skill skill, String professionalKnowledge) {
+        if (skill == null || professionalKnowledge == null || professionalKnowledge.isEmpty()) {
+            return skill;
+        }
+        
+        try {
+            String currentContent = skill.getContent() != null ? skill.getContent() : "";
+            
+            String enhancedContent = currentContent + "\n\n## 专业参考知识\n" + professionalKnowledge;
+            skill.setContent(enhancedContent);
+            
+            log.info("Enhanced skill {} with {} chars of professional knowledge", 
+                    skill.getName(), professionalKnowledge.length());
+        } catch (Exception e) {
+            log.warn("Failed to enhance skill with knowledge: {}", e.getMessage());
+        }
+        
+        return skill;
+    }
+    
+    private void storeEvolutionKnowledge(Skill skill, String brainDomain, String evolutionType) {
+        if (knowledgeBase == null || skill == null) {
+            return;
+        }
+        
+        try {
+            String scopeId = brainDomain != null ? brainDomain : "global";
+            
+            Map<String, String> metadata = new HashMap<>();
+            metadata.put("type", evolutionType);
+            metadata.put("skillName", skill.getName());
+            metadata.put("brainDomain", scopeId);
+            metadata.put("timestamp", String.valueOf(System.currentTimeMillis()));
+            
+            String key = "evolution_" + evolutionType + "_" + skill.getName().replaceAll("\\s+", "_");
+            
+            knowledgeBase.store(key, skill.getContent(), KnowledgeScope.L2_DEPARTMENT, scopeId, metadata);
+            log.info("Stored evolution knowledge {} in scope {}", key, scopeId);
+            
+        } catch (Exception e) {
+            log.warn("Failed to store evolution knowledge: {}", e.getMessage());
+        }
+    }
+    
     private EvolutionResult executeOptimize(EvolutionSignal signal, EvolutionDecision decision) {
-        log.info("Executing OPTIMIZE strategy");
+        log.info("Executing OPTIMIZE strategy for skill: {}", decision.getTargetSkillId());
         
         String skillId = decision.getTargetSkillId();
         if (skillId != null) {
             Skill existingSkill = skillRegistry.getSkill(skillId).orElse(null);
             if (existingSkill != null) {
+                String bestPractices = fetchBestPractices(existingSkill.getName(), signal.getBrainDomain());
+                
                 String optimizedContent = optimizeSkillContent(existingSkill);
+                
+                if (bestPractices != null && !bestPractices.isEmpty()) {
+                    optimizedContent += "\n\n## 最佳实践\n" + bestPractices;
+                }
+                
                 existingSkill.setContent(optimizedContent);
                 skillRegistry.registerSkill(existingSkill);
                 
+                if (knowledgeBase != null) {
+                    storeEvolutionKnowledge(existingSkill, signal.getBrainDomain(), "optimize");
+                }
+                
                 return EvolutionResult.success(signal, decision)
                         .withGeneratedSkill(skillId)
-                        .withAction("skill_optimized");
+                        .withAction("skill_optimized_with_best_practices");
             }
         }
         
         return EvolutionResult.success(signal, decision)
                 .withAction("optimization_recorded");
+    }
+    
+    private String fetchBestPractices(String skillName, String brainDomain) {
+        if (knowledgeBase == null) {
+            return null;
+        }
+        
+        try {
+            String domain = brainDomain != null ? brainDomain : "tech";
+            
+            List<BestPractice> bestPractices = knowledgeBase.getBestPractices(domain);
+            
+            List<BestPractice> relevant = bestPractices.stream()
+                    .filter(bp -> isRelevantToBestPractice(bp, skillName))
+                    .limit(3)
+                    .collect(Collectors.toList());
+            
+            StringBuilder sb = new StringBuilder();
+            for (BestPractice bp : relevant) {
+                sb.append("- ").append(bp.getContent()).append("\n");
+            }
+            
+            String result = sb.toString().trim();
+            return result.isEmpty() ? null : result;
+            
+        } catch (Exception e) {
+            log.warn("Failed to fetch best practices: {}", e.getMessage());
+            return null;
+        }
+    }
+    
+    private boolean isRelevantToBestPractice(BestPractice bp, String skillName) {
+        if (skillName == null || skillName.isEmpty()) {
+            return false;
+        }
+        String skillLower = skillName.toLowerCase();
+        String title = bp.getTitle() != null ? bp.getTitle().toLowerCase() : "";
+        String desc = bp.getDescription() != null ? bp.getDescription().toLowerCase() : "";
+        String content = bp.getContent() != null ? bp.getContent().toLowerCase() : "";
+        return title.contains(skillLower) || desc.contains(skillLower) || content.contains(skillLower);
     }
     
     private EvolutionResult executeInnovate(EvolutionSignal signal, EvolutionDecision decision) {
@@ -153,10 +333,20 @@ public class EvolutionExecutor {
         String requirement = extractRequirement(signal, decision);
         Map<String, Object> context = buildContext(signal, decision);
         
+        String professionalKnowledge = fetchProfessionalKnowledge(requirement, signal.getBrainDomain());
+        if (professionalKnowledge != null && !professionalKnowledge.isEmpty()) {
+            context.put("professionalKnowledge", professionalKnowledge);
+            context.put("knowledgeEnhanced", true);
+        }
+        
         Skill newSkill = skillGenerator.generateSkill(requirement, context);
         
         if (newSkill == null) {
             return EvolutionResult.failed(signal, decision, "Skill generation failed");
+        }
+        
+        if (professionalKnowledge != null && !professionalKnowledge.isEmpty()) {
+            newSkill = enhanceSkillWithKnowledge(newSkill, professionalKnowledge);
         }
         
         if (!skillGenerator.validateSkill(newSkill)) {
@@ -170,13 +360,17 @@ public class EvolutionExecutor {
         
         skillRegistry.registerSkill(newSkill);
         
+        if (knowledgeBase != null) {
+            storeEvolutionKnowledge(newSkill, signal.getBrainDomain(), "innovate");
+        }
+        
         bindSkillToTargetNeurons(newSkill, signal.getBrainDomain());
         
         log.info("New skill generated, installed and registered: {}", newSkill.getName());
         
         return EvolutionResult.success(signal, decision)
                 .withGeneratedSkill(newSkill.getName())
-                .withAction("skill_created_and_installed");
+                .withAction("skill_created_and_installed_with_knowledge");
     }
     
     private EvolutionResult executeEscalate(EvolutionSignal signal, EvolutionDecision decision) {
@@ -279,6 +473,20 @@ public class EvolutionExecutor {
     
     public void clearResults() {
         recentResults.clear();
+    }
+
+    @jakarta.annotation.PreDestroy
+    public void destroy() {
+        executorService.shutdown();
+        try {
+            if (!executorService.awaitTermination(10, TimeUnit.SECONDS)) {
+                executorService.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executorService.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+        log.info("EvolutionExecutor shutdown complete");
     }
     
     public Map<String, Object> getStatistics() {

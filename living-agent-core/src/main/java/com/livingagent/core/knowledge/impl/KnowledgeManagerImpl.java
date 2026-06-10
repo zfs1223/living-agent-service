@@ -17,6 +17,9 @@ public class KnowledgeManagerImpl implements KnowledgeManager {
 
     private static final Logger log = LoggerFactory.getLogger(KnowledgeManagerImpl.class);
 
+    private static final int CACHE_MAX_SIZE = 512;
+    private static final long CACHE_TTL_MS = 5 * 60 * 1000L; // 5 minutes
+
     private final KnowledgeBase privateKnowledgeBase;
     private final KnowledgeBase domainKnowledgeBase;
     private final KnowledgeBase sharedKnowledgeBase;
@@ -26,6 +29,15 @@ public class KnowledgeManagerImpl implements KnowledgeManager {
     private String neuronId;
 
     private final Map<String, KnowledgeLayer> keyLayerMapping = new ConcurrentHashMap<>();
+
+    /** Simple TTL cache for knowledge entries: key -> CacheEntry */
+    private final Map<String, CacheEntry> entryCache = new ConcurrentHashMap<>();
+
+    private record CacheEntry(KnowledgeEntry entry, long timestamp) {
+        boolean isExpired() {
+            return System.currentTimeMillis() - timestamp > CACHE_TTL_MS;
+        }
+    }
 
     public KnowledgeManagerImpl(KnowledgeBase privateKnowledgeBase,
                                 KnowledgeBase domainKnowledgeBase,
@@ -79,18 +91,31 @@ public class KnowledgeManagerImpl implements KnowledgeManager {
 
     @Override
     public Optional<KnowledgeEntry> retrieve(String key) {
-        KnowledgeLayer layer = keyLayerMapping.get(key);
-        if (layer != null) {
-            return retrieveFromLayer(key, layer);
+        // Check cache first
+        CacheEntry cached = entryCache.get(key);
+        if (cached != null && !cached.isExpired()) {
+            return Optional.of(cached.entry());
+        }
+        if (cached != null) {
+            entryCache.remove(key);
         }
 
-        Optional<KnowledgeEntry> entry = retrieveFromLayer(key, KnowledgeLayer.PRIVATE);
-        if (entry.isPresent()) return entry;
+        KnowledgeLayer layer = keyLayerMapping.get(key);
+        Optional<KnowledgeEntry> result;
+        if (layer != null) {
+            result = retrieveFromLayer(key, layer);
+        } else {
+            result = retrieveFromLayer(key, KnowledgeLayer.PRIVATE);
+            if (result.isEmpty()) {
+                result = retrieveFromLayer(key, KnowledgeLayer.DOMAIN);
+            }
+            if (result.isEmpty()) {
+                result = retrieveFromLayer(key, KnowledgeLayer.SHARED);
+            }
+        }
 
-        entry = retrieveFromLayer(key, KnowledgeLayer.DOMAIN);
-        if (entry.isPresent()) return entry;
-
-        return retrieveFromLayer(key, KnowledgeLayer.SHARED);
+        result.ifPresent(entry -> putCache(key, entry));
+        return result;
     }
 
     @Override
@@ -164,6 +189,7 @@ public class KnowledgeManagerImpl implements KnowledgeManager {
 
     @Override
     public void update(String key, Object knowledge) {
+        entryCache.remove(key);
         KnowledgeLayer layer = keyLayerMapping.get(key);
         if (layer == null) {
             log.warn("Cannot update knowledge: key {} not found in layer mapping", key);
@@ -179,6 +205,7 @@ public class KnowledgeManagerImpl implements KnowledgeManager {
 
     @Override
     public void delete(String key) {
+        entryCache.remove(key);
         KnowledgeLayer layer = keyLayerMapping.remove(key);
         if (layer == null) {
             log.warn("Cannot delete knowledge: key {} not found", key);
@@ -194,6 +221,7 @@ public class KnowledgeManagerImpl implements KnowledgeManager {
 
     @Override
     public void moveToLayer(String key, KnowledgeLayer targetLayer) {
+        entryCache.remove(key);
         Optional<KnowledgeEntry> entry = retrieve(key);
         if (entry.isEmpty()) {
             log.warn("Cannot move knowledge: key {} not found", key);
@@ -213,12 +241,185 @@ public class KnowledgeManagerImpl implements KnowledgeManager {
 
     @Override
     public void promoteToDomain(String key) {
+        if (!canPromoteToDomain(key)) {
+            throw new IllegalStateException("知识 " + key + " 不满足晋升到部门层的条件：使用次数 >= 3 且有效性评分 >= 0.7");
+        }
         moveToLayer(key, KnowledgeLayer.DOMAIN);
+        Optional<KnowledgeEntry> entry = retrieve(key);
+        entry.ifPresent(e -> e.setPromotedFrom(KnowledgeLayer.PRIVATE.name()));
+        log.info("Promoted knowledge {} to DOMAIN layer", key);
     }
 
     @Override
     public void promoteToShared(String key) {
+        if (!canPromoteToShared(key)) {
+            throw new IllegalStateException("知识 " + key + " 不满足晋升到共享层的条件：使用次数 >= 10 且有效性评分 >= 0.8 且有跨部门引用");
+        }
         moveToLayer(key, KnowledgeLayer.SHARED);
+        Optional<KnowledgeEntry> entry = retrieve(key);
+        entry.ifPresent(e -> e.setPromotedFrom(KnowledgeLayer.DOMAIN.name()));
+        log.info("Promoted knowledge {} to SHARED layer", key);
+    }
+
+    @Override
+    public boolean canPromoteToDomain(String key) {
+        Optional<KnowledgeEntry> optEntry = retrieve(key);
+        if (optEntry.isEmpty()) {
+            log.warn("Cannot check promotion condition: key {} not found", key);
+            return false;
+        }
+        KnowledgeEntry entry = optEntry.get();
+        // 条件：使用次数 >= 3 且有效性评分 >= 0.7
+        boolean accessCondition = entry.getAccessCount() >= 3;
+        boolean validityCondition = entry.getConfidence() >= 0.7;
+        boolean result = accessCondition && validityCondition;
+        if (!result) {
+            log.debug("Knowledge {} not eligible for DOMAIN promotion: accessCount={}, confidence={}",
+                key, entry.getAccessCount(), entry.getConfidence());
+        }
+        return result;
+    }
+
+    @Override
+    public boolean canPromoteToShared(String key) {
+        Optional<KnowledgeEntry> optEntry = retrieve(key);
+        if (optEntry.isEmpty()) {
+            log.warn("Cannot check promotion condition: key {} not found", key);
+            return false;
+        }
+        KnowledgeEntry entry = optEntry.get();
+        // 条件：使用次数 >= 10 且有效性评分 >= 0.8 且有跨部门引用
+        boolean accessCondition = entry.getAccessCount() >= 10;
+        boolean validityCondition = entry.getConfidence() >= 0.8;
+        boolean crossDeptCondition = hasCrossDepartmentReference(entry);
+        boolean result = accessCondition && validityCondition && crossDeptCondition;
+        if (!result) {
+            log.debug("Knowledge {} not eligible for SHARED promotion: accessCount={}, confidence={}, crossDept={}",
+                key, entry.getAccessCount(), entry.getConfidence(), crossDeptCondition);
+        }
+        return result;
+    }
+
+    @Override
+    public void demoteToPrivate(String key) {
+        KnowledgeLayer currentLayer = keyLayerMapping.get(key);
+        if (currentLayer == null) {
+            log.warn("Cannot demote knowledge: key {} not found in layer mapping", key);
+            return;
+        }
+        if (currentLayer == KnowledgeLayer.PRIVATE) {
+            log.warn("Knowledge {} is already in PRIVATE layer, cannot demote further", key);
+            return;
+        }
+        moveToLayer(key, KnowledgeLayer.PRIVATE);
+        log.info("Demoted knowledge {} from {} to PRIVATE layer", key, currentLayer);
+    }
+
+    @Override
+    public void demoteToDepartment(String key) {
+        KnowledgeLayer currentLayer = keyLayerMapping.get(key);
+        if (currentLayer == null) {
+            log.warn("Cannot demote knowledge: key {} not found in layer mapping", key);
+            return;
+        }
+        if (currentLayer != KnowledgeLayer.SHARED) {
+            log.warn("Knowledge {} is in {} layer, can only demote from SHARED to DOMAIN", key, currentLayer);
+            return;
+        }
+        moveToLayer(key, KnowledgeLayer.DOMAIN);
+        log.info("Demoted knowledge {} from SHARED to DOMAIN layer", key);
+    }
+
+    /**
+     * 检查知识条目是否有跨部门引用
+     */
+    private boolean hasCrossDepartmentReference(KnowledgeEntry entry) {
+        if (entry.getMetadata() == null) return false;
+        Object crossDept = entry.getMetadata().get("crossDepartmentReferences");
+        if (crossDept instanceof Number) {
+            return ((Number) crossDept).intValue() > 0;
+        }
+        // 如果元数据中有其他部门标记，也视为跨部门引用
+        Object deptCount = entry.getMetadata().get("referencingDepartmentCount");
+        if (deptCount instanceof Number) {
+            return ((Number) deptCount).intValue() > 1;
+        }
+        // 默认：已验证的知识视为可能有跨部门引用
+        return entry.isVerified();
+    }
+
+    @Override
+    public KnowledgeEntry publish(String key) {
+        KnowledgeEntry entry = retrieve(key).orElse(null);
+        if (entry == null) {
+            throw new IllegalArgumentException("Knowledge entry not found: " + key);
+        }
+        if (entry.getStatus() != KnowledgeStatus.DRAFT) {
+            throw new IllegalStateException("Only DRAFT entries can be published, current status: " + entry.getStatus());
+        }
+        entry.setStatus(KnowledgeStatus.PUBLISHED);
+        entry.setVerified(true);
+        entry.setUpdatedAt(java.time.Instant.now());
+        update(key, entry.getContent());
+        log.info("Knowledge entry published: key={}, scope={}", key, entry.getScope());
+        return entry;
+    }
+
+    @Override
+    public KnowledgeEntry archive(String key) {
+        KnowledgeEntry entry = retrieve(key).orElse(null);
+        if (entry == null) {
+            throw new IllegalArgumentException("Knowledge entry not found: " + key);
+        }
+        if (entry.getStatus() != KnowledgeStatus.PUBLISHED && entry.getStatus() != KnowledgeStatus.DEPRECATED) {
+            throw new IllegalStateException("Only PUBLISHED or DEPRECATED entries can be archived, current status: " + entry.getStatus());
+        }
+        entry.setStatus(KnowledgeStatus.ARCHIVED);
+        entry.setUpdatedAt(java.time.Instant.now());
+        update(key, entry.getContent());
+        log.info("Knowledge entry archived: key={}", key);
+        return entry;
+    }
+
+    @Override
+    public KnowledgeEntry deprecate(String key) {
+        KnowledgeEntry entry = retrieve(key).orElse(null);
+        if (entry == null) {
+            throw new IllegalArgumentException("Knowledge entry not found: " + key);
+        }
+        if (entry.getStatus() != KnowledgeStatus.PUBLISHED) {
+            throw new IllegalStateException("Only PUBLISHED entries can be deprecated, current status: " + entry.getStatus());
+        }
+        entry.setStatus(KnowledgeStatus.DEPRECATED);
+        entry.setUpdatedAt(java.time.Instant.now());
+        update(key, entry.getContent());
+        log.info("Knowledge entry deprecated: key={}", key);
+        return entry;
+    }
+
+    @Override
+    public KnowledgeEntry reactivate(String key) {
+        KnowledgeEntry entry = retrieve(key).orElse(null);
+        if (entry == null) {
+            throw new IllegalArgumentException("Knowledge entry not found: " + key);
+        }
+        if (entry.getStatus() != KnowledgeStatus.ARCHIVED && entry.getStatus() != KnowledgeStatus.DEPRECATED) {
+            throw new IllegalStateException("Only ARCHIVED or DEPRECATED entries can be reactivated, current status: " + entry.getStatus());
+        }
+        entry.setStatus(KnowledgeStatus.PUBLISHED);
+        entry.setUpdatedAt(java.time.Instant.now());
+        update(key, entry.getContent());
+        log.info("Knowledge entry reactivated: key={}", key);
+        return entry;
+    }
+
+    @Override
+    public List<KnowledgeEntry> listByStatus(KnowledgeStatus status, String scope, int limit) {
+        return search("", limit).stream()
+            .filter(e -> e.getStatus() == status)
+            .filter(e -> scope == null || scope.equals(e.getScopeIdentifier()) || scope.equals(e.getScope().name()))
+            .limit(limit)
+            .collect(Collectors.toList());
     }
 
     @Override
@@ -294,6 +495,9 @@ public class KnowledgeManagerImpl implements KnowledgeManager {
 
     @Override
     public void cleanupExpired() {
+        // Evict expired cache entries
+        entryCache.entrySet().removeIf(e -> e.getValue().isExpired());
+
         privateKnowledgeBase.cleanupExpiredKnowledge(30);
         domainKnowledgeBase.cleanupExpiredKnowledge(90);
         sharedKnowledgeBase.cleanupExpiredKnowledge(365);
@@ -368,5 +572,22 @@ public class KnowledgeManagerImpl implements KnowledgeManager {
             double newScore = entry.calculateRelevanceScore();
             base.updateKnowledgeRelevance(entry.getKey(), newScore - entry.getRelevanceScore());
         });
+    }
+
+    private void putCache(String key, KnowledgeEntry entry) {
+        if (entryCache.size() >= CACHE_MAX_SIZE) {
+            // Evict expired entries first
+            entryCache.entrySet().removeIf(e -> e.getValue().isExpired());
+            // If still over limit, remove oldest entries (approximate LRU by removing 10%)
+            if (entryCache.size() >= CACHE_MAX_SIZE) {
+                int toRemove = Math.max(1, entryCache.size() / 10);
+                var iterator = entryCache.keySet().iterator();
+                for (int i = 0; i < toRemove && iterator.hasNext(); i++) {
+                    iterator.next();
+                    iterator.remove();
+                }
+            }
+        }
+        entryCache.put(key, new CacheEntry(entry, System.currentTimeMillis()));
     }
 }

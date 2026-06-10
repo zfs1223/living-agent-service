@@ -1,11 +1,11 @@
 package com.livingagent.core.security.impl;
 
 import com.livingagent.core.security.EmployeeChangeDetector;
-import com.livingagent.core.security.EmployeeService;
-import com.livingagent.core.security.EmployeeService.ChangeType;
+import com.livingagent.core.security.AuthEmployeeService;
+import com.livingagent.core.security.AuthEmployeeService.ChangeType;
 import com.livingagent.core.security.DetectedChange;
 import com.livingagent.core.security.ChangeStatus;
-import com.livingagent.core.security.Employee;
+import com.livingagent.core.security.SecurityIdentity;
 import com.livingagent.core.security.UserIdentity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,7 +21,7 @@ public class EmployeeChangeDetectorImpl implements EmployeeChangeDetector {
 
     private static final Logger log = LoggerFactory.getLogger(EmployeeChangeDetectorImpl.class);
 
-    private final EmployeeService employeeService;
+    private final AuthEmployeeService employeeService;
     private final Map<String, DetectedChange> pendingChanges = new ConcurrentHashMap<>();
 
     private static final Pattern RESIGN_PATTERN = Pattern.compile(
@@ -49,7 +49,7 @@ public class EmployeeChangeDetectorImpl implements EmployeeChangeDetector {
             "([\\u4e00-\\u9fa5]{2,4})\\s*(离职|入职|调动|调到)"
     );
 
-    public EmployeeChangeDetectorImpl(EmployeeService employeeService) {
+    public EmployeeChangeDetectorImpl(AuthEmployeeService employeeService) {
         this.employeeService = employeeService;
     }
 
@@ -93,8 +93,8 @@ public class EmployeeChangeDetectorImpl implements EmployeeChangeDetector {
     }
 
     private DetectedChange detectByName(String name, String action, String message, String source) {
-        List<Employee> employees = employeeService.findAll();
-        Employee employee = employees.stream()
+        List<SecurityIdentity> employees = employeeService.findAll();
+        SecurityIdentity employee = employees.stream()
                 .filter(e -> name.equals(e.getName()))
                 .findFirst()
                 .orElse(null);
@@ -262,7 +262,7 @@ public class EmployeeChangeDetectorImpl implements EmployeeChangeDetector {
                     log.info("Processed join for existing employee: {}", change.getEmployeeId());
                 },
                 () -> {
-                    Employee newEmployee = new Employee();
+                    SecurityIdentity newEmployee = new SecurityIdentity();
                     newEmployee.setName(change.getEmployeeName());
                     newEmployee.setIdentity(UserIdentity.INTERNAL_PROBATION);
                     employeeService.createEmployee(newEmployee);

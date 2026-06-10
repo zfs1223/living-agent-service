@@ -1,8 +1,13 @@
 package com.livingagent.core.employee.impl;
 
+import com.livingagent.core.database.entity.DepartmentEntity;
+import com.livingagent.core.database.entity.EnterpriseEmployeeEntity;
+import com.livingagent.core.database.repository.DepartmentRepository;
+import com.livingagent.core.database.repository.EnterpriseEmployeeRepository;
 import com.livingagent.core.employee.*;
 import com.livingagent.core.neuron.NeuronRegistry;
 import com.livingagent.core.neuron.NeuronState;
+import com.livingagent.core.security.Department;
 import com.livingagent.core.util.IdUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,9 +25,16 @@ public class EmployeeServiceImpl implements EmployeeService {
     private final Map<String, Employee> employeeStore = new ConcurrentHashMap<>();
     private final Map<String, String> authIndex = new ConcurrentHashMap<>();
     private final NeuronRegistry neuronRegistry;
+    private final EnterpriseEmployeeRepository employeeRepository;
+    private final DepartmentRepository departmentRepository;
 
-    public EmployeeServiceImpl(NeuronRegistry neuronRegistry) {
+    public EmployeeServiceImpl(
+            NeuronRegistry neuronRegistry,
+            EnterpriseEmployeeRepository employeeRepository,
+            DepartmentRepository departmentRepository) {
         this.neuronRegistry = neuronRegistry;
+        this.employeeRepository = employeeRepository;
+        this.departmentRepository = departmentRepository;
     }
 
     @Override
@@ -53,16 +65,13 @@ public class EmployeeServiceImpl implements EmployeeService {
 
     private String generateEmployeeId(EmployeeCreationRequest request) {
         if (request.type() == IdUtils.EmployeeType.DIGITAL) {
-            String instance = String.format("%03d", 
-                employeeStore.values().stream()
-                    .filter(Employee::isDigital)
-                    .mapToInt(e -> 1)
-                    .sum() + 1);
-            return IdUtils.generateDigitalEmployeeId(
-                request.department(), 
-                request.roles().isEmpty() ? "worker" : request.roles().get(0),
-                instance
-            );
+            if (request.suggestedEmployeeId() != null && !request.suggestedEmployeeId().isBlank()) {
+                return request.suggestedEmployeeId();
+            }
+            String domain = request.departmentId() != null ? request.departmentId() : toIdSegment(request.department());
+            String role = toIdSegment(request.name());
+            String instance = generateInstanceNumber(domain, role);
+            return IdUtils.generateDigitalEmployeeId(domain, role, instance);
         } else {
             IdUtils.AuthProvider provider;
             try {
@@ -75,6 +84,35 @@ public class EmployeeServiceImpl implements EmployeeService {
                 request.authId()
             );
         }
+    }
+
+    private String generateInstanceNumber(String domain, String role) {
+        int maxInstance = employeeStore.values().stream()
+            .filter(Employee::isDigital)
+            .mapToInt(e -> {
+                try {
+                    IdUtils.ParsedEmployeeId parsed = IdUtils.parseEmployeeId(e.getEmployeeId());
+                    if (domain.equals(parsed.getDepartment()) && role.equals(parsed.getRole())) {
+                        String inst = parsed.getInstance();
+                        return inst != null ? Integer.parseInt(inst) : 0;
+                    }
+                } catch (Exception ex) {
+                    // skip non-standard IDs
+                }
+                return 0;
+            })
+            .max()
+            .orElse(0);
+        return String.format("%03d", maxInstance + 1);
+    }
+
+    private String toIdSegment(String text) {
+        if (text == null) return "unknown";
+        return text.replaceAll("([a-z])([A-Z])", "$1-$2")
+                   .toLowerCase()
+                   .replaceAll("[^a-z0-9\\u4e00-\\u9fff-]", "-")
+                   .replaceAll("-+", "-")
+                   .replaceAll("^-|-$", "");
     }
 
     private Employee createDigitalEmployee(String employeeId, EmployeeCreationRequest request) {
@@ -93,7 +131,8 @@ public class EmployeeServiceImpl implements EmployeeService {
             .personality(request.personality())
             .subscribeChannels(request.subscribeChannels())
             .publishChannels(request.publishChannels())
-            .workflowBindings(request.workflowBindings());
+            .workflowBindings(request.workflowBindings())
+            .origin(request.origin());
         
         if (request.ttl() != null) {
             builder.expiresAt(Instant.now().plus(request.ttl()));
@@ -439,5 +478,84 @@ public class EmployeeServiceImpl implements EmployeeService {
         return (int) employeeStore.values().stream()
             .filter(Employee::isHuman)
             .count();
+    }
+
+    @Override
+    public List<MemberSummary> getDepartmentMembersByCode(String departmentCode) {
+        if (departmentCode == null || departmentCode.isBlank()) {
+            return List.of();
+        }
+
+        try {
+            // 先通过部门 code 查询 DepartmentEntity 获取 departmentId
+            Optional<DepartmentEntity> deptOpt = departmentRepository.findByCode(departmentCode);
+            if (deptOpt.isEmpty()) {
+                return List.of();
+            }
+            
+            String departmentId = deptOpt.get().getDepartmentId();
+            
+            // 再用 departmentId 查询员工
+            List<EnterpriseEmployeeEntity> employees = employeeRepository
+                    .findActiveByDepartmentId(departmentId);
+            
+            return employees.stream()
+                    .map(this::toMemberSummary)
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            log.error("Failed to get department members by code: {}", departmentCode, e);
+            return List.of();
+        }
+    }
+
+    @Override
+    public Optional<MemberSummary> getMemberSummary(String employeeId) {
+        if (employeeId == null || employeeId.isBlank()) {
+            return Optional.empty();
+        }
+
+        try {
+            return employeeRepository.findByEmployeeId(employeeId)
+                    .map(this::toMemberSummary);
+        } catch (Exception e) {
+            log.error("Failed to get member summary for employee: {}", employeeId, e);
+            return Optional.empty();
+        }
+    }
+
+    private MemberSummary toMemberSummary(EnterpriseEmployeeEntity entity) {
+        String status = entity.isActive() ? "在线" : "离线";
+        String origin = "human";
+        
+        String departmentCode = resolveDepartmentCode(entity.getDepartmentId(), entity.getDepartmentName());
+
+        return new MemberSummary(
+            entity.getEmployeeId(),
+            entity.getName(),
+            entity.getDepartmentName(),
+            departmentCode,
+            status,
+            origin,
+            entity.getPosition(),
+            entity.getAvatarUrl(),
+            entity.getAccessLevel() != null ? entity.getAccessLevel() : "UNKNOWN"
+        );
+    }
+    
+    private String resolveDepartmentCode(String departmentId, String departmentName) {
+        if (departmentId == null) {
+            return null;
+        }
+        
+        Optional<DepartmentEntity> deptOpt = departmentRepository.findById(departmentId);
+        if (deptOpt.isPresent()) {
+            return deptOpt.get().getCode();
+        }
+        
+        if (departmentName != null && !departmentName.isBlank()) {
+            return Department.mapDepartmentToBrain(departmentName).toLowerCase().replace("brain", "");
+        }
+        
+        return null;
     }
 }

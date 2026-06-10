@@ -1,0 +1,40 @@
+FROM rust:1.85-slim
+
+WORKDIR /build
+
+# 使用国内镜像源
+RUN sed -i 's/deb.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list.d/debian.sources || true && \
+    sed -i 's/deb.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list || true
+
+# 安装编译依赖
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libopus-dev \
+    libsqlite3-dev \
+    libssl-dev \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# 配置 Rust 国内镜像 (sparse protocol + git-fetch-with-cli)
+RUN mkdir -p /usr/local/cargo && \
+    echo '[source.crates-io]' > /usr/local/cargo/config.toml && \
+    echo 'replace-with = "tuna"' >> /usr/local/cargo/config.toml && \
+    echo '[source.tuna]' >> /usr/local/cargo/config.toml && \
+    echo 'registry = "sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/"' >> /usr/local/cargo/config.toml && \
+    echo '[net]' >> /usr/local/cargo/config.toml && \
+    echo 'git-fetch-with-cli = true' >> /usr/local/cargo/config.toml && \
+    echo 'retry = 5' >> /usr/local/cargo/config.toml
+
+# 复制 Cargo 配置
+COPY living-agent-native/Cargo.toml living-agent-native/Cargo.lock* ./
+
+# 创建空的 benches 目录 (Cargo.toml 引用了 benchmark)
+RUN mkdir -p src benches && \
+    echo "fn main() {}" > benches/audio_benchmark.rs
+
+# 复制源代码
+COPY living-agent-native/src/ src/
+
+# 编译 (只编译 lib)
+RUN cargo build --release --lib && \
+    cp target/release/libliving_agent_native.so /libliving_agent_native.so

@@ -1,0 +1,302 @@
+/**
+ * 我的任务页面样式
+ */
+
+.my-tasks-page {
+    padding: 24px;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 2px solid #e8e8e8;
+}
+
+.page-header h1 {
+    margin: 0;
+    font-size: 28px;
+    color: #1a1a1a;
+}
+
+.credit-display {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: linear-gradient(135deg, #fa8c16 0%, #ffc53d 100%);
+    border-radius: 20px;
+    color: #fff;
+}
+
+.credit-label {
+    font-size: 14px;
+    opacity: 0.9;
+}
+
+.credit-value {
+    font-size: 20px;
+    font-weight: 700;
+}
+
+.login-prompt {
+    text-align: center;
+    padding: 80px 20px;
+    background: #f5f7fa;
+    border-radius: 12px;
+}
+
+.login-prompt h2 {
+    margin: 0 0 12px;
+    color: #333;
+}
+
+.login-prompt p {
+    color: #666;
+    margin: 0;
+}
+
+.tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 24px;
+    border-bottom: 1px solid #e8e8e8;
+    padding-bottom: 1px;
+}
+
+.tab {
+    padding: 12px 24px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    font-size: 15px;
+    font-weight: 500;
+    color: #666;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.tab:hover {
+    color: #1890ff;
+}
+
+.tab.active {
+    color: #1890ff;
+    border-bottom-color: #1890ff;
+}
+
+.loading-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: #999;
+    font-size: 16px;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 80px 20px;
+    background: #fff;
+    border-radius: 12px;
+    border: 2px dashed #d9d9d9;
+}
+
+.empty-icon {
+    font-size: 56px;
+    margin-bottom: 20px;
+}
+
+.empty-state p {
+    font-size: 18px;
+    color: #333;
+    margin: 0 0 12px;
+}
+
+.empty-state span {
+    font-size: 14px;
+    color: #999;
+}
+
+.task-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.task-card {
+    background: #fff;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    transition: all 0.3s ease;
+}
+
+.task-card:hover {
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+}
+
+.task-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.task-badges {
+    display: flex;
+    gap: 8px;
+}
+
+.status-badge,
+.priority-badge {
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.task-date {
+    font-size: 13px;
+    color: #999;
+}
+
+.task-body {
+    margin-bottom: 16px;
+}
+
+.task-type {
+    margin: 0 0 8px;
+    font-size: 18px;
+    font-weight: 600;
+    color: #1a1a1a;
+}
+
+.task-description {
+    margin: 0 0 12px;
+    font-size: 14px;
+    color: #666;
+    line-height: 1.6;
+}
+
+.task-meta {
+    display: flex;
+    gap: 24px;
+}
+
+.meta-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.meta-label {
+    font-size: 12px;
+    color: #999;
+}
+
+.meta-value {
+    font-size: 14px;
+    color: #333;
+    font-weight: 500;
+}
+
+.meta-value.reward {
+    color: #fa8c16;
+    font-weight: 600;
+}
+
+.task-submit {
+    padding-top: 16px;
+    border-top: 1px solid #f0f0f0;
+}
+
+.task-submit textarea {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #d9d9d9;
+    border-radius: 8px;
+    font-size: 14px;
+    resize: vertical;
+    margin-bottom: 12px;
+    font-family: inherit;
+}
+
+.task-submit textarea:focus {
+    outline: none;
+    border-color: #1890ff;
+    box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
+}
+
+.submit-btn {
+    padding: 10px 24px;
+    background: #52c41a;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.submit-btn:hover:not(:disabled) {
+    background: #73d13d;
+}
+
+.submit-btn:disabled {
+    background: #d9d9d9;
+    cursor: not-allowed;
+}
+
+.task-completed-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 16px;
+    border-top: 1px solid #f0f0f0;
+}
+
+.completed-label {
+    font-size: 13px;
+    color: #999;
+}
+
+.completed-date {
+    font-size: 13px;
+    color: #52c41a;
+    font-weight: 500;
+}
+
+/* 响应式 */
+@media (max-width: 768px) {
+    .my-tasks-page {
+        padding: 16px;
+    }
+
+    .page-header {
+        flex-direction: column;
+        gap: 16px;
+        align-items: flex-start;
+    }
+
+    .page-header h1 {
+        font-size: 24px;
+    }
+
+    .tabs {
+        overflow-x: auto;
+    }
+
+    .tab {
+        white-space: nowrap;
+        padding: 10px 16px;
+    }
+
+    .task-meta {
+        flex-direction: column;
+        gap: 8px;
+    }
+}

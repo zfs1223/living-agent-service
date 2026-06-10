@@ -12,6 +12,7 @@ public class ApprovalServiceImpl implements ApprovalService {
     
     private final Map<String, ApprovalInstance> approvalStore = new ConcurrentHashMap<>();
     private final Map<String, ApprovalWorkflow> workflowStore = new ConcurrentHashMap<>();
+    private final List<ApprovalCallback> callbacks = new java.util.concurrent.CopyOnWriteArrayList<>();
     
     public ApprovalServiceImpl() {
         initializeDefaultWorkflows();
@@ -100,6 +101,8 @@ public class ApprovalServiceImpl implements ApprovalService {
         
         if (instance.getCurrentStep() >= steps.size()) {
             instance.complete();
+            // P1-4.2: 审批通过后触发回调
+            fireApprovedCallbacks(instance);
         }
         
         return instance;
@@ -120,6 +123,9 @@ public class ApprovalServiceImpl implements ApprovalService {
         int currentStep = instance.getCurrentStep();
         String stepId = workflow.getSteps().get(currentStep).getStepId();
         instance.reject(stepId, approverId, comment);
+        
+        // P1-4.2: 审批拒绝后触发回调
+        fireRejectedCallbacks(instance);
         
         return instance;
     }
@@ -183,5 +189,32 @@ public class ApprovalServiceImpl implements ApprovalService {
     @Override
     public List<ApprovalWorkflow> listWorkflows() {
         return new ArrayList<>(workflowStore.values());
+    }
+
+    @Override
+    public void registerCallback(ApprovalCallback callback) {
+        if (callback != null) {
+            callbacks.add(callback);
+        }
+    }
+
+    private void fireApprovedCallbacks(ApprovalInstance instance) {
+        for (ApprovalCallback callback : callbacks) {
+            try {
+                callback.onApproved(instance);
+            } catch (Exception e) {
+                System.err.println("ApprovalCallback.onApproved failed: " + e.getMessage());
+            }
+        }
+    }
+
+    private void fireRejectedCallbacks(ApprovalInstance instance) {
+        for (ApprovalCallback callback : callbacks) {
+            try {
+                callback.onRejected(instance);
+            } catch (Exception e) {
+                System.err.println("ApprovalCallback.onRejected failed: " + e.getMessage());
+            }
+        }
     }
 }

@@ -105,13 +105,13 @@ public class BrainAccessControl {
     public AccessCheckResult checkAccess(String employeeId, String brainName) {
         log.debug("Checking brain access: employee={}, brain={}", employeeId, brainName);
 
-        Optional<Employee> employeeOpt = permissionService.getEmployeeById(employeeId);
+        Optional<SecurityIdentity> employeeOpt = permissionService.getEmployeeById(employeeId);
         if (employeeOpt.isEmpty()) {
             log.warn("Employee not found: {}", employeeId);
             return AccessCheckResult.denied("Employee not found");
         }
 
-        Employee employee = employeeOpt.get();
+        SecurityIdentity employee = employeeOpt.get();
 
         if (!employee.isActive()) {
             log.info("Employee is not active: {}", employeeId);
@@ -147,12 +147,12 @@ public class BrainAccessControl {
     }
 
     public String routeToBrain(String employeeId) {
-        Optional<Employee> employeeOpt = permissionService.getEmployeeById(employeeId);
+        Optional<SecurityIdentity> employeeOpt = permissionService.getEmployeeById(employeeId);
         if (employeeOpt.isEmpty()) {
             return "Qwen3Neuron";
         }
 
-        Employee employee = employeeOpt.get();
+        SecurityIdentity employee = employeeOpt.get();
 
         if (employee.isChatOnly()) {
             return "Qwen3Neuron";
@@ -169,12 +169,12 @@ public class BrainAccessControl {
     public Set<String> getAccessibleBrains(String employeeId) {
         Set<String> accessible = new HashSet<>();
 
-        Optional<Employee> employeeOpt = permissionService.getEmployeeById(employeeId);
+        Optional<SecurityIdentity> employeeOpt = permissionService.getEmployeeById(employeeId);
         if (employeeOpt.isEmpty() || employeeOpt.get().isChatOnly()) {
             return accessible;
         }
 
-        Employee employee = employeeOpt.get();
+        SecurityIdentity employee = employeeOpt.get();
 
         for (Map.Entry<String, BrainAccessPolicy> entry : brainPolicies.entrySet()) {
             String brainName = entry.getKey();
@@ -201,7 +201,7 @@ public class BrainAccessControl {
             return true;
         }
 
-        Optional<Employee> employeeOpt = permissionService.getEmployeeById(employeeId);
+        Optional<SecurityIdentity> employeeOpt = permissionService.getEmployeeById(employeeId);
         if (employeeOpt.isEmpty()) {
             return false;
         }
@@ -221,13 +221,13 @@ public class BrainAccessControl {
             return true;
         }
 
-        Optional<Employee> employeeOpt = permissionService.getEmployeeById(employeeId);
-        if (employeeOpt.isEmpty()) {
+        Optional<SecurityIdentity> employeeOpt2 = permissionService.getEmployeeById(employeeId);
+        if (employeeOpt2.isEmpty()) {
             return false;
         }
 
-        return employeeOpt.get().getAccessLevel() == AccessLevel.DEPARTMENT ||
-               employeeOpt.get().getAccessLevel() == AccessLevel.FULL;
+        return employeeOpt2.get().getAccessLevel() == AccessLevel.DEPARTMENT ||
+               employeeOpt2.get().getAccessLevel() == AccessLevel.FULL;
     }
 
     public String filterSensitiveContent(String employeeId, String brainName, String content) {
@@ -236,10 +236,10 @@ public class BrainAccessControl {
             return content;
         }
 
-        Optional<Employee> employeeOpt = permissionService.getEmployeeById(employeeId);
-        if (employeeOpt.isEmpty() || 
-            employeeOpt.get().getAccessLevel() == AccessLevel.DEPARTMENT ||
-            employeeOpt.get().getAccessLevel() == AccessLevel.FULL) {
+        Optional<SecurityIdentity> employeeOpt3 = permissionService.getEmployeeById(employeeId);
+        if (employeeOpt3.isEmpty() || 
+            employeeOpt3.get().getAccessLevel() == AccessLevel.DEPARTMENT ||
+            employeeOpt3.get().getAccessLevel() == AccessLevel.FULL) {
             return content;
         }
 

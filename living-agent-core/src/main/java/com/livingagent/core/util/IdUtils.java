@@ -11,6 +11,11 @@ public final class IdUtils {
     private static final String EMPLOYEE_PREFIX = "employee://";
     private static final String NEURON_PREFIX = "neuron://";
     private static final String CHANNEL_PREFIX = "channel://";
+    private static final String CONVERSATION_PREFIX = "conv://";
+
+    public static String generateConversationId() {
+        return CONVERSATION_PREFIX + java.util.UUID.randomUUID().toString().replace("-", "");
+    }
 
     private static final Pattern EMPLOYEE_HUMAN_PATTERN = 
         Pattern.compile("^employee://human/(dingtalk|feishu|wecom|oa)/([^/]+)$");

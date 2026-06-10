@@ -1,7 +1,7 @@
 package com.livingagent.core.security.importer;
 
 import com.livingagent.core.security.Department;
-import com.livingagent.core.security.Employee;
+import com.livingagent.core.security.SecurityIdentity;
 import com.livingagent.core.security.UserIdentity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,7 +43,7 @@ public class EmployeeImporter {
     public ImportResult importFromCsv(byte[] csvData) {
         log.info("Importing employees from CSV, size: {} bytes", csvData.length);
         
-        List<Employee> employees = new ArrayList<>();
+        List<SecurityIdentity> employees = new ArrayList<>();
         List<String> errors = new ArrayList<>();
         int lineNumber = 0;
         
@@ -72,7 +72,7 @@ public class EmployeeImporter {
                 
                 try {
                     String[] values = parseCsvLine(line);
-                    Employee employee = createEmployee(values, fieldMapping, lineNumber);
+                    SecurityIdentity employee = createEmployee(values, fieldMapping, lineNumber);
                     
                     if (employee != null) {
                         employees.add(employee);
@@ -95,7 +95,7 @@ public class EmployeeImporter {
     public ImportResult importFromExcel(byte[] excelData) {
         log.info("Importing employees from Excel, size: {} bytes", excelData.length);
         
-        List<Employee> employees = new ArrayList<>();
+        List<SecurityIdentity> employees = new ArrayList<>();
         List<String> errors = new ArrayList<>();
         List<Map<String, String>> rows = new ArrayList<>();
         
@@ -107,7 +107,7 @@ public class EmployeeImporter {
                 rowNum++;
                 
                 try {
-                    Employee employee = createEmployeeFromMap(row);
+                    SecurityIdentity employee = createEmployeeFromMap(row);
                     
                     if (employee != null) {
                         employees.add(employee);
@@ -182,7 +182,7 @@ public class EmployeeImporter {
         }
     }
 
-    private Employee createEmployee(String[] values, Map<Integer, String> fieldMapping, int lineNumber) {
+    private SecurityIdentity createEmployee(String[] values, Map<Integer, String> fieldMapping, int lineNumber) {
         Map<String, String> data = new HashMap<>();
         
         for (Map.Entry<Integer, String> entry : fieldMapping.entrySet()) {
@@ -207,13 +207,13 @@ public class EmployeeImporter {
         return createEmployeeFromMap(data);
     }
 
-    private Employee createEmployeeFromMap(Map<String, String> data) {
+    private SecurityIdentity createEmployeeFromMap(Map<String, String> data) {
         String name = data.get("name");
         if (name == null || name.isEmpty()) {
             return null;
         }
         
-        Employee employee = new Employee();
+        SecurityIdentity employee = new SecurityIdentity();
         employee.setName(name);
         
         String phone = data.get("phone");
@@ -279,10 +279,10 @@ public class EmployeeImporter {
         return rows;
     }
 
-    public List<Department> extractDepartments(List<Employee> employees) {
+    public List<Department> extractDepartments(List<SecurityIdentity> employees) {
         Map<String, Department> departmentMap = new HashMap<>();
         
-        for (Employee emp : employees) {
+        for (SecurityIdentity emp : employees) {
             String deptName = emp.getDepartment();
             if (deptName != null && !deptName.isEmpty() && !departmentMap.containsKey(deptName)) {
                 Department dept = new Department();
@@ -300,7 +300,7 @@ public class EmployeeImporter {
     }
 
     public record ImportResult(
-            List<Employee> employees,
+            List<SecurityIdentity> employees,
             List<String> errors,
             int totalRows,
             int importedCount

@@ -3,6 +3,7 @@ package com.livingagent.core.neuron.chat;
 import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 import org.slf4j.Logger;
@@ -39,22 +40,82 @@ public class ChatNeuronRouter {
         this.intentClassifier = new ChatIntentClassifier();
     }
     
+    private static final Set<String> KNOWN_DEPARTMENTS = Set.of(
+        "tech", "hr", "finance", "admin", "ops", "sales", "cs", "legal", "main"
+    );
+
     public void initialize() {
         neuronRegistry.get("neuron://chat/qwen3/001").ifPresent(n -> this.chatNeuron = n);
         neuronRegistry.get("neuron://tool/bitnet/001").ifPresent(n -> this.toolNeuron = n);
-        neuronRegistry.get("neuron://main/brain/001").ifPresent(n -> this.mainBrain = n);
-        
-        neuronRegistry.get("neuron://brain/tech/001").ifPresent(n -> departmentBrains.put("tech", n));
-        neuronRegistry.get("neuron://brain/hr/001").ifPresent(n -> departmentBrains.put("hr", n));
-        neuronRegistry.get("neuron://brain/finance/001").ifPresent(n -> departmentBrains.put("finance", n));
-        neuronRegistry.get("neuron://brain/admin/001").ifPresent(n -> departmentBrains.put("admin", n));
-        neuronRegistry.get("neuron://brain/ops/001").ifPresent(n -> departmentBrains.put("ops", n));
-        neuronRegistry.get("neuron://brain/sales/001").ifPresent(n -> departmentBrains.put("sales", n));
-        neuronRegistry.get("neuron://brain/cs/001").ifPresent(n -> departmentBrains.put("cs", n));
-        neuronRegistry.get("neuron://brain/legal/001").ifPresent(n -> departmentBrains.put("legal", n));
-        
+
+        for (Neuron neuron : neuronRegistry.getAll()) {
+            String id = neuron.getId();
+            if (id == null) continue;
+            if (id.startsWith("neuron://chat/") || id.startsWith("neuron://tool/")) continue;
+
+            String department = discoverDepartment(neuron);
+            if (department == null) continue;
+
+            if ("main".equals(department)) {
+                if (this.mainBrain == null) {
+                    this.mainBrain = neuron;
+                    log.info("MainBrain discovered: {} -> department=main", id);
+                }
+            } else {
+                departmentBrains.computeIfAbsent(department, k -> {
+                    log.info("DepartmentBrain discovered: {} -> department={}", id, k);
+                    return neuron;
+                });
+            }
+        }
+
         log.info("ChatNeuronRouter initialized: chatNeuron={}, toolNeuron={}, mainBrain={}, departmentBrains={}",
             chatNeuron != null, toolNeuron != null, mainBrain != null, departmentBrains.size());
+    }
+
+    private String discoverDepartment(Neuron neuron) {
+        List<String> channels = neuron.getSubscribedChannels();
+        if (channels != null) {
+            for (String channel : channels) {
+                if (channel != null && channel.startsWith("channel://")) {
+                    String path = channel.substring("channel://".length());
+                    int slash = path.indexOf('/');
+                    String dept = slash > 0 ? path.substring(0, slash) : path;
+                    if (KNOWN_DEPARTMENTS.contains(dept)) {
+                        return dept;
+                    }
+                }
+            }
+        }
+
+        String id = neuron.getId();
+        if (id != null && id.startsWith("neuron://")) {
+            String path = id.substring("neuron://".length());
+            int slash = path.indexOf('/');
+            if (slash > 0) {
+                String dept = path.substring(0, slash);
+                if (KNOWN_DEPARTMENTS.contains(dept)) {
+                    return dept;
+                }
+                String mapped = mapChineseDepartment(dept);
+                if (mapped != null) return mapped;
+            }
+        }
+
+        return null;
+    }
+
+    private String mapChineseDepartment(String chinese) {
+        if (chinese.contains("技术")) return "tech";
+        if (chinese.contains("人力")) return "hr";
+        if (chinese.contains("财务")) return "finance";
+        if (chinese.contains("行政")) return "admin";
+        if (chinese.contains("运营")) return "ops";
+        if (chinese.contains("销售")) return "sales";
+        if (chinese.contains("客服")) return "cs";
+        if (chinese.contains("法务")) return "legal";
+        if (chinese.contains("跨部门") || chinese.contains("协调")) return "main";
+        return null;
     }
     
     public RoutingResult route(String sessionId, String userInput, Map<String, Object> context) {
@@ -62,6 +123,7 @@ public class ChatNeuronRouter {
         
         AccessLevel accessLevel = extractAccessLevel(context);
         String departmentId = (String) context.getOrDefault("departmentId", "unknown");
+        String channel = (String) context.getOrDefault("channel", "");
         
         ChatIntentClassifier.ClassificationResult classification = intentClassifier.classify(userInput);
         
@@ -73,6 +135,20 @@ public class ChatNeuronRouter {
         result.setReason(classification.getReason());
         result.setAccessLevel(accessLevel);
         result.setDepartmentId(departmentId);
+        result.setChannel(channel);
+        
+        // 简化路由：仅用于未登录公共闲聊
+        // 登录后部门通道由 AgentService 直接调用 LLM，不经过此处
+        boolean isPublicChannel = channel != null && channel.contains("public");
+        
+        if (!isPublicChannel) {
+            log.warn("ChatNeuronRouter.route() called for non-public channel: {}. This should be handled by direct LLM call in AgentService.", channel);
+            result.setTargetNeuron("chat-neuron");
+            result.setNeuron(chatNeuron);
+            result.setPermissionGranted(false);
+            result.setPermissionDeniedReason("登录后部门通道应绕过 ChatNeuronRouter，直接调用部门大脑 LLM");
+            return result;
+        }
         
         Neuron targetNeuron = selectTargetNeuronWithPermission(classification, accessLevel, departmentId, context);
         
@@ -85,8 +161,8 @@ public class ChatNeuronRouter {
             result.setNeuron(chatNeuron);
             result.setPermissionGranted(false);
             result.setPermissionDeniedReason(buildPermissionDeniedMessage(classification, accessLevel));
-            log.warn("Permission denied: intent={}, accessLevel={}, user needs higher permission", 
-                classification.getIntent(), accessLevel);
+            log.warn("Permission denied: intent={}, accessLevel={}, channel={}, user needs higher permission", 
+                classification.getIntent(), accessLevel, channel);
         }
         
         long latency = System.currentTimeMillis() - startTime;
@@ -94,8 +170,8 @@ public class ChatNeuronRouter {
         
         updateStats(sessionId, classification.getIntent().name(), latency);
         
-        log.debug("Routed input to {} (intent={}, confidence={}, accessLevel={}, latency={}ms)",
-            result.getTargetNeuron(), result.getIntent(), result.getConfidence(), accessLevel, latency);
+        log.debug("Routed input to {} (intent={}, confidence={}, accessLevel={}, channel={}, latency={}ms)",
+            result.getTargetNeuron(), result.getIntent(), result.getConfidence(), accessLevel, channel, latency);
         
         return result;
     }
@@ -121,7 +197,7 @@ public class ChatNeuronRouter {
         Object identityObj = context.get("userIdentity");
         if (identityObj != null) {
             String identity = identityObj.toString();
-            if (identity.contains("CHAIRMAN")) return AccessLevel.FULL;
+            if (identity.contains("ENTERPRISE")) return AccessLevel.FULL;
             if (identity.contains("ACTIVE")) return AccessLevel.DEPARTMENT;
             if (identity.contains("PROBATION")) return AccessLevel.LIMITED;
             if (identity.contains("DEPARTED") || identity.contains("VISITOR")) return AccessLevel.CHAT_ONLY;
@@ -140,15 +216,14 @@ public class ChatNeuronRouter {
         }
         
         return switch (classification.getIntent()) {
-            case GREETING, CASUAL_CHAT, SIMPLE_QUESTION -> {
-                yield chatNeuron;
-            }
+            case GREETING, CASUAL_CHAT, SIMPLE_QUESTION -> chatNeuron;
             
             case TOOL_CALL -> {
-                if (accessLevel.getLevel() >= AccessLevel.DEPARTMENT.getLevel()) {
-                    yield toolNeuron != null ? toolNeuron : chatNeuron;
+                if (accessLevel.ordinal() < AccessLevel.DEPARTMENT.ordinal()) {
+                    log.info("TOOL_CALL denied for {} access, downgrading to chatNeuron", accessLevel);
+                    yield chatNeuron;
                 }
-                log.info("TOOL_CALL denied for accessLevel={}, downgrading to chatNeuron", accessLevel);
+                log.debug("TOOL_CALL routed to chatNeuron for {} access", accessLevel);
                 yield chatNeuron;
             }
             
@@ -341,6 +416,7 @@ public class ChatNeuronRouter {
         private boolean shouldRoute = true;
         private AccessLevel accessLevel;
         private String departmentId;
+        private String channel;
         private boolean permissionGranted = true;
         private String permissionDeniedReason;
         
@@ -376,6 +452,9 @@ public class ChatNeuronRouter {
         
         public String getDepartmentId() { return departmentId; }
         public void setDepartmentId(String departmentId) { this.departmentId = departmentId; }
+        
+        public String getChannel() { return channel; }
+        public void setChannel(String channel) { this.channel = channel; }
         
         public boolean isPermissionGranted() { return permissionGranted; }
         public void setPermissionGranted(boolean permissionGranted) { this.permissionGranted = permissionGranted; }

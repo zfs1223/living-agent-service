@@ -42,6 +42,24 @@ public interface KnowledgeManager {
 
     void promoteToShared(String key);
 
+    boolean canPromoteToDomain(String key);
+
+    boolean canPromoteToShared(String key);
+
+    void demoteToPrivate(String key);
+
+    void demoteToDepartment(String key);
+
+    KnowledgeEntry publish(String key);
+
+    KnowledgeEntry archive(String key);
+
+    KnowledgeEntry deprecate(String key);
+
+    KnowledgeEntry reactivate(String key);
+
+    List<KnowledgeEntry> listByStatus(KnowledgeStatus status, String scope, int limit);
+
     void addExperience(Experience experience, String brainDomain);
 
     List<Experience> getExperiences(String context, String brainDomain);

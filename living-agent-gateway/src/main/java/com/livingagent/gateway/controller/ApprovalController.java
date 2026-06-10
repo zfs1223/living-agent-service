@@ -3,6 +3,10 @@ package com.livingagent.gateway.controller;
 import com.livingagent.core.approval.*;
 import com.livingagent.core.approval.ApprovalInstance.ApprovalStatus;
 import com.livingagent.core.approval.ApprovalRecord;
+import com.livingagent.core.database.entity.TaskEntity;
+import com.livingagent.core.database.repository.TaskRepository;
+import com.livingagent.core.security.AccessGateService;
+import com.livingagent.core.task.TaskStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -20,19 +24,62 @@ public class ApprovalController {
     private static final Logger log = LoggerFactory.getLogger(ApprovalController.class);
 
     private final ApprovalService approvalService;
+    private final AccessGateService accessGateService;
+    private final TaskRepository taskRepository;
 
-    public ApprovalController(ApprovalService approvalService) {
+    public ApprovalController(ApprovalService approvalService, AccessGateService accessGateService, TaskRepository taskRepository) {
         this.approvalService = approvalService;
+        this.accessGateService = accessGateService;
+        this.taskRepository = taskRepository;
+
+        // P1-4.2: 注册审批回调，审批通过后自动推进关联任务
+        approvalService.registerCallback(new ApprovalService.ApprovalCallback() {
+            @Override
+            public void onApproved(ApprovalInstance instance) {
+                advanceTaskOnApprovalApproved(instance);
+            }
+
+            @Override
+            public void onRejected(ApprovalInstance instance) {
+                advanceTaskOnApprovalRejected(instance);
+            }
+        });
+    }
+
+    @GetMapping
+    public ResponseEntity<ApiResponse<List<ApprovalSummary>>> listAllApprovals(
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String type,
+            @RequestParam(defaultValue = "100") int limit,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
+    ) {
+        log.debug("Listing all approvals, status: {}, type: {}", status, type);
+
+        String userId = employeeId != null && !employeeId.isBlank() ? employeeId : getCurrentApproverId();
+        List<ApprovalInstance> approvals = approvalService.getMyApprovals(userId, status);
+
+        List<ApprovalSummary> summaries = approvals.stream()
+                .filter(a -> type == null || a.getBusinessType().equals(type))
+                .limit(limit)
+                .map(this::toSummary)
+                .collect(Collectors.toList());
+
+        return ResponseEntity.ok(ApiResponse.ok(summaries));
     }
 
     @GetMapping("/pending")
     public ResponseEntity<ApiResponse<List<ApprovalSummary>>> getPendingApprovals(
             @RequestParam(required = false) String type,
-            @RequestParam(defaultValue = "100") int limit
+            @RequestParam(defaultValue = "100") int limit,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         log.debug("Getting pending approvals, type: {}", type);
 
-        String approverId = getCurrentApproverId();
+        String approverId = employeeId != null && !employeeId.isBlank() ? employeeId : getCurrentApproverId();
+        if (!accessGateService.canRoute(approverId, "brain", "FinanceBrain")) {
+            return ResponseEntity.status(403)
+                    .body(ApiResponse.err("forbidden", "Access denied before routing"));
+        }
         List<ApprovalInstance> approvals = approvalService.getPendingApprovals(approverId);
 
         List<ApprovalSummary> summaries = approvals.stream()
@@ -41,26 +88,28 @@ public class ApprovalController {
                 .map(this::toSummary)
                 .collect(Collectors.toList());
 
-        return ResponseEntity.ok(ApiResponse.success(summaries));
+        return ResponseEntity.ok(ApiResponse.ok(summaries));
     }
 
     @GetMapping("/my-pending")
     public ResponseEntity<ApiResponse<List<ApprovalSummary>>> getMyPendingApprovals(
             @RequestParam(required = false) String type,
-            @RequestParam(defaultValue = "100") int limit
+            @RequestParam(defaultValue = "100") int limit,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         log.debug("Getting my pending approvals, type: {}", type);
-        return getPendingApprovals(type, limit);
+        return getPendingApprovals(type, limit, employeeId);
     }
 
     @GetMapping("/my")
     public ResponseEntity<ApiResponse<List<ApprovalSummary>>> getMyApprovals(
             @RequestParam(required = false) String status,
-            @RequestParam(defaultValue = "100") int limit
+            @RequestParam(defaultValue = "100") int limit,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         log.debug("Getting my approvals, status: {}", status);
 
-        String submitterId = getCurrentApproverId();
+        String submitterId = employeeId != null && !employeeId.isBlank() ? employeeId : getCurrentApproverId();
         List<ApprovalInstance> approvals = approvalService.getMyApprovals(submitterId, status);
 
         List<ApprovalSummary> summaries = approvals.stream()
@@ -68,14 +117,21 @@ public class ApprovalController {
                 .map(this::toSummary)
                 .collect(Collectors.toList());
 
-        return ResponseEntity.ok(ApiResponse.success(summaries));
+        return ResponseEntity.ok(ApiResponse.ok(summaries));
     }
 
     @PostMapping
     public ResponseEntity<ApiResponse<ApprovalInstance>> createApproval(
-            @RequestBody CreateApprovalRequest request
+            @RequestBody CreateApprovalRequest request,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         log.info("Creating approval: {} - {}", request.businessType(), request.title());
+
+        String approverId = employeeId != null && !employeeId.isBlank() ? employeeId : getCurrentApproverId();
+        if (!accessGateService.canRoute(approverId, "brain", "FinanceBrain")) {
+            return ResponseEntity.status(403)
+                    .body(ApiResponse.err("forbidden", "Access denied before routing"));
+        }
 
         ApprovalService.CreateApprovalRequest serviceRequest = new ApprovalService.CreateApprovalRequest(
                 request.workflowId() != null ? request.workflowId() : "default",
@@ -83,23 +139,27 @@ public class ApprovalController {
                 request.businessId(),
                 request.title(),
                 request.description(),
-                getCurrentApproverId()
+                approverId
         );
 
         ApprovalInstance instance = approvalService.createApproval(serviceRequest);
-        return ResponseEntity.ok(ApiResponse.success(instance));
+        return ResponseEntity.ok(ApiResponse.ok(instance));
     }
 
     @GetMapping("/{instanceId}")
     public ResponseEntity<ApiResponse<ApprovalDetail>> getApproval(
-            @PathVariable String instanceId
+            @PathVariable String instanceId,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "FinanceBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
+        }
         log.debug("Getting approval: {}", instanceId);
 
         return approvalService.getApproval(instanceId)
-                .map(a -> ResponseEntity.ok(ApiResponse.success(toDetail(a))))
+                .map(a -> ResponseEntity.ok(ApiResponse.ok(toDetail(a))))
                 .orElse(ResponseEntity.status(404)
-                        .body(ApiResponse.error("not_found", "Approval not found: " + instanceId)));
+                        .body(ApiResponse.err("not_found", "Approval not found: " + instanceId)));
     }
 
     @PostMapping("/{instanceId}/approve")
@@ -115,10 +175,10 @@ public class ApprovalController {
                     getCurrentApproverId(),
                     request.comment()
             );
-            return ResponseEntity.ok(ApiResponse.success(instance));
+            return ResponseEntity.ok(ApiResponse.ok(instance));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.status(404)
-                    .body(ApiResponse.error("not_found", e.getMessage()));
+                    .body(ApiResponse.err("not_found", e.getMessage()));
         }
     }
 
@@ -135,10 +195,10 @@ public class ApprovalController {
                     getCurrentApproverId(),
                     request.comment()
             );
-            return ResponseEntity.ok(ApiResponse.success(instance));
+            return ResponseEntity.ok(ApiResponse.ok(instance));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.status(404)
-                    .body(ApiResponse.error("not_found", e.getMessage()));
+                    .body(ApiResponse.err("not_found", e.getMessage()));
         }
     }
 
@@ -155,10 +215,10 @@ public class ApprovalController {
                     getCurrentApproverId(),
                     request.comment()
             );
-            return ResponseEntity.ok(ApiResponse.success(instance));
+            return ResponseEntity.ok(ApiResponse.ok(instance));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.status(404)
-                    .body(ApiResponse.error("not_found", e.getMessage()));
+                    .body(ApiResponse.err("not_found", e.getMessage()));
         }
     }
 
@@ -170,13 +230,13 @@ public class ApprovalController {
 
         try {
             approvalService.cancel(instanceId, getCurrentApproverId());
-            return ResponseEntity.ok(ApiResponse.success(null));
+            return ResponseEntity.ok(ApiResponse.ok(null));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.status(404)
-                    .body(ApiResponse.error("not_found", e.getMessage()));
+                    .body(ApiResponse.err("not_found", e.getMessage()));
         } catch (IllegalStateException e) {
             return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("cancel_failed", e.getMessage()));
+                    .body(ApiResponse.err("cancel_failed", e.getMessage()));
         }
     }
 
@@ -191,7 +251,7 @@ public class ApprovalController {
                 .map(this::toRecordDetail)
                 .collect(Collectors.toList());
 
-        return ResponseEntity.ok(ApiResponse.success(details));
+        return ResponseEntity.ok(ApiResponse.ok(details));
     }
 
     @GetMapping("/{instanceId}/steps")
@@ -213,10 +273,10 @@ public class ApprovalController {
                             null,
                             null
                     ));
-                    return ResponseEntity.ok(ApiResponse.success(steps));
+                    return ResponseEntity.ok(ApiResponse.ok(steps));
                 })
                 .orElse(ResponseEntity.status(404)
-                        .body(ApiResponse.error("not_found", "Approval not found: " + instanceId)));
+                        .body(ApiResponse.err("not_found", "Approval not found: " + instanceId)));
     }
 
     @PostMapping("/{instanceId}/steps/{stepId}/approve")
@@ -233,10 +293,10 @@ public class ApprovalController {
                     getCurrentApproverId(),
                     request.comment()
             );
-            return ResponseEntity.ok(ApiResponse.success(instance));
+            return ResponseEntity.ok(ApiResponse.ok(instance));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.status(404)
-                    .body(ApiResponse.error("not_found", e.getMessage()));
+                    .body(ApiResponse.err("not_found", e.getMessage()));
         }
     }
 
@@ -254,10 +314,10 @@ public class ApprovalController {
                     getCurrentApproverId(),
                     request.comment()
             );
-            return ResponseEntity.ok(ApiResponse.success(instance));
+            return ResponseEntity.ok(ApiResponse.ok(instance));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.status(404)
-                    .body(ApiResponse.error("not_found", e.getMessage()));
+                    .body(ApiResponse.err("not_found", e.getMessage()));
         }
     }
 
@@ -270,7 +330,7 @@ public class ApprovalController {
                 .map(this::toWorkflowSummary)
                 .collect(Collectors.toList());
 
-        return ResponseEntity.ok(ApiResponse.success(summaries));
+        return ResponseEntity.ok(ApiResponse.ok(summaries));
     }
 
     @GetMapping("/workflows/{workflowId}")
@@ -280,9 +340,9 @@ public class ApprovalController {
         log.debug("Getting workflow: {}", workflowId);
 
         return approvalService.getWorkflow(workflowId)
-                .map(w -> ResponseEntity.ok(ApiResponse.success(toWorkflowDetail(w))))
+                .map(w -> ResponseEntity.ok(ApiResponse.ok(toWorkflowDetail(w))))
                 .orElse(ResponseEntity.status(404)
-                        .body(ApiResponse.error("not_found", "Workflow not found: " + workflowId)));
+                        .body(ApiResponse.err("not_found", "Workflow not found: " + workflowId)));
     }
 
     @PostMapping("/workflows")
@@ -299,7 +359,7 @@ public class ApprovalController {
         );
 
         ApprovalWorkflow workflow = approvalService.createWorkflow(serviceRequest);
-        return ResponseEntity.ok(ApiResponse.success(workflow));
+        return ResponseEntity.ok(ApiResponse.ok(workflow));
     }
 
     private String getCurrentApproverId() {
@@ -378,11 +438,11 @@ public class ApprovalController {
             String error,
             String errorDescription
     ) {
-        public static <T> ApiResponse<T> success(T data) {
+        public static <T> ApiResponse<T> ok(T data) {
             return new ApiResponse<>(true, data, null, null);
         }
 
-        public static <T> ApiResponse<T> error(String error, String description) {
+        public static <T> ApiResponse<T> err(String error, String description) {
             return new ApiResponse<>(false, null, error, description);
         }
     }
@@ -468,5 +528,115 @@ public class ApprovalController {
             String approvedBy,
             String comment,
             Instant completedAt
+    ) {}
+
+    // ─── P1-4.2: 审批回调 - 审批通过/拒绝后自动推进关联任务 ───
+
+    /**
+     * P1-4.2: 审批通过回调端点，供外部系统或前端手动触发。
+     * 当审批 businessType 为 execution_receipt 时，自动推进关联任务状态。
+     */
+    @PostMapping("/{instanceId}/callback/approved")
+    public ResponseEntity<ApiResponse<CallbackResult>> onApprovalApproved(
+            @PathVariable String instanceId
+    ) {
+        log.info("Approval approved callback triggered: {}", instanceId);
+        return approvalService.getApproval(instanceId)
+                .map(instance -> {
+                    advanceTaskOnApprovalApproved(instance);
+                    return ResponseEntity.ok(ApiResponse.ok(
+                        new CallbackResult(instanceId, "approved", "Task advanced successfully")));
+                })
+                .orElse(ResponseEntity.status(404)
+                        .body(ApiResponse.err("not_found", "Approval not found: " + instanceId)));
+    }
+
+    /**
+     * P1-4.2: 审批拒绝回调端点。
+     */
+    @PostMapping("/{instanceId}/callback/rejected")
+    public ResponseEntity<ApiResponse<CallbackResult>> onApprovalRejected(
+            @PathVariable String instanceId
+    ) {
+        log.info("Approval rejected callback triggered: {}", instanceId);
+        return approvalService.getApproval(instanceId)
+                .map(instance -> {
+                    advanceTaskOnApprovalRejected(instance);
+                    return ResponseEntity.ok(ApiResponse.ok(
+                        new CallbackResult(instanceId, "rejected", "Task updated with rejection")));
+                })
+                .orElse(ResponseEntity.status(404)
+                        .body(ApiResponse.err("not_found", "Approval not found: " + instanceId)));
+    }
+
+    /**
+     * P1-4.2: 审批通过后自动推进关联任务状态。
+     * businessType=execution_receipt 时，通过 businessId(executionId) 查找关联任务并推进。
+     */
+    private void advanceTaskOnApprovalApproved(ApprovalInstance instance) {
+        if (!"execution_receipt".equals(instance.getBusinessType())) {
+            return;
+        }
+        String executionId = instance.getBusinessId();
+        if (executionId == null || executionId.isBlank()) {
+            log.warn("Approval approved but no businessId (executionId) found: instanceId={}", instance.getInstanceId());
+            return;
+        }
+        try {
+            taskRepository.findByExecutionId(executionId).ifPresent(task -> {
+                String currentStatus = task.getStatus();
+                if (TaskStatus.NEEDS_HUMAN_REVIEW.getDbValue().equalsIgnoreCase(currentStatus)
+                        || "NEEDS_APPROVAL".equalsIgnoreCase(currentStatus)
+                        || TaskStatus.PARTIALLY_COMPLETED.getDbValue().equalsIgnoreCase(currentStatus)
+                        || TaskStatus.WAITING_RECEIPT.getDbValue().equalsIgnoreCase(currentStatus)) {
+                    task.setStatus(TaskStatus.IN_PROGRESS.getDbValue());
+                    taskRepository.save(task);
+                    log.info("P1-4.2: Approval approved, advanced task {} from {} to IN_PROGRESS (executionId={})",
+                        task.getTaskId(), currentStatus, executionId);
+                } else {
+                    log.info("P1-4.2: Approval approved but task {} already in status {} (executionId={})",
+                        task.getTaskId(), currentStatus, executionId);
+                }
+            });
+        } catch (Exception e) {
+            log.warn("P1-4.2: Failed to advance task after approval approved: executionId={}, error={}",
+                executionId, e.getMessage());
+        }
+    }
+
+    /**
+     * P1-4.2: 审批拒绝后更新关联任务状态为 FAILED。
+     */
+    private void advanceTaskOnApprovalRejected(ApprovalInstance instance) {
+        if (!"execution_receipt".equals(instance.getBusinessType())) {
+            return;
+        }
+        String executionId = instance.getBusinessId();
+        if (executionId == null || executionId.isBlank()) {
+            return;
+        }
+        try {
+            taskRepository.findByExecutionId(executionId).ifPresent(task -> {
+                String currentStatus = task.getStatus();
+                if (TaskStatus.NEEDS_HUMAN_REVIEW.getDbValue().equalsIgnoreCase(currentStatus)
+                        || "NEEDS_APPROVAL".equalsIgnoreCase(currentStatus)
+                        || TaskStatus.PARTIALLY_COMPLETED.getDbValue().equalsIgnoreCase(currentStatus)
+                        || TaskStatus.WAITING_RECEIPT.getDbValue().equalsIgnoreCase(currentStatus)) {
+                    task.setStatus(TaskStatus.FAILED.getDbValue());
+                    taskRepository.save(task);
+                    log.info("P1-4.2: Approval rejected, updated task {} from {} to FAILED (executionId={})",
+                        task.getTaskId(), currentStatus, executionId);
+                }
+            });
+        } catch (Exception e) {
+            log.warn("P1-4.2: Failed to update task after approval rejected: executionId={}, error={}",
+                executionId, e.getMessage());
+        }
+    }
+
+    public record CallbackResult(
+            String instanceId,
+            String action,
+            String message
     ) {}
 }

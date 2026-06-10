@@ -1,5 +1,6 @@
 package com.livingagent.core.proactive.scheduler;
 
+import com.livingagent.core.autonomy.TaskMetadataKeys;
 import com.livingagent.core.proactive.alert.AlertNotifier;
 import com.livingagent.core.proactive.alert.AlertNotifier.Alert;
 import com.livingagent.core.proactive.cron.CronJob;
@@ -303,7 +304,7 @@ public class ProactiveTaskScheduler {
     }
 
     private void handleTaskTrigger(HookEvent event) {
-        String taskType = event.getString("taskType");
+        String taskType = event.getString(TaskMetadataKeys.TASK_TYPE);
         String brainDomain = event.getString("brainDomain");
         
         List<ProactiveTask> matchingTasks = tasks.values().stream()
