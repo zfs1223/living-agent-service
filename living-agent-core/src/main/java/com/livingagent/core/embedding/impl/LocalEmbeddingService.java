@@ -27,8 +27,10 @@ public class LocalEmbeddingService implements EmbeddingService {
     private final int threads;
     private final boolean enableCache;
     private final int cacheSize;
+    private final boolean strictMode;  // 硬失败模式：生产环境应启用
 
     private volatile boolean initialized = false;
+    private volatile boolean modelLoaded = false;  // 区分"初始化完成"和"模型加载成功"
     private volatile long modelHandle = 0;
 
     private final Map<String, float[]> embeddingCache;
@@ -46,7 +48,8 @@ public class LocalEmbeddingService implements EmbeddingService {
             @Value("${embedding.use-gpu:true}") boolean useGpu,
             @Value("${embedding.threads:8}") int threads,
             @Value("${embedding.enable-cache:true}") boolean enableCache,
-            @Value("${embedding.cache-size:10000}") int cacheSize) {
+            @Value("${embedding.cache-size:10000}") int cacheSize,
+            @Value("${embedding.strict-mode:false}") boolean strictMode) {
         
         this.modelPath = modelPath;
         this.dimension = dimension;
@@ -56,6 +59,7 @@ public class LocalEmbeddingService implements EmbeddingService {
         this.threads = threads;
         this.enableCache = enableCache;
         this.cacheSize = cacheSize;
+        this.strictMode = strictMode;
         
         this.embeddingCache = enableCache 
             ? new ConcurrentHashMap<>(cacheSize) 
@@ -70,6 +74,9 @@ public class LocalEmbeddingService implements EmbeddingService {
         try {
             Path path = resolveModelPath();
             if (!Files.exists(path)) {
+                if (strictMode) {
+                    throw new IllegalStateException("Embedding model file not found at: " + path + " (strict mode enabled)");
+                }
                 log.warn("Model file not found at: {}, using mock embeddings", path);
                 initialized = true;
                 return;
@@ -81,14 +88,21 @@ public class LocalEmbeddingService implements EmbeddingService {
             modelHandle = loadModelNative(path.toString(), dimension, threads, useGpu);
             
             if (modelHandle != 0) {
+                modelLoaded = true;
                 initialized = true;
                 log.info("Embedding model loaded in {}ms", System.currentTimeMillis() - startTime);
             } else {
+                if (strictMode) {
+                    throw new IllegalStateException("Failed to load embedding model (strict mode enabled)");
+                }
                 log.warn("Failed to load embedding model, using mock embeddings");
                 initialized = true;
             }
             
         } catch (Exception e) {
+            if (strictMode) {
+                throw new IllegalStateException("Failed to initialize embedding service: " + e.getMessage(), e);
+            }
             log.error("Failed to initialize embedding service: {}", e.getMessage());
             initialized = true;
         }
@@ -112,6 +126,11 @@ public class LocalEmbeddingService implements EmbeddingService {
     public float[] embed(String text) {
         if (!initialized) {
             initialize();
+        }
+        
+        // 硬失败检查：strictMode 下模型未加载则抛异常
+        if (strictMode && !modelLoaded) {
+            throw new IllegalStateException("Embedding service not ready - model not loaded (strict mode enabled)");
         }
         
         if (text == null || text.isBlank()) {
@@ -154,6 +173,11 @@ public class LocalEmbeddingService implements EmbeddingService {
     public List<float[]> embedBatch(List<String> texts) {
         if (!initialized) {
             initialize();
+        }
+        
+        // 硬失败检查：strictMode 下模型未加载则抛异常
+        if (strictMode && !modelLoaded) {
+            throw new IllegalStateException("Embedding service not ready - model not loaded (strict mode enabled)");
         }
         
         if (texts == null || texts.isEmpty()) {
@@ -233,7 +257,7 @@ public class LocalEmbeddingService implements EmbeddingService {
 
     @Override
     public boolean isReady() {
-        return initialized;
+        return initialized && modelLoaded;  // 区分"初始化完成"和"模型加载成功"
     }
 
     private String computeCacheKey(String text) {

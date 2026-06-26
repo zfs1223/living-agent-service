@@ -16,6 +16,8 @@ import com.livingagent.core.operation.dashboard.DashboardDTOs;
 import com.livingagent.core.operation.dashboard.DashboardService;
 import com.livingagent.core.ops.scheduler.TaskCheckout;
 import com.livingagent.core.ops.scheduler.TaskCheckout.TaskStatistics;
+import com.livingagent.core.autonomous.bounty.TokenCostEstimator;
+import com.livingagent.core.autonomous.bounty.TokenCostEstimator.ProjectAccounting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -37,6 +39,7 @@ public class DashboardServiceImpl implements DashboardService {
     private final HealthMonitor healthMonitor;
     private final DepartmentRepository departmentRepository;
     private final FixedEmployeeRegistry fixedEmployeeRegistry;
+    private final TokenCostEstimator tokenCostEstimator;
 
     public DashboardServiceImpl(
             EmployeeService employeeService,
@@ -45,7 +48,8 @@ public class DashboardServiceImpl implements DashboardService {
             TaskCheckout taskCheckout,
             HealthMonitor healthMonitor,
             DepartmentRepository departmentRepository,
-            FixedEmployeeRegistry fixedEmployeeRegistry) {
+            FixedEmployeeRegistry fixedEmployeeRegistry,
+            TokenCostEstimator tokenCostEstimator) {
         this.employeeService = employeeService;
         this.brainRegistry = brainRegistry;
         this.neuronRegistry = neuronRegistry;
@@ -53,6 +57,7 @@ public class DashboardServiceImpl implements DashboardService {
         this.healthMonitor = healthMonitor;
         this.departmentRepository = departmentRepository;
         this.fixedEmployeeRegistry = fixedEmployeeRegistry;
+        this.tokenCostEstimator = tokenCostEstimator;
     }
 
     @Override
@@ -194,14 +199,84 @@ public class DashboardServiceImpl implements DashboardService {
     }
 
     private DashboardDTOs.CostAnalysis buildCostAnalysis() {
+        // 从 TokenCostEstimator 获取真实项目会计数据
+        Map<String, ProjectAccounting> projectAccounts = tokenCostEstimator.getAllProjectAccounting();
+        
+        double totalCost = 0;
+        double totalIncome = 0;
+        double internalCost = 0;
+        double externalCost = 0;
+        int totalTasks = 0;
+        
+        // 聚合所有项目数据
+        for (ProjectAccounting account : projectAccounts.values()) {
+            totalCost += account.totalCost();
+            totalIncome += account.totalIncome();
+            totalTasks += account.taskRecords().size();
+            
+            // 区分内部和外部成本（根据 deploymentType）
+            for (TokenCostEstimator.TaskCostRecord record : account.taskRecords().values()) {
+                if ("local".equals(record.deploymentType())) {
+                    internalCost += record.cost();
+                } else {
+                    externalCost += record.cost();
+                }
+            }
+        }
+        
+        // 计算外包率（外部成本占比）
+        double outsourcingRate = totalCost > 0 ? externalCost / totalCost : 0;
+        
+        // 计算每任务成本
+        double costPerTask = totalTasks > 0 ? totalCost / totalTasks : 0;
+        
+        // 构建成本分解
+        List<DashboardDTOs.CostBreakdown> breakdowns = new ArrayList<>();
+        
+        // 模型成本分解
+        Map<String, Double> modelCosts = new HashMap<>();
+        for (ProjectAccounting account : projectAccounts.values()) {
+            for (Map.Entry<String, Double> entry : account.modelCosts().entrySet()) {
+                modelCosts.merge(entry.getKey(), entry.getValue(), Double::sum);
+            }
+        }
+        
+        for (Map.Entry<String, Double> entry : modelCosts.entrySet()) {
+            double percentage = totalCost > 0 ? (entry.getValue() / totalCost) * 100 : 0;
+            breakdowns.add(new DashboardDTOs.CostBreakdown(
+                "model:" + entry.getKey(),
+                BigDecimal.valueOf(entry.getValue()),
+                percentage,
+                "stable"
+            ));
+        }
+        
+        // 任务类型成本分解
+        Map<String, Double> taskTypeCosts = new HashMap<>();
+        for (ProjectAccounting account : projectAccounts.values()) {
+            for (TokenCostEstimator.TaskCostRecord record : account.taskRecords().values()) {
+                taskTypeCosts.merge(record.taskType(), record.cost(), Double::sum);
+            }
+        }
+        
+        for (Map.Entry<String, Double> entry : taskTypeCosts.entrySet()) {
+            double percentage = totalCost > 0 ? (entry.getValue() / totalCost) * 100 : 0;
+            breakdowns.add(new DashboardDTOs.CostBreakdown(
+                "taskType:" + entry.getKey(),
+                BigDecimal.valueOf(entry.getValue()),
+                percentage,
+                "stable"
+            ));
+        }
+        
         return new DashboardDTOs.CostAnalysis(
-                BigDecimal.ZERO,
-                BigDecimal.ZERO,
-                BigDecimal.ZERO,
-                BigDecimal.ZERO,
-                BigDecimal.ZERO,
-                0.0,
-                List.of()
+            BigDecimal.valueOf(totalCost),
+            BigDecimal.valueOf(internalCost),
+            BigDecimal.valueOf(externalCost),
+            BigDecimal.valueOf(totalIncome - totalCost), // pendingBounties = net profit
+            BigDecimal.valueOf(costPerTask),
+            outsourcingRate,
+            breakdowns
         );
     }
 

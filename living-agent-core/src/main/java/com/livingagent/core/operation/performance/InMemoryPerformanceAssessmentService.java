@@ -5,6 +5,7 @@ import com.livingagent.core.employee.EmployeeCompensationService;
 import com.livingagent.core.employee.EmployeeService;
 import com.livingagent.core.employee.EmployeeStatus;
 import com.livingagent.core.ops.scheduler.TaskCheckout;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -18,6 +19,7 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Service
+@Profile("dev")
 public class InMemoryPerformanceAssessmentService implements PerformanceAssessmentService {
 
     private final EmployeeService employeeService;
