@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.Instant;
 import java.util.List;
 
 @Repository
@@ -20,4 +21,10 @@ public interface AccessAuditLogRepository extends JpaRepository<AccessAuditLog, 
     long countByEmployeeId(String employeeId);
 
     void deleteByTimestampBefore(long cutoffTime);
+
+    @Query("SELECT a FROM AccessAuditLog a WHERE a.employeeId = :employeeId AND a.timestamp >= :fromMillis AND a.timestamp <= :toMillis ORDER BY a.timestamp DESC")
+    List<AccessAuditLog> findByEmployeeIdAndDetectedAtBetween(
+        @Param("employeeId") String employeeId,
+        @Param("fromMillis") long fromMillis,
+        @Param("toMillis") long toMillis);
 }
