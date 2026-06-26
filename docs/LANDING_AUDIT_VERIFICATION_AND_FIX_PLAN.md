@@ -864,7 +864,7 @@ git commit -m "WIP: snapshot before P0 fixes (191 files uncommitted)"
 > - ✅ 阶段一已完成（3/4，单测待后续）
 > - ✅ 阶段二已完成（4/4）
 > - ⏳ 阶段三已完成（5/6，LeadOrchestrator+TaskDag+PlanApproval+ComplianceManager+TodoPool标注）
-> - ⏳ 阶段四进行中（3/4，Excel+LLM+MiscController 已标注）
+> - ✅ 阶段四已完成（4/4，Excel+LLM+MiscController+文档校正）
 
 ### 阶段零：立即止血（本周内）
 
@@ -912,7 +912,7 @@ git commit -m "WIP: snapshot before P0 fixes (191 files uncommitted)"
 | 4.1 | Excel 导入实现/禁用（P3-2） | 无 placeholder | ✅ 完成（标注未实现+推荐 CSV） |
 | 4.2 | LLM 流式实现/标注（P3-3） | 无 UnsupportedOperationException | ✅ 完成（标注未实现+文档说明） |
 | 4.3 | `MiscController` 审计迁移（P3-5） | 端点归位 | ✅ 完成（审计+添加 TODO） |
-| 4.4 | 文档状态回溯校正 | 状态列与代码一致 | ⏳ 待执行 |
+| 4.4 | 文档状态回溯校正 | 状态列与代码一致 | ✅ 完成（LANDING_AUDIT_AND_IMPROVEMENT_PLAN.md 已更新） |
 
 ---
 

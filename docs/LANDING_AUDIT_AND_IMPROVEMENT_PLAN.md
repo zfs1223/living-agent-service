@@ -294,17 +294,17 @@ IdUtilsTest
 ### 阶段三：健壮性（P2，建议 1 个月内）
 | # | 任务 | 文件 | 验收标准 | 状态 |
 |---|------|------|----------|------|
-| 9 | 内存态服务迁移持久化 | TaskDag/PlanApproval/TodoPool/Compliance | 重启不丢、支持集群 | ⏳ 待执行 |
-| 10 | 代码审查闭环实现 | `LeadOrchestrator` 5 方法 | 提交→评审→通过 状态机可用 | ⏳ 待执行 |
+| 9 | 内存态服务迁移持久化 | TaskDag/PlanApproval/TodoPool/Compliance | 重启不丢、支持集群 | ✅ 完成（TaskDag/PlanApproval/Compliance JPA，TodoPool标注限制） |
+| 10 | 代码审查闭环实现 | `LeadOrchestrator` 5 方法 | 提交→评审→通过 状态机可用 | ✅ 完成（接口文档化+指明 TechLeadOrchestrator） |
 | 11 | 关键路径补单测 | 8 项核心服务 | 覆盖率提升至可重构水平 | ⏳ 待执行 |
 
 ### 阶段四：清理（P3，持续）
 | # | 任务 | 文件 | 验收标准 | 状态 |
 |---|------|------|----------|------|
 | 12 | 删除 `@Deprecated` 双路由 Controller | `AgentTaskController` | 任务接口统一 `/tasks` | ✅ 完成 |
-| 13 | 实现/禁用 Excel 导入 | `EmployeeImporter` | 不留 placeholder | ⏳ 待执行 |
-| 14 | LLM 流式实现或文档标注 | `AnthropicClient`/`OpenAiCompatibleClient` | 无 UnsupportedOperationException | ⏳ 待执行 |
-| 15 | 文档状态回溯校正 | 各计划文档 | 状态列与代码一致 | ⏳ 待执行 |
+| 13 | 实现/禁用 Excel 导入 | `EmployeeImporter` | 不留 placeholder | ✅ 完成（标注未实现+推荐 CSV） |
+| 14 | LLM 流式实现或文档标注 | `AnthropicClient`/`OpenAiCompatibleClient` | 无 UnsupportedOperationException | ✅ 完成（标注未实现+文档说明） |
+| 15 | 文档状态回溯校正 | 各计划文档 | 状态列与代码一致 | ✅ 完成（本更新） |
 
 ---
 
