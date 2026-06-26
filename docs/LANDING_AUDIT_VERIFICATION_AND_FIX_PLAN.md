@@ -863,7 +863,7 @@ git commit -m "WIP: snapshot before P0 fixes (191 files uncommitted)"
 > - ✅ 阶段零已完成（5/5，git 已提交）
 > - ✅ 阶段一已完成（3/4，单测待后续）
 > - ✅ 阶段二已完成（4/4）
-> - ⏳ 阶段三待执行（6 个任务）
+> - ⏳ 阶段三进行中（2/6，LeadOrchestrator + ComplianceManager）
 > - ⏳ 阶段四待执行（4 个清理任务）
 
 ### 阶段零：立即止血（本周内）
@@ -896,13 +896,13 @@ git commit -m "WIP: snapshot before P0 fixes (191 files uncommitted)"
 
 ### 阶段三：P2 健壮性（1 个月内）
 
-| # | 任务 | 依赖 | 验收 |
-|---|------|------|------|
-| 3.1 | `LeadOrchestrator` 接口 default 文档化（P2-2） | 无 | 异常消息清晰 |
-| 3.2 | `TaskDagService` 迁 JPA（P2-3） | 无 | DAG 重启不丢 |
-| 3.3 | `PlanApprovalService` 迁 JPA（P2-3） | 无 | 审批记录持久 |
-| 3.4 | `DepartmentTodoPool` 迁 Redis（P2-3） | 无 | 待办池集群可用 |
-| 3.5 | `ComplianceManager` 迁 JPA（P2-3 + N-1） | 0.2 | 合规记录持久 |
+| # | 任务 | 依赖 | 验收 | 状态 |
+|---|------|------|------|------|
+| 3.1 | `LeadOrchestrator` 接口 default 文档化（P2-2） | 无 | 异常消息清晰 | ✅ 完成（添加实现说明+指明 TechLeadOrchestrator） |
+| 3.2 | `TaskDagService` 迁 JPA（P2-3） | 无 | DAG 重启不丢 | ⏳ 待执行 |
+| 3.3 | `PlanApprovalService` 迁 JPA（P2-3） | 无 | 审批记录持久 | ⏳ 待执行 |
+| 3.4 | `DepartmentTodoPool` 迁 Redis（P2-3） | 无 | 待办池集群可用 | ⏳ 待执行 |
+| 3.5 | `ComplianceManager` 迁 JPA（P2-3 + N-1） | 0.2 | 合规记录持久 | ✅ 完成（新增 JpaComplianceManager @Primary） |
 | 3.6 | 关键路径补单测（P2-4） | 各修复项 | 覆盖率 ≥30% |
 
 ### 阶段四：P3 清理（持续）
