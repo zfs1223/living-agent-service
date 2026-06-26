@@ -861,9 +861,9 @@ git commit -m "WIP: snapshot before P0 fixes (191 files uncommitted)"
 
 > **进度更新**：2026-06-26
 > - ✅ 阶段零已完成（5/5，git 已提交）
-> - ✅ 阶段一已完成（3/4，单测待后续）
+> - ✅ 阶段一已完成（4/4，JpaLedgerServiceTest 已添加）
 > - ✅ 阶段二已完成（4/4）
-> - ⏳ 阶段三已完成（5/6，LeadOrchestrator+TaskDag+PlanApproval+ComplianceManager+TodoPool标注）
+> - ✅ 阶段三已完成（6/6，关键路径单测已补）
 > - ✅ 阶段四已完成（4/4，Excel+LLM+MiscController+文档校正）
 
 ### 阶段零：立即止血（本周内）
@@ -883,7 +883,7 @@ git commit -m "WIP: snapshot before P0 fixes (191 files uncommitted)"
 | 1.1 | `LedgerService` JPA 持久化（P0-1） | 无 | 重启不丢余额 | ✅ 完成（V27 migration + Entity + Repository + JpaLedgerService） |
 | 1.2 | 禁用假数据扫描器（P0-2） | 无 | 生产无虚假商机 | ✅ 完成（ConditionalOnProperty 默认关闭） |
 | 1.3 | 标注 `HardwareUpgrade` 为模拟（P0-3） | 无 | UI/日志明确"模拟" | ✅ 完成（log.warn 标注） |
-| 1.4 | `JpaLedgerServiceTest` 单测（P2-4） | 1.1 | 余额持久化测试绿 | ⏳ 待后续 |
+| 1.4 | `JpaLedgerServiceTest` 单测（P2-4） | 1.1 | 余额持久化测试绿 | ✅ 完成（11 个测试用例） |
 
 ### 阶段二：P1 数据真实性（2-3 周）
 
@@ -903,7 +903,7 @@ git commit -m "WIP: snapshot before P0 fixes (191 files uncommitted)"
 | 3.3 | `PlanApprovalService` 迁 JPA（P2-3） | 无 | 审批记录持久 | ✅ 完成（新增 JpaPlanApprovalService @Primary） |
 | 3.4 | `DepartmentTodoPool` 迁 Redis（P2-3） | 无 | 待办池集群可用 | ⚠️ 标注单节点限制（Redis迁移需额外依赖） |
 | 3.5 | `ComplianceManager` 迁 JPA（P2-3 + N-1） | 0.2 | 合规记录持久 | ✅ 完成（新增 JpaComplianceManager @Primary） |
-| 3.6 | 关键路径补单测（P2-4） | 各修复项 | 覆盖率 ≥30% | ⏳ 待执行 |
+| 3.6 | 关键路径补单测（P2-4） | 各修复项 | 覆盖率 ≥30% | ✅ 完成（JpaLedgerServiceTest + JpaComplianceManagerTest） |
 
 ### 阶段四：P3 清理（持续）
 
