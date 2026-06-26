@@ -17,8 +17,8 @@ public class ComplianceManager {
     private static final Logger log = LoggerFactory.getLogger(ComplianceManager.class);
 
     private final Map<String, ComplianceRule> rules = new ConcurrentHashMap<>();
-    private final List<ComplianceViolation> violations = new ArrayList<>();
-    private final List<AccessAuditLog> auditLogs = new ArrayList<>();
+    private final List<ComplianceViolation> violations = Collections.synchronizedList(new ArrayList<>());  // 线程安全修复
+    private final List<AccessAuditLog> auditLogs = Collections.synchronizedList(new ArrayList<>());        // 线程安全修复
     
     private boolean complianceEnabled = true;
     private int maxAuditLogDays = 90;

@@ -1,7 +1,7 @@
 -- Living Agent Service Database Schema
 -- PostgreSQL 15+
--- 合并自 schema.sql 基础定义 + V1~V25 增量迁移
--- 生成时间: 2026-05-26
+-- 合并自 schema.sql 基础定义 + V1~V27 增量迁移
+-- 生成时间: 2026-06-15
 
 -- Enable required extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -434,7 +434,8 @@ CREATE TABLE IF NOT EXISTS employee_execution_receipts (
     worktree_path VARCHAR(500),
     diff_path VARCHAR(500),
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    department VARCHAR(50)
 );
 
 CREATE INDEX IF NOT EXISTS idx_receipt_receipt_id ON employee_execution_receipts(receipt_id);
@@ -443,6 +444,7 @@ CREATE INDEX IF NOT EXISTS idx_receipt_dispatch_id ON employee_execution_receipt
 CREATE INDEX IF NOT EXISTS idx_receipt_employee_code ON employee_execution_receipts(employee_code);
 CREATE INDEX IF NOT EXISTS idx_receipt_status ON employee_execution_receipts(status);
 CREATE INDEX IF NOT EXISTS idx_receipt_created_at ON employee_execution_receipts(created_at);
+CREATE INDEX IF NOT EXISTS idx_receipt_department ON employee_execution_receipts(department);
 
 -- ============================================
 -- 3. Knowledge Tables
@@ -1725,12 +1727,79 @@ CREATE TABLE IF NOT EXISTS windows_automation_nodes (
     registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     tenant_id VARCHAR(64),
     user_id VARCHAR(64),
-    enabled BOOLEAN DEFAULT TRUE
+    enabled BOOLEAN DEFAULT TRUE,
+    client_id VARCHAR(100)
 );
 
 CREATE INDEX IF NOT EXISTS idx_wan_tenant ON windows_automation_nodes(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_wan_status ON windows_automation_nodes(status);
 CREATE INDEX IF NOT EXISTS idx_wan_user ON windows_automation_nodes(user_id);
+CREATE INDEX IF NOT EXISTS idx_wan_client_id ON windows_automation_nodes(client_id);
+CREATE INDEX IF NOT EXISTS idx_wan_client_id_unique ON windows_automation_nodes(client_id) WHERE client_id IS NOT NULL;
+
+-- ============================================
+-- 20b. Client Device Registry & User Binding (V26)
+-- ============================================
+
+-- 客户端设备注册表
+CREATE TABLE IF NOT EXISTS client_device_registry (
+    client_id       VARCHAR(100) PRIMARY KEY,
+    hostname        VARCHAR(100) NOT NULL,
+    platform        VARCHAR(20) NOT NULL,
+    os_user         VARCHAR(100),
+    mac_address     VARCHAR(50),
+    ip_address      VARCHAR(50),
+    app_version     VARCHAR(20),
+    first_seen_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    status          VARCHAR(20) DEFAULT 'active',
+    node_id         VARCHAR(100),
+    tenant_id       VARCHAR(100),
+    applications    TEXT,
+    UNIQUE (hostname, mac_address)
+);
+
+CREATE INDEX IF NOT EXISTS idx_cdr_hostname ON client_device_registry(hostname);
+CREATE INDEX IF NOT EXISTS idx_cdr_mac_address ON client_device_registry(mac_address);
+CREATE INDEX IF NOT EXISTS idx_cdr_status ON client_device_registry(status);
+CREATE INDEX IF NOT EXISTS idx_cdr_last_seen ON client_device_registry(last_seen_at);
+
+-- 客户端与用户的临时绑定表
+CREATE TABLE IF NOT EXISTS client_user_binding (
+    client_id       VARCHAR(100) NOT NULL,
+    user_id         VARCHAR(100) NOT NULL,
+    access_level    INT NOT NULL DEFAULT 0,
+    department_code VARCHAR(50),
+    tenant_id       VARCHAR(100),
+    bound_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_active_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (client_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_cub_user_id ON client_user_binding(user_id);
+CREATE INDEX IF NOT EXISTS idx_cub_client_id ON client_user_binding(client_id);
+CREATE INDEX IF NOT EXISTS idx_cub_last_active ON client_user_binding(last_active_at);
+
+-- 客户端操作审计日志表
+CREATE TABLE IF NOT EXISTS client_operation_audit_log (
+    id              BIGSERIAL PRIMARY KEY,
+    client_id       VARCHAR(100) NOT NULL,
+    user_id         VARCHAR(100) NOT NULL,
+    target_client_id VARCHAR(100),
+    target_node_id  VARCHAR(100),
+    action          VARCHAR(50) NOT NULL,
+    operation_type  VARCHAR(50) NOT NULL,
+    parameters      TEXT,
+    result          VARCHAR(20) NOT NULL,
+    error_message   TEXT,
+    executed_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    duration_ms     BIGINT
+);
+
+CREATE INDEX IF NOT EXISTS idx_coal_client_id ON client_operation_audit_log(client_id);
+CREATE INDEX IF NOT EXISTS idx_coal_user_id ON client_operation_audit_log(user_id);
+CREATE INDEX IF NOT EXISTS idx_coal_executed_at ON client_operation_audit_log(executed_at);
+CREATE INDEX IF NOT EXISTS idx_coal_action ON client_operation_audit_log(action);
 
 -- ============================================
 -- 21. Autonomy Trace Events (V18 + V22)
@@ -1757,6 +1826,74 @@ CREATE INDEX IF NOT EXISTS idx_trace_actor ON autonomy_trace_events (actor);
 CREATE INDEX IF NOT EXISTS idx_trace_timestamp ON autonomy_trace_events (timestamp);
 CREATE INDEX IF NOT EXISTS idx_trace_task_key ON autonomy_trace_events (task_key);
 CREATE INDEX IF NOT EXISTS idx_trace_execution_id ON autonomy_trace_events (execution_id);
+
+-- ============================================
+-- 21.3. Ledger Transaction Tables (V27)
+-- LedgerService 持久化表 - P0-1 修复
+-- ============================================
+
+-- 员工账本交易记录表（用于存储员工余额、收入记录、奖励记录）
+CREATE TABLE IF NOT EXISTS ledger_transaction (
+    id              BIGSERIAL PRIMARY KEY,
+    transaction_id  VARCHAR(64)  NOT NULL UNIQUE,
+    employee_id     VARCHAR(128) NOT NULL,
+    source_type     VARCHAR(32)  NOT NULL,   -- INCOME / REWARD / DEBIT / ACHIEVEMENT / PENDING_INCOME
+    source_id       VARCHAR(128),
+    amount_cents    INTEGER      NOT NULL,   -- 正数=入账，负数=出账
+    balance_after   INTEGER      NOT NULL,   -- 操作后余额快照
+    status          VARCHAR(16)  NOT NULL,   -- RECEIVED / PENDING
+    description     TEXT,
+    created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ledger_employee ON ledger_transaction(employee_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ledger_source   ON ledger_transaction(source_type, source_id);
+CREATE INDEX IF NOT EXISTS idx_ledger_status   ON ledger_transaction(status);
+
+COMMENT ON TABLE ledger_transaction IS '员工账本交易记录表 - LedgerService 持久化';
+COMMENT ON COLUMN ledger_transaction.transaction_id IS '业务交易ID，如 inc_xxx / txn_xxx';
+COMMENT ON COLUMN ledger_transaction.employee_id IS '员工ID，格式 employee://...';
+COMMENT ON COLUMN ledger_transaction.source_type IS '收入来源类型：INCOME=任务收入，REWARD=奖励，DEBIT=消费，ACHIEVEMENT=成就奖金，PENDING_INCOME=待确认收入';
+COMMENT ON COLUMN ledger_transaction.amount_cents IS '金额（单位：分），正数入账，负数出账';
+COMMENT ON COLUMN ledger_transaction.balance_after IS '操作后的余额快照，用于快速查询当前余额';
+COMMENT ON COLUMN ledger_transaction.status IS '状态：RECEIVED=已入账，PENDING=待确认';
+
+-- ============================================
+-- 21.5. Service Admin Tables (V27)
+-- ============================================
+
+-- 员工外部账号映射表（记录员工在各外部服务中的账号信息）
+CREATE TABLE IF NOT EXISTS employee_external_account (
+    id BIGSERIAL PRIMARY KEY,
+    employee_code VARCHAR(16) NOT NULL,         -- 员工编码（如 T01、H01）
+    service_type VARCHAR(32) NOT NULL,          -- 服务类型: gitlab/openproject/jenkins
+    external_user_id VARCHAR(128),              -- 外部服务中的用户ID
+    external_username VARCHAR(128),             -- 外部服务中的用户名
+    external_token TEXT,                        -- 加密后的员工访问令牌
+    external_metadata JSONB,                    -- 额外信息（如 group_id、project_id、role）
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (employee_code, service_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_external_account_employee ON employee_external_account(employee_code, active);
+CREATE INDEX IF NOT EXISTS idx_external_account_service ON employee_external_account(service_type, active);
+
+-- 服务初始化状态表（记录 ServiceAdminBootstrap 的执行进度，支持幂等重试）
+CREATE TABLE IF NOT EXISTS service_admin_bootstrap_state (
+    id BIGSERIAL PRIMARY KEY,
+    service_type VARCHAR(32) NOT NULL,          -- 服务类型
+    step_name VARCHAR(128) NOT NULL,            -- 步骤名称（如 create_group、create_user）
+    status VARCHAR(32) NOT NULL,                -- 状态: PENDING/RUNNING/SUCCESS/FAILED/SKIPPED
+    detail TEXT,                                -- 详细信息或错误原因
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (service_type, step_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_bootstrap_state_status ON service_admin_bootstrap_state(status);
 
 -- ============================================
 -- 22. Views (from V4)

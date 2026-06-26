@@ -4,6 +4,8 @@ import com.livingagent.core.autonomous.bounty.*;
 import com.livingagent.core.autonomous.bounty.impl.BugBountyScannerImpl;
 import com.livingagent.core.autonomous.bounty.impl.CompositeTaskExecutor;
 import com.livingagent.core.autonomous.bounty.impl.FreelanceScannerImpl;
+import com.livingagent.core.autonomous.bounty.impl.JpaLedgerService;
+import com.livingagent.core.database.repository.LedgerTransactionRepository;
 import com.livingagent.core.evolution.EvolutionManager;
 import com.livingagent.core.evolution.HardwareUpgradeService;
 import com.livingagent.core.autonomous.incentive.CreditAccountService;
@@ -13,9 +15,11 @@ import com.livingagent.core.autonomous.platform.impl.GitHubPlatformIntegration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
+import org.springframework.context.annotation.Profile;
 
 import java.time.Instant;
 import java.util.*;
@@ -43,14 +47,18 @@ public class AutonomousOperationConfig {
     }
 
     @Bean
+    @ConditionalOnProperty(
+        name = "autonomous.bounty-hunter.scan-freelance", havingValue = "true")
     public FreelanceScanner freelanceScanner() {
-        log.info("Initializing FreelanceScannerImpl");
+        log.warn("Initializing FreelanceScannerImpl - returns MOCK data, enable only in dev profile");
         return new FreelanceScannerImpl();
     }
 
     @Bean
+    @ConditionalOnProperty(
+        name = "autonomous.bounty-hunter.scan-bugbounty", havingValue = "true")
     public BugBountyScanner bugBountyScanner() {
-        log.info("Initializing BugBountyScannerImpl");
+        log.warn("Initializing BugBountyScannerImpl - returns MOCK data, enable only in dev profile");
         return new BugBountyScannerImpl();
     }
 
@@ -61,8 +69,20 @@ public class AutonomousOperationConfig {
     }
 
     @Bean
-    public LedgerService ledgerService() {
-        log.info("Initializing LedgerService as unified balance source");
+    @Primary
+    @ConditionalOnProperty(
+        name = "autonomous.ledger.persistence", havingValue = "jpa", matchIfMissing = true)
+    public LedgerService jpaLedgerService(LedgerTransactionRepository repository) {
+        log.info("Initializing JpaLedgerService - persistence enabled (restart-safe)");
+        return new JpaLedgerService(repository);
+    }
+
+    @Bean
+    @ConditionalOnProperty(
+        name = "autonomous.ledger.persistence", havingValue = "memory")
+    @Profile("dev")
+    public LedgerService inMemoryLedgerServiceDev() {
+        log.warn("Initializing InMemoryLedgerService - DEV ONLY, data lost on restart");
         return new InMemoryLedgerService();
     }
 
@@ -88,7 +108,7 @@ public class AutonomousOperationConfig {
 
     @Bean
     public HardwareUpgradeService hardwareUpgradeService() {
-        log.info("Initializing HardwareUpgradeService");
+        log.warn("Initializing InMemoryHardwareUpgradeService - SIMULATED mode, no real hardware action");
         return new InMemoryHardwareUpgradeService();
     }
 
