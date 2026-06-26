@@ -71,9 +71,25 @@ public class OpenAiCompatibleClient implements LlmClient {
         }
     }
 
+    /**
+     * 流式生成方法 - <b>未实现</b>。
+     *
+     * <p>OpenAI 兼容 API 的流式响应需要使用 SSE (Server-Sent Events) 处理，
+     * 当前实现尚未完成。请使用 {@link #generate(String, String, int)} 方法替代。</p>
+     *
+     * <p>实现路径：使用 HttpURLConnection + EventSourceListener 或 WebClient
+     * 接收 OpenAI 的 streaming 响应。</p>
+     *
+     * @param prompt 输入文本
+     * @param model 模型标识
+     * @param maxTokens 最大 token 数
+     * @return 流式响应（未实现）
+     * @throws UnsupportedOperationException 总是抛出
+     */
     @Override
     public Stream<String> stream(String prompt, String model, int maxTokens) {
-        throw new UnsupportedOperationException("Streaming not yet implemented for OpenAiCompatibleClient");
+        throw new UnsupportedOperationException(
+            "Streaming not yet implemented for OpenAiCompatibleClient. Use generate() method instead.");
     }
 
     @Override

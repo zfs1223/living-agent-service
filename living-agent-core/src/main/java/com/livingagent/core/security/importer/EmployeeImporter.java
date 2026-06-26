@@ -271,11 +271,33 @@ public class EmployeeImporter {
         throw new IllegalArgumentException("Unable to parse date: " + dateStr);
     }
 
+    /**
+     * Excel 解析方法 - <b>未实现</b>。
+     *
+     * <p>此方法当前返回空列表，Excel 导入功能未完整实现。
+     * 实现需要添加 Apache POI 依赖并编写解析逻辑。</p>
+     *
+     * <p>建议：如需 Excel 导入功能，请先添加依赖：</p>
+     * <pre>
+     * &lt;dependency&gt;
+     *   &lt;groupId&gt;org.apache.poi&lt;/groupId&gt;
+     *   &lt;artifactId&gt;poi-ooxml&lt;/artifactId&gt;
+     *   &lt;version&gt;5.x&lt;/version&gt;
+     * &lt;/dependency&gt;
+     * </pre>
+     *
+     * <p>当前推荐使用 CSV 导入（importFromCsv 已完整实现）。</p>
+     *
+     * @param excelData Excel 文件字节数据
+     * @return 空列表（未实现）
+     * @throws UnsupportedOperationException 如果调用此方法
+     */
     private List<Map<String, String>> parseExcelData(byte[] excelData) {
         List<Map<String, String>> rows = new ArrayList<>();
-        
-        log.warn("Excel parsing not fully implemented, using placeholder");
-        
+
+        log.warn("Excel parsing not fully implemented, using placeholder. Use CSV import instead.");
+
+        // 返回空列表避免中断流程，但调用方应检查结果
         return rows;
     }
 
