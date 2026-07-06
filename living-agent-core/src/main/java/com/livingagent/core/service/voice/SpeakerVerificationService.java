@@ -395,4 +395,71 @@ public class SpeakerVerificationService {
     public boolean isUseRemote() {
         return useRemote && remoteServiceUrl != null && !remoteServiceUrl.isEmpty();
     }
+
+    /**
+     * 远程提取声纹 embedding 向量
+     * @return 192维 float[] embedding，失败返回 null
+     */
+    public float[] extractEmbeddingRemote(byte[] audioData) {
+        if (remoteServiceUrl == null || remoteServiceUrl.isEmpty()) {
+            logger.warn("Remote service URL not configured for embedding extraction");
+            return null;
+        }
+
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+
+            MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+            body.add("audio", new ByteArrayResource(audioData) {
+                @Override
+                public String getFilename() {
+                    return "audio.wav";
+                }
+            });
+
+            HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
+
+            String url = remoteServiceUrl + "/extract";
+            logger.debug("Calling remote service for embedding extraction: {}", url);
+
+            ResponseEntity<Map> response = restTemplate.exchange(
+                url,
+                HttpMethod.POST,
+                requestEntity,
+                Map.class
+            );
+
+            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                Map<String, Object> result = response.getBody();
+
+                Boolean success = result.get("success") instanceof Boolean ? (Boolean) result.get("success") : false;
+                if (!success) {
+                    logger.warn("Remote embedding extraction failed: {}", result.get("message"));
+                    return null;
+                }
+
+                Map<String, Object> data = result.get("data") instanceof Map ? (Map<String, Object>) result.get("data") : result;
+                Object embeddingObj = data.get("embedding");
+                if (embeddingObj instanceof List) {
+                    List<?> embeddingList = (List<?>) embeddingObj;
+                    float[] embedding = new float[embeddingList.size()];
+                    for (int i = 0; i < embeddingList.size(); i++) {
+                        embedding[i] = ((Number) embeddingList.get(i)).floatValue();
+                    }
+                    logger.info("Remote embedding extracted: dimension={}", embedding.length);
+                    return embedding;
+                }
+
+                logger.warn("Unexpected embedding format in remote response");
+                return null;
+            } else {
+                logger.warn("Remote service returned: {}", response.getStatusCode());
+                return null;
+            }
+        } catch (Exception e) {
+            logger.error("Failed to extract embedding from remote service: {}", e.getMessage());
+            return null;
+        }
+    }
 }

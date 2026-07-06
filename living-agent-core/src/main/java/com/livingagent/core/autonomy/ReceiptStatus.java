@@ -41,9 +41,10 @@ public enum ReceiptStatus {
 
     /**
      * 判断是否为终态（不再需要后续处理）
+     * B-2-3: DEGRADED 也视为终态（降级完成）
      */
     public boolean isTerminal() {
-        return this == COMPLETED || this == FAILED;
+        return this == COMPLETED || this == FAILED || this == DEGRADED;
     }
 
     /**

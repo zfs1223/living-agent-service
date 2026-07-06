@@ -213,6 +213,20 @@ public class SQLiteKnowledgeBase implements KnowledgeBase {
     @Override
     public List<KnowledgeEntry> search(String query) {
         List<KnowledgeEntry> results = new ArrayList<>();
+        // 防御性处理：null 或空字符串时返回所有条目
+        if (query == null || query.isEmpty()) {
+            try (Connection conn = getConnection();
+                 PreparedStatement ps = conn.prepareStatement(
+                     "SELECT * FROM knowledge_entries ORDER BY relevance_score DESC, access_count DESC LIMIT 20")) {
+                ResultSet rs = ps.executeQuery();
+                while (rs.next()) {
+                    results.add(mapToEntry(rs));
+                }
+            } catch (SQLException e) {
+                log.error("Failed to list all knowledge entries", e);
+            }
+            return results;
+        }
         String searchPattern = "%" + query.toLowerCase() + "%";
         
         try (Connection conn = getConnection();

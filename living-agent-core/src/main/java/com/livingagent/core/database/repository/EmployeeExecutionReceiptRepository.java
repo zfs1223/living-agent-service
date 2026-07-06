@@ -22,6 +22,8 @@ public interface EmployeeExecutionReceiptRepository extends JpaRepository<Employ
 
     List<EmployeeExecutionReceiptEntity> findByAssignmentId(String assignmentId);
 
+    List<EmployeeExecutionReceiptEntity> findByDepartment(String department);
+
     long countByExecutionId(String executionId);
 
     long countByExecutionIdAndStatus(String executionId, String status);

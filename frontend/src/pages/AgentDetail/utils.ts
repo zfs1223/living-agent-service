@@ -2,7 +2,7 @@
  * Shared utility functions for AgentDetail page components.
  */
 
-import { getToken } from '../../stores';
+import { request } from '../../services/apiBase';
 
 /** Format large token numbers with K/M suffixes */
 export const formatTokens = (n: number): string => {
@@ -12,11 +12,5 @@ export const formatTokens = (n: number): string => {
     return String(n);
 };
 
-/** Fetch with authentication header, auto-prefixes /api */
-export function fetchAuth<T>(url: string, options?: RequestInit): Promise<T> {
-    const token = getToken();
-    return fetch(`/api${url}`, {
-        ...options,
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    }).then(r => r.json());
-}
+/** Fetch with authentication (alias of apiBase.request, auto拆包 ApiResponse) */
+export const fetchAuth = request;

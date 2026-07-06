@@ -1,15 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { getToken } from '../../stores';
-
-function fetchAuth<T>(url: string, options?: RequestInit): Promise<T> {
-    const token = getToken();
-    return fetch(`/api${url}`, {
-        ...options,
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    }).then(r => r.json());
-}
+import { request as fetchAuth } from '../../services/apiBase';
 
 const getRelationOptions = (t: any) => [
     { value: 'supervisor', label: t('agent.detail.supervisor') },

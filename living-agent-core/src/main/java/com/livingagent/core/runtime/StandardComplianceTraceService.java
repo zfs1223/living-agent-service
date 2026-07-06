@@ -4,6 +4,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import com.livingagent.core.evolution.escalation.EscalationLevel;
+import com.livingagent.core.evolution.escalation.EscalationNotificationService;
+
 import java.time.Instant;
 import java.util.*;
 
@@ -14,8 +17,14 @@ public class StandardComplianceTraceService {
 
     private final RuntimeEventStore runtimeEventStore;
 
+    private EscalationNotificationService escalationNotificationService;
+
     public StandardComplianceTraceService(RuntimeEventStore runtimeEventStore) {
         this.runtimeEventStore = runtimeEventStore;
+    }
+
+    public void setEscalationNotificationService(EscalationNotificationService service) {
+        this.escalationNotificationService = service;
     }
 
     public void traceBoundaryCheck(String entityId, String entityType, String action,
@@ -86,6 +95,19 @@ public class StandardComplianceTraceService {
         data.put("timestamp", Instant.now().toString());
 
         log.info("ESCALATION: from={} to={} reason={}", fromEntityId, toEntityId, reason);
+
+        // 发送升级通知
+        if (escalationNotificationService != null) {
+            escalationNotificationService.escalate(
+                "compliance",
+                EscalationLevel.WARNING,
+                fromEntityType != null ? fromEntityType : "unknown",
+                reason,
+                "",
+                List.of(),
+                null
+            );
+        }
 
         runtimeEventStore.appendConversationIdEvent("_system", conversationId,
             "escalation", data);

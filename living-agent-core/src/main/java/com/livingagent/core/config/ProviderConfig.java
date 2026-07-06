@@ -2,6 +2,7 @@ package com.livingagent.core.config;
 
 import com.livingagent.core.model.ModelManager;
 import com.livingagent.core.model.impl.ModelManagerImpl;
+import com.livingagent.core.model.impl.NamedPipeModelClient;
 import com.livingagent.core.provider.ProviderRegistry;
 import com.livingagent.core.provider.impl.AsrProvider;
 import com.livingagent.core.provider.impl.BitNetProvider;
@@ -9,6 +10,7 @@ import com.livingagent.core.provider.impl.OllamaProvider;
 import com.livingagent.core.provider.impl.ProviderRegistryImpl;
 import com.livingagent.core.provider.impl.QwenProvider;
 import com.livingagent.core.provider.impl.TtsProvider;
+import com.livingagent.core.diagnosis.DegradedTrafficCanary;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
@@ -26,9 +28,11 @@ public class ProviderConfig {
     }
 
     @Bean
-    public ModelManager modelManager() {
-        log.info("Initializing ModelManager");
-        return new ModelManagerImpl();
+    public ModelManager modelManager(DegradedTrafficCanary canary) {
+        log.info("Initializing ModelManager with DegradedTrafficCanary");
+        NamedPipeModelClient client = new NamedPipeModelClient();
+        client.setCanary(canary);
+        return new ModelManagerImpl(client, 30);
     }
 
     @Bean

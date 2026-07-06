@@ -1,6 +1,14 @@
 # Living Agent Service 文档中心
 
-> 版本：2026-05-15
+> 版本：2026-06-25
+
+## 🔍 落地核查报告（优先阅读）
+
+| 文档 | 说明 |
+|------|------|
+| [LANDING_AUDIT_AND_IMPROVEMENT_PLAN.md](LANDING_AUDIT_AND_IMPROVEMENT_PLAN.md) | **基于实际代码核查的落地情况与遗留问题清单**（P0-P3 改进路线图，含文件:行号证据） |
+
+> ⚠️ 本目录下多数计划文档的"状态"列自述 ✅ 已完成，但代码核查发现存在**内存态账本、假数据、未实现接口**。核查结论以 `LANDING_AUDIT_AND_IMPROVEMENT_PLAN.md` 为准。
 
 ## 核心模块文档（落地指南）
 
@@ -21,6 +29,7 @@
 |------|------|
 | [ENTERPRISE_LIFEBODY_BUSINESS_FLOW.md](ENTERPRISE_LIFEBODY_BUSINESS_FLOW.md) | 企业生命体完整业务流程 |
 | [CODE_STRUCTURE_AND_FILE_GUIDE.md](CODE_STRUCTURE_AND_FILE_GUIDE.md) | 代码结构详细索引 |
+| [LANDING_AUDIT_AND_IMPROVEMENT_PLAN.md](LANDING_AUDIT_AND_IMPROVEMENT_PLAN.md) | 落地核查与改进计划（代码实际状态） |
 
 ## 参考文档
 

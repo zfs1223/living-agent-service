@@ -1,5 +1,47 @@
 services:
   # ===========================================
+  # Docker Socket Proxy - Docker API 安全代理
+  # 用于数字员工执行代码时的安全隔离
+  # 白名单限制：仅允许 CONTAINERS/EXEC/IMAGES/NETWORKS/VOLUMES
+  # ===========================================
+  docker-socket-proxy:
+    image: ghcr.io/tecnativa/docker-socket-proxy:latest
+    container_name: living-agent-docker-proxy
+    hostname: docker-proxy
+    environment:
+      # 白名单：仅允许必要的 Docker API
+      CONTAINERS: 1        # 允许创建/删除/查询容器
+      EXEC: 1              # 允许在容器内执行命令
+      IMAGES: 1            # 允许拉取镜像
+      NETWORKS: 1          # 允许网络管理（创建隔离网络）
+      VOLUMES: 1           # 允许卷管理
+      POST: 1              # 允许白名单端点的写操作（创建网络/容器等）
+      # 黑名单：禁止危险操作
+      # 危险端点已通过 BUILD=0/SERVICES=0 等单独禁用
+      # POST=1 仅对白名单端点（CONTAINERS/IMAGES/NETWORKS/VOLUMES）生效
+      BUILD: 0             # 禁止构建镜像（防止恶意镜像）
+      SERVICES: 0          # 禁止 Swarm 服务
+      TASKS: 0             # 禁止 Swarm 任务
+      PLUGINS: 0           # 禁止插件管理
+      SECRETS: 0           # 禁止 Secrets 管理
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - backend
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+        reservations:
+          memory: 32M
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:2375/_ping > /dev/null 2>&1 && echo 'healthy' || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ===========================================
   # Living Agent Frontend - 前端服务
   # ===========================================
   living-agent-frontend:
@@ -54,6 +96,11 @@ services:
       # 数据路径
       - LIVING_AGENT_DATA_PATH=/app/data
       - LIVING_AGENT_SKILLS_PATH=/app/skills
+      # Docker Socket Proxy 配置（用于数字员工执行代码安全隔离）
+      - DOCKER_HOST=tcp://docker-socket-proxy:2375
+      # 架构文档路径 (Docker 环境下使用绝对路径，本地开发使用相对路径 ../docs)
+      - LIVING_AGENT_DOCS_PATH=/app/workspace/docs
+      - LIVING_AGENT_DOCUMENTS_PATH=/app/documents
       # 本地AI模型路径
       - AI_MODELS_PATH=/app/ai-models
       - PYTHON_SCRIPTS_PATH=/opt/python_scripts
@@ -62,6 +109,8 @@ services:
       - QWEN3_MODEL_FILE=/app/ai-models/Qwen3-0.6B-GGUF/Qwen3-0.6B-Q8_0.gguf
       - QWEN35_MODEL_FILE=/app/ai-models/Qwen3.5-2B-GGUF/Qwen3.5-2B-Q4_K_M.gguf
       - MELOTTS_MODEL_DIR=/app/ai-models/MeloTTS
+      # MeloTTS 语言配置 (内存不足时可跳过 jp: zh,en,fr,es,kr)
+      - MELOTTS_LANGUAGES=${MELOTTS_LANGUAGES:-zh,en,fr,es,jp,kr}
       # 爬虫服务
       #- LIVING_AGENT_CRAWL4AI_URL=http://crawl4ai:11235
       # MemOS 记忆系统
@@ -78,6 +127,15 @@ services:
       # Claude CLI 直接环境变量（供容器内直接使用 claude 命令）
       - ANTHROPIC_API_KEY=sk-living-agent-claude-proxy
       - ANTHROPIC_BASE_URL=http://living-agent-service:8382/api/v1/proxy/anthropic
+      # Claude CLI MCP Server 配置
+      - CLAUDE_CLI_MCP_ENABLED=${CLAUDE_CLI_MCP_ENABLED:-true}
+      - CLAUDE_CLI_MCP_CONFIG_PATH=/app/config/claude/mcp.json
+      # CodeGraph 语义代码索引配置
+      - CODEGRAPH_ENABLED=${CODEGRAPH_ENABLED:-true}
+      - CODEGRAPH_WATCH_DEBOUNCE_MS=${CODEGRAPH_WATCH_DEBOUNCE_MS:-5000}
+      - CODEGRAPH_AUTO_SYNC=${CODEGRAPH_AUTO_SYNC:-true}
+      # Brain ReAct 最大迭代次数 (默认10，复杂任务可设为20-30)
+      - LIVINGAGENT_BRAIN_MAX_ITERATIONS=${LIVINGAGENT_BRAIN_MAX_ITERATIONS:-20}
       # 可选: 云端API (备用)
       # 声纹识别远程服务配置
       - SPEAKER_USE_REMOTE=false
@@ -92,8 +150,14 @@ services:
       - WEATHER_OPENWEATHERMAP_KEY=${WEATHER_OPENWEATHERMAP_KEY:-}
       # 飞书配置
       - FEISHU_ENABLED=${FEISHU_ENABLED:-true}
-      - FEISHU_APP_ID=${FEISHU_APP_ID:-}
-      - FEISHU_APP_SECRET=${FEISHU_APP_SECRET:-}
+      # application.yml 引用的是 FEISHU_ENTERPRISE_APP_ID，需正确映射
+      # 兼容旧的 FEISHU_APP_ID 写法：优先使用 ENTERPRISE 变量，不存在时回退到通用变量
+      - FEISHU_ENTERPRISE_APP_ID=${FEISHU_ENTERPRISE_APP_ID:-${FEISHU_APP_ID:-}}
+      - FEISHU_ENTERPRISE_APP_SECRET=${FEISHU_ENTERPRISE_APP_SECRET:-${FEISHU_APP_SECRET:-}}
+      - FEISHU_HR_APP_ID=${FEISHU_HR_APP_ID:-${FEISHU_APP_ID:-}}
+      - FEISHU_HR_APP_SECRET=${FEISHU_HR_APP_SECRET:-${FEISHU_APP_SECRET:-}}
+      - FEISHU_EMPLOYEE_APP_ID=${FEISHU_EMPLOYEE_APP_ID:-}
+      - FEISHU_EMPLOYEE_APP_SECRET=${FEISHU_EMPLOYEE_APP_SECRET:-}
       - FEISHU_WEBHOOK_KEY=${FEISHU_WEBHOOK_KEY:-}
       # Jenkins 配置 (本地部署)
       - JENKINS_BASE_URL=http://jenkins:8080
@@ -109,6 +173,8 @@ services:
       # OpenProject 配置 (本地部署，免费替代 Jira，优先使用)
       - OPENPROJECT_BASE_URL=http://openproject:8080
       - OPENPROJECT_API_TOKEN=${OPENPROJECT_API_TOKEN:-}
+      # Service Admin 配置（管理类工具开关）
+      - SERVICE_ADMIN_ENABLED=${SERVICE_ADMIN_ENABLED:-false}
       # RuView WiFi 感知服务配置 (使用容器内部端口 3000)
       - RUVIEW_API_BASE_URL=http://ruview-sensing:3000
       - RUVIEW_POLLING_INTERVAL_SECONDS=${RUVIEW_POLLING_INTERVAL_SECONDS:-10}
@@ -126,6 +192,8 @@ services:
       - ./scripts/python:/opt/python_scripts:ro
       # 技能目录挂载
       - ./living-agent-skill/src/main/resources/skills:/app/skills:ro
+      # Claude MCP 配置挂载
+      - ./living-agent-app/src/main/resources/claude/mcp.json:/app/config/claude/mcp.json:ro
       # 知识库/部门资料本地映射（可直接在宿主机查看）
       - ./data/knowledge:/app/data/knowledge
       - ./data/department-knowledge:/app/data/department-knowledge
@@ -134,11 +202,18 @@ services:
       # 如需容器管理功能，请使用 Docker Socket Proxy
       # - /var/run/docker.sock:/var/run/docker.sock
       # 源码工作区 (LLM 可读写项目源码)
-      - ${WORKSPACE_PATH:-../..}:/app/workspace
+      - ${WORKSPACE_PATH:-./..}:/app/workspace
+      # 用户工作目录 (桌面客户端设置的本地保存路径，通过环境变量动态配置)
+      # 设置 USER_WORKSPACE_PATH 环境变量来映射用户本地路径
+      # 例如: USER_WORKSPACE_PATH=D:\app\living
+      # 未设置时默认使用 ./data/user-workspace
+      - ${USER_WORKSPACE_PATH:-./data/user-workspace}:/app/user-workspace
     networks:
       - frontend
       - backend
     depends_on:
+      docker-socket-proxy:
+        condition: service_started
       postgres:
         condition: service_healthy
       redis:

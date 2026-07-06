@@ -141,7 +141,7 @@ public class EmployeeStateSynchronizer {
 
     @Scheduled(fixedRate = 30000)
     public void periodicSync() {
-        log.debug("Running periodic state sync...");
+        log.trace("Running periodic state sync...");
         syncAllNeuronsToEmployees();
     }
 

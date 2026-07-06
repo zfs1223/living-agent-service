@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>跳动的小球</title>
+  <style>
+    body {
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background-color: #f0f0f0;
+      overflow: hidden;
+      font-family: Arial, sans-serif;
+    }
+
+    .container {
+      position: relative;
+      width: 200px;
+      height: 400px;
+      border: 2px solid #333;
+      border-radius: 10px;
+      background-color: #fff;
+      box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+    }
+
+    .ball {
+      position: absolute;
+      width: 50px;
+      height: 50px;
+      background-color: #ff5722;
+      border-radius: 50%;
+      left: 75px;
+      bottom: 20px;
+      animation: bounce 1s infinite ease-in-out;
+    }
+
+    @keyframes bounce {
+      0%, 100% {
+        bottom: 20px;
+        animation-timing-function: ease-out;
+      }
+      50% {
+        bottom: calc(400px - 70px);
+        animation-timing-function: ease-in;
+      }
+    }
+
+    .info {
+      position: absolute;
+      top: -60px;
+      text-align: center;
+      width: 100%;
+      font-size: 18px;
+      color: #333;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="info">可运行网页原型：跳动的小球</div>
+    <div class="ball"></div>
+  </div>
+
+  <script>
+    // 空的脚本块，用于预留未来交互扩展
+    console.log("小球动画已启动");
+  </script>
+</body>
+</html>

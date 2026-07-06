@@ -10,6 +10,11 @@ public interface EmployeeExecutionReceiptService {
 
     List<EmployeeExecutionReceipt> getReceipts(String executionId);
 
+    /**
+     * 获取指定部门的所有回执。
+     */
+    List<EmployeeExecutionReceipt> getReceiptsByDepartment(String department);
+
     boolean isExecutionComplete(String executionId);
 
     void addReceiptListener(ReceiptListener listener);

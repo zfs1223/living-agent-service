@@ -9,8 +9,12 @@ import type {
   SavedInfo,
   PublicTask,
   TaskNotificationConfig,
-  ArtifactRecord
+  ArtifactRecord,
+  DesktopUser
 } from './types';
+
+// 重新导出 DesktopUser，方便渲染层直接从 @shared/api-types 导入
+export type { DesktopUser };
 
 export interface ClientInfo {
   clientId: string;
@@ -44,6 +48,10 @@ export interface LivingAgentAPI {
     getToken: () => Promise<string | null>;
     setToken: (token: string) => Promise<void>;
     clearToken: () => Promise<void>;
+    // 手机号登录（与 frontend 对齐）
+    smsSend: (phone: string, type?: string) => Promise<{ success: boolean; message: string; expiresIn: number; code?: string }>;
+    phoneLogin: (phone: string, code: string) => Promise<{ accessToken: string; user: DesktopUser }>;
+    me: () => Promise<DesktopUser>;
   };
 
   /* ============ 文件系统 ============ */
@@ -93,6 +101,7 @@ export interface LivingAgentAPI {
   artifacts: {
     myVisible: (params?: { page?: number; size?: number }) => Promise<ArtifactRecord[]>;
     download: (artifactId: string) => Promise<string>;
+    save: (artifactId: string, fileName: string) => Promise<{ saved: boolean; path?: string }>;
   };
 
   /* ============ 窗口控制 ============ */
@@ -110,6 +119,15 @@ export interface LivingAgentAPI {
     getClientId: () => Promise<string>;
     getClientInfo: () => Promise<ClientInfo>;
     resetClientId: () => Promise<string>;
+  };
+
+  /* ============ Windows 自动化 ============ */
+  winAutomation: {
+    start: () => Promise<{ success: boolean; running?: boolean; error?: string }>;
+    stop: () => Promise<{ success: boolean }>;
+    status: () => Promise<{ running: boolean }>;
+    execute: (operation: string, args?: Record<string, unknown>) =>
+      Promise<{ success: boolean; result?: unknown; error?: string }>;
   };
 
   /* ============ 事件订阅 ============ */

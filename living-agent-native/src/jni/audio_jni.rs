@@ -5,7 +5,7 @@ use jni::strings::JNIString;
 use crate::audio::{AudioProcessor, AudioConfig};
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_native_AudioNative_createProcessor(
+pub extern "system" fn Java_com_livingagent_core_nativelib_AudioNative_createProcessor(
     mut env: Env,
     _class: JClass,
     sample_rate: jint,
@@ -34,7 +34,7 @@ pub extern "system" fn Java_com_livingagent_native_AudioNative_createProcessor(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_native_AudioNative_destroyProcessor(
+pub extern "system" fn Java_com_livingagent_core_nativelib_AudioNative_destroyProcessor(
     _env: Env,
     _class: JClass,
     handle: jlong,
@@ -47,7 +47,7 @@ pub extern "system" fn Java_com_livingagent_native_AudioNative_destroyProcessor(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_native_AudioNative_decodeOpus(
+pub extern "system" fn Java_com_livingagent_core_nativelib_AudioNative_decodeOpus(
     mut env: Env,
     _class: JClass,
     handle: jlong,
@@ -81,7 +81,7 @@ pub extern "system" fn Java_com_livingagent_native_AudioNative_decodeOpus(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_native_AudioNative_encodePcm(
+pub extern "system" fn Java_com_livingagent_core_nativelib_AudioNative_encodePcm(
     mut env: Env,
     _class: JClass,
     handle: jlong,
@@ -115,7 +115,7 @@ pub extern "system" fn Java_com_livingagent_native_AudioNative_encodePcm(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_native_AudioNative_detectVoiceActivity(
+pub extern "system" fn Java_com_livingagent_core_nativelib_AudioNative_detectVoiceActivity(
     env: Env,
     _class: JClass,
     handle: jlong,
@@ -141,7 +141,7 @@ pub extern "system" fn Java_com_livingagent_native_AudioNative_detectVoiceActivi
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_native_AudioNative_applyGain(
+pub extern "system" fn Java_com_livingagent_core_nativelib_AudioNative_applyGain(
     mut env: Env,
     _class: JClass,
     pcm_data: JByteArray,
@@ -166,7 +166,7 @@ pub extern "system" fn Java_com_livingagent_native_AudioNative_applyGain(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_native_AudioNative_reset(
+pub extern "system" fn Java_com_livingagent_core_nativelib_AudioNative_reset(
     _env: Env,
     _class: JClass,
     handle: jlong,
@@ -180,7 +180,7 @@ pub extern "system" fn Java_com_livingagent_native_AudioNative_reset(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_native_AudioNative_getStats(
+pub extern "system" fn Java_com_livingagent_core_nativelib_AudioNative_getStats(
     mut env: Env,
     _class: JClass,
     handle: jlong,

@@ -55,6 +55,9 @@ public class WindowsAutomationNodeEntity {
     @Column(name = "enabled")
     private Boolean enabled = true;
 
+    @Column(name = "client_id", length = 100)
+    private String clientId;
+
     // Getters and Setters
     public String getNodeId() { return nodeId; }
     public void setNodeId(String nodeId) { this.nodeId = nodeId; }
@@ -97,4 +100,7 @@ public class WindowsAutomationNodeEntity {
 
     public Boolean getEnabled() { return enabled; }
     public void setEnabled(Boolean enabled) { this.enabled = enabled; }
+
+    public String getClientId() { return clientId; }
+    public void setClientId(String clientId) { this.clientId = clientId; }
 }

@@ -1,0 +1,30 @@
+# Windows 自动化服务依赖
+# 借鉴 Windows-MCP 技术栈（https://github.com/CursorTouch/Windows-MCP）
+# 安装：pip install -r requirements.txt
+# 要求：Python 3.10+（使用 match/case 语法）
+
+# 进程管理
+psutil>=7.0.0
+
+# Windows API
+pywin32>=311; sys_platform == 'win32'
+
+# UIAutomation（核心依赖，借鉴 Windows-MCP 加载方式）
+comtypes>=1.4.15; sys_platform == 'win32'
+
+# 截图（dxcam 性能最佳，借鉴 Windows-MCP）
+dxcam>=0.3.0; sys_platform == 'win32'
+
+# 图像处理（截图编码）
+Pillow>=11.2.1
+
+# 应用模糊匹配（借鉴 Windows-MCP）
+fuzzywuzzy>=0.18.0
+python-Levenshtein>=0.27.1; sys_platform == 'win32'
+
+# HTTP 请求（网页抓取）
+requests>=2.32.3
+
+# 注意：以上依赖版本支持 Python 3.10-3.14
+# Windows-MCP 要求 Python 3.13+，但本项目兼容 Python 3.10+
+# UIAutomation 使用 UIAutomationCore.dll 直接加载，比 UIAutomationClient 更稳定

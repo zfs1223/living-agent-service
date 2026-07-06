@@ -1,5 +1,8 @@
 server:
   port: 8382
+  # HTTP 请求头大小限制（解决 "Request header is too large" 问题）
+  # Spring Boot 3.x 支持带单位配置，增大到 128KB 以适应大型 Cookie/Authorization header
+  max-http-header-size: 128KB
 
 spring:
   application:
@@ -7,6 +10,10 @@ spring:
   profiles:
     active: dev
   
+  # 启用 CGLIB 代理，解决 @EventListener 方法不在接口中的问题
+  # SelfGovernanceOrchestratorImpl.onCrossLoopEvent 等方法需要 CGLIB 代理
+  aop:
+    proxy-target-class: true
  
   datasource:
     url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/livingagent?charSet=UTF-8}
@@ -64,6 +71,13 @@ spring:
       auto-startup: ${KAFKA_ENABLED:true}
       concurrency: 3
 
+brain:
+  boundary:
+    enabled: true
+    consecutive-failures-threshold: 5
+    audit-log-enabled: true
+    audit-log-level: warn
+
 logging:
   level:
     root: INFO
@@ -75,84 +89,35 @@ logging:
     com.livingagent.gateway.service.FounderService: INFO
 
 # ===========================================
-# 本地AI模型配置 (参考dialogue-service)
+# 本地AI模型配置
 # ===========================================
 ai-models:
-  # 模型根目录
   base-path: ${AI_MODELS_PATH:/app/ai-models}
   
   # ===========================================
-  # Ollama 远程服务配置 (192.168.0.6:2025)
-  # 可灵活切换模型，等 qwen3.5:27b 部署后直接修改 default-model 即可
+  # Ollama 远程服务配置
+  # 说明：模型池通过 BuiltinModelCatalog.discoverOllamaModels() API 动态发现
+  #       已下载的模型，无需在此硬编码模型列表。
+  #       调用模型时会明确指定模型名称，无可用模型时提示用户下载。
   # ===========================================
   ollama:
     enabled: ${OLLAMA_ENABLED:true}
     base-url: ${OLLAMA_BASE_URL:http://host.docker.internal:11434}
-    # 当前可用模型: qwen3.5:9b, qwen2.5:3b, qwen2.5:latest, deepseek-r1:14b, llama3.2:latest
-    # 部署 qwen3.5:27b 后改为: qwen3.5:27b
-    default-model: ${OLLAMA_DEFAULT_MODEL:qwen3.5:9b}
     timeout: ${OLLAMA_TIMEOUT:120000}
-    models:
-      - name: qwen3.5:9b
-        enabled: true
-        description: "Qwen3.5 9B - 当前主力模型"
-        max-tokens: 4096
-        temperature: 0.7
-      - name: qwen2.5:3b
-        enabled: true
-        description: "Qwen2.5 3B - 轻量快速模型"
-        max-tokens: 2048
-        temperature: 0.7
-      - name: qwen2.5:latest
-        enabled: true
-        description: "Qwen2.5 7.6B - 中等规模模型"
-        max-tokens: 4096
-        temperature: 0.7
-      - name: deepseek-r1:1.5b
-        enabled: true
-        description: "DeepSeek R1 1.5B - 推理增强模型"
-        max-tokens: 4096
-        temperature: 0.7
-      - name: llama3:8B
-        enabled: true
-        description: "Llama3 8B - Meta轻量模型"
-        max-tokens: 2048
-        temperature: 0.7
-      - name: qwen2.5-coder:3b
-        enabled: true
-        description: "Qwen2.5 Coder 3B - 代码专用模型"
-        max-tokens: 4096
-        temperature: 0.3
-      # 预留: qwen3.5:27b 部署后启用
-      - name: qwen3.5:27b
-        enabled: false
-        description: "Qwen3.5 27B - 主大脑模型 (待部署)"
-        max-tokens: 8192
-        temperature: 0.7
   
-  # LLM配置 - 本地模型
+  # ===========================================
+  # LLM 本地模型配置
+  # 说明：Python 守护进程 (model_daemon.py) 通过环境变量配置模型路径：
+  #       - QWEN3_MODEL_FILE=${AI_MODELS_PATH}/Qwen3-0.6B-GGUF/Qwen3-0.6B-Q8_0.gguf
+  #       - QWEN35_MODEL_FILE=${AI_MODELS_PATH}/Qwen3.5-2B-GGUF/Qwen3.5-2B-Q4_K_M.gguf
+  #       此配置仅作为文档参考，实际模型由守护进程管理。
+  # ===========================================
   llm:
     default-model: qwen3-0.6b
-    models:
-      - name: qwen3-0.6b
-        type: local
-        enabled: true
-        model-path: ${AI_MODELS_PATH:/app/ai-models}/Qwen3-0.6B-GGUF/Qwen3-0.6B-Q8_0.gguf
-        max-tokens: 2048
-        temperature: 0.7
-        python-script: ${PYTHON_SCRIPTS_PATH:/opt/python_scripts}/llm/run_qwen3.py
-      # Qwen3.5-2B - 默认工具神经元模型 (通过 Ollama)
-      - name: qwen3.5-2b
-        type: local
-        enabled: true
-        model-path: ${AI_MODELS_PATH:/app/ai-models}/Qwen3.5-2B-GGUF/Qwen3.5-2B-Q4_K_M.gguf
-        max-tokens: 2048
-        temperature: 0.7
-        python-script: ${PYTHON_SCRIPTS_PATH:/opt/python_scripts}/llm/run_qwen3.py
-      # BitNet-1.58-3B - 资源受限场景备选
-      
   
-  # ASR配置 - 本地FunASR/Sherpa-NCNN
+  # ===========================================
+  # ASR 配置 - 本地 Sherpa-NCNN / FunASR
+  # ===========================================
   asr:
     default-provider: sherpa-ncnn
     sample-rate: 16000
@@ -163,25 +128,21 @@ ai-models:
         enabled: true
         model-path: ${AI_MODELS_PATH:/app/ai-models}/sherpa-ncnn/sherpa-ncnn-sense-voice-zh-en-ja-ko-yue-2025-09-09
         python-script: ${PYTHON_SCRIPTS_PATH:/opt/python_scripts}/asr/run_sherpa_ncnn.py
-      - name: funasr
-        enabled: true
-        model-path: ${AI_MODELS_PATH:/app/ai-models}/funasr/models
-        python-script: ${PYTHON_SCRIPTS_PATH:/opt/python_scripts}/asr/run_funasr.py
+      
   
-  # TTS配置 - 本地Kokoro/MeloTTS
+  # ===========================================
+  # TTS 配置 - 本地 MeloTTS
+  # 说明：Python 守护进程 (model_daemon.py) 使用 MeloTTS
+  #       模型路径由环境变量 MELOTTS_MODEL_DIR 配置
+  # ===========================================
   tts:
-    default-provider: kokoro
-    default-voice: zf_xiaobei
+    default-provider: melotts
+    default-voice: default
     default-speed: 1.0
     providers:
-      - name: kokoro
-        enabled: true
-        model-path: ${AI_MODELS_PATH:/app/ai-models}/Kokoro/kokoro-v1_0.pth
-        voices-path: ${AI_MODELS_PATH:/app/ai-models}/Kokoro/voices
-        python-script: ${PYTHON_SCRIPTS_PATH:/opt/python_scripts}/tts/run_kokoro.py
       - name: melotts
         enabled: true
-        model-path: ${AI_MODELS_PATH:/app/ai-models}/MeloTTS
+        model-path: ${MELOTTS_MODEL_DIR:${AI_MODELS_PATH:/app/ai-models}/MeloTTS}
         languages: [zh, en, jp, kr, es, fr]
         python-script: ${PYTHON_SCRIPTS_PATH:/opt/python_scripts}/tts/run_melotts.py
   
@@ -212,11 +173,24 @@ agent:
     timeout-sec: 60
 
 # ===========================================
+# Service Admin 配置
+# 说明：管理类工具（GitLabAdminTool/OpenProjectAdminTool/JenkinsAdminTool）
+#       通过 ToolRegistry 权限机制区分，MainBrain 可访问，其他大脑不可访问。
+#       默认不启用，需要手动设置 SERVICE_ADMIN_ENABLED=true
+# ===========================================
+service-admin:
+  enabled: ${SERVICE_ADMIN_ENABLED:true}
+
+# ===========================================
 # 工具开关配置
+# 说明：控制各工具是否注册到 ToolRegistry
 # ===========================================
 tool:
+  # Claude CLI 工具开关
+  # 注意：此配置与 living-agent.claude-cli.enabled 共用同一环境变量
+  #       确保两者配置一致，否则 ClaudeCliTool 可能无法正常工作
   claude-cli:
-    enabled: ${CLAUDE_CLI_ENABLED:false}
+    enabled: ${CLAUDE_CLI_ENABLED:true}
   openproject:
     base-url: ${OPENPROJECT_BASE_URL:}
     api-token: ${OPENPROJECT_API_TOKEN:}
@@ -260,13 +234,6 @@ tool-neuron:
         context-length: 262144
         multimodal: true
         recommended: true
-      - id: bitnet-1.58-3b
-        enabled: true
-        description: "BitNet-1.58-3B - 资源受限场景备选"
-        memory-mb: 1024
-        context-length: 4096
-        multimodal: false
-        recommended: false
 
 # ===========================================
 # 通道配置
@@ -325,6 +292,8 @@ channels:
 living-agent:
   data:
     path: ${LIVING_AGENT_DATA_PATH:/app/data}
+  # 进化空间根目录（与 data/ 业务空间分离）
+  living-dir: ${LIVING_AGENT_LIVING_DIR:./.living}
   memory:
     backend: ${MEMORY_PROVIDER:sqlite}
     memos:
@@ -343,6 +312,12 @@ living-agent:
   professional-knowledge:
     enabled: ${PROFESSIONAL_KNOWLEDGE_ENABLED:true}
     agency-agents-path: ${AGENCY_AGENTS_PATH:/app/data/agency-agents}
+  # 架构文档知识播种配置（让大脑"看到"自己的代码结构）
+  architecture-knowledge:
+    enabled: ${ARCHITECTURE_KNOWLEDGE_ENABLED:true}
+    docs-path: ${LIVING_AGENT_DOCS_PATH:${LIVING_AGENT_PROJECT_ROOT:..}/docs}
+    documents-path: ${LIVING_AGENT_DOCUMENTS_PATH:${LIVING_AGENT_PROJECT_ROOT:..}/documents}
+    chunk-size: ${ARCHITECTURE_KNOWLEDGE_CHUNK_SIZE:2000}
   claude-cli:
     enabled: ${CLAUDE_CLI_ENABLED:true}
     command: claude
@@ -351,9 +326,28 @@ living-agent:
     dangerously-skip-permissions: true
     allowed-dirs:
       - ./agent_workspace
-    max-concurrent-sessions: 3
+    max-concurrent-sessions: 10
     session-timeout-minutes: 30
     job-timeout-minutes: 60
+    mcp-enabled: ${CLAUDE_CLI_MCP_ENABLED:true}
+    mcp-config-path: ${CLAUDE_CLI_MCP_CONFIG_PATH:classpath:claude/mcp.json}
+    codegraph:
+      enabled: ${CODEGRAPH_ENABLED:true}
+      command: ${CODEGRAPH_COMMAND:codegraph}
+      watch-debounce-ms: ${CODEGRAPH_WATCH_DEBOUNCE_MS:5000}
+      auto-sync: ${CODEGRAPH_AUTO_SYNC:true}
+      exclude-patterns:
+        - .env
+        - credentials
+        - secret
+        - "*.key"
+        - "*.pem"
+        - "*.p12"
+        - node_modules
+        - .git
+        - target
+        - build
+        - dist
     proxy:
       enabled: ${CLAUDE_CLI_PROXY_ENABLED:true}
       base-url: ${CLAUDE_CLI_PROXY_BASE_URL:http://localhost:8480/api/v1/proxy/anthropic}

@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { dashboardApi } from '../../services/dashboardApi';
+import { useAuthStore } from '../../stores';
 import type { EnterpriseSummary, DepartmentHealth, RiskAlert } from '../../services/dashboardApi';
 
 const Icons = {
@@ -363,11 +364,13 @@ function RiskAlertsPanel({ alerts }: { alerts: RiskAlert[] }) {
 export default function EnterpriseDashboard() {
     const { t } = useTranslation();
     const navigate = useNavigate();
+    const user = useAuthStore((s) => s.user);
 
     const { data: summary, isLoading, error } = useQuery({
         queryKey: ['enterprise-summary'],
         queryFn: () => dashboardApi.getEnterpriseSummary(),
         refetchInterval: 30000,
+        enabled: !!user,  // 只有用户已认证时才调用
     });
 
     if (isLoading) {

@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>跳动的小球</title>
+  <style>
+    body {
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background-color: #f0f0f0;
+      font-family: Arial, sans-serif;
+      overflow: hidden;
+    }
+
+    .ball {
+      width: 60px;
+      height: 60px;
+      background: radial-gradient(circle at 20% 20%, #ffffff, #ff4d4d);
+      border-radius: 50%;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+      animation: bounce 0.6s ease-in-out infinite alternate;
+    }
+
+    @keyframes bounce {
+      from {
+        transform: translateY(0);
+      }
+      to {
+        transform: translateY(-30px);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="ball"></div>
+
+  <script>
+    // 简单的运行时验证脚本（用于确认动画已加载）
+    document.addEventListener("DOMContentLoaded", () => {
+      console.log("✅ 页面已加载完成");
+      const ball = document.querySelector(".ball");
+      if (window.getComputedStyle(ball).animationName === "bounce") {
+        console.log("✅ 小球跳动动画已成功启动");
+      } else {
+        console.error("❌ 动画未正常运行");
+      }
+    });
+  </script>
+</body>
+</html>

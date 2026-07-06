@@ -207,3 +207,63 @@ API入口 → WebSocket入口 → Brain路由前 → 工具调用前
 ---
 
 > 本文档严格对齐 `06-security-permission.md` 核心框架，定义安全权限子系统的治理规范。
+
+## 11. 进化空间安全治理（2026-06-15 新增）
+
+### 11.1 进化空间与业务空间隔离
+
+| 空间 | 目录 | 访问者 | 安全约束 |
+|------|------|--------|----------|
+| 进化空间 | .living/ | 大脑（自由权限） | 自毁即自伤的自然约束 |
+| 业务空间 | data/ | 员工/执行器 | 业务权限隔离 |
+
+进化空间操作不可影响业务数据，业务空间操作不可访问进化空间。
+
+### 11.2 大脑进化权限
+
+所有大脑（MainBrain + 部门 Brain）拥有以下进化权限：
+
+| 权限 | 说明 |
+|------|------|
+| codebase_full_access | 自由读写代码库镜像 |
+| evolution_full_access | 自由读写进化空间 |
+| apply_code_fix | 自主应用代码修复 |
+| propose_code_fix | 提议代码修复 |
+
+### 11.3 固定员工进化限制
+
+固定员工不可直接访问代码库和进化空间：
+
+| 禁止动作 | 说明 |
+|----------|------|
+| codebase_access | 不可直接访问代码库 |
+| apply_code_fix | 不可应用代码修复 |
+| evolution_write | 不可写入进化空间 |
+
+固定员工如需代码上下文，通过大脑间接获取。
+
+### 11.4 代码库访问安全
+
+| 规则 | 说明 |
+|------|------|
+| 敏感文件过滤 | .env/credentials/secret/password/token/.key/.pem/.p12 自动过滤 |
+| 路径遍历防护 | 禁止 .. 和绝对路径 |
+| 速率限制 | 每分钟最多 20 次访问 |
+| 访问日志 | 所有访问记录到 Trace |
+
+### 11.5 自修复安全机制
+
+| 机制 | 说明 |
+|------|------|
+| 回滚基线 | 每次修复前自动保存，失败时自动回滚 |
+| 修复循环检测 | 连续修复 >= 3 次强制升级 |
+| 连续失败检测 | 连续失败 >= 5 次强制升级 |
+| 熔断保护 | EvolutionCircuitBreaker 覆盖自修复场景 |
+
+### 11.6 代码对齐清单补充
+
+| 组件 | 文件 | 状态 |
+|------|------|------|
+| BrainBoundaryEnforcer 进化边界 | `core/brain/BrainBoundaryEnforcer.java` | ✅ 已添加进化动作 |
+| CodebaseAccessService | `core/evolution/codebase/CodebaseAccessService.java` | ✅ 含敏感文件过滤 |
+| EvolutionCircuitBreaker | `core/evolution/circuitbreaker/EvolutionCircuitBreaker.java` | ✅ 含修复循环检测 |

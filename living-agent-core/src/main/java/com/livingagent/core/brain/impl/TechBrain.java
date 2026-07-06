@@ -1,6 +1,7 @@
 package com.livingagent.core.brain.impl;
 
 import com.livingagent.core.brain.BrainContext;
+import com.livingagent.core.brain.BrainOutputContract;
 import com.livingagent.core.brain.collaboration.LeadOrchestrator;
 import com.livingagent.core.channel.ChannelMessage;
 import com.livingagent.core.tool.Tool;
@@ -9,6 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
+import java.util.Map;
 
 import com.livingagent.core.provider.Provider;
 import java.util.Objects;
@@ -98,17 +100,30 @@ public class TechBrain extends AbstractBrain {
         boolean hasEmployeeAssignments = !"0".equals(assignmentCount) && !assignmentCount.isBlank();
 
         if (hasEmployeeAssignments) {
-            log.info("TechBrain received message with {} employee assignments (already executed synchronously), skipping ReAct loop", assignmentCount);
-            String statusMsg = String.format("已派发并执行 %s 个员工任务。", assignmentCount);
-            publishResponse(message, statusMsg, 0);
+            log.info("TechBrain received message with {} employee assignments, waiting for aggregation", assignmentCount);
+            // DP0-1 改进：不返回占位符，而是返回一个等待聚合的响应
+            // 聚合逻辑在 DepartmentChatService 中实现，会等待回执收集完成后替换此响应
+            String waitingMsg = String.format("正在执行 %s 个员工任务，请稍候...", assignmentCount);
+            publishResponse(message, waitingMsg, 0);
             return;
         }
 
         try {
             String sessionId = message.getSessionId();
             List<Provider.ChatMessage> previousHistory = getSessionHistory(sessionId);
-            
-            ReActResult result = executeReActLoop(userMessage, sessionId, previousHistory);
+
+            // 判断是否需要编译-修复闭环（BUG_FIX 任务且 claude_cli 不可用时走自身 ReAct+BuildTool）
+            boolean useCompileFix = shouldUseCompileFixLoop(message);
+            ReActResult result;
+            if (useCompileFix) {
+                result = getReActEngine().executeCompileFixLoop(
+                    userMessage, sessionId, previousHistory,
+                    getProvider(), doGetSystemPrompt(), getMaxIterations(),
+                    this, "build", 3);
+                log.info("TechBrain executed compile-fix loop for session={}", sessionId);
+            } else {
+                result = executeReActLoop(userMessage, sessionId, previousHistory);
+            }
 
             if (result.success()) {
                 if (result.content() != null && !result.content().isBlank()) {
@@ -145,6 +160,23 @@ public class TechBrain extends AbstractBrain {
             responseMessage.addMetadata("type", "brain_response");
             responseMessage.addMetadata("fallback", "true");
             publish(outputChannel, responseMessage);
+
+            // 构建 BrainOutputContract 并保存到 lastOutputContract（DP0-2 修复）
+            BrainOutputContract contract = BrainOutputContract.builder()
+                .status(BrainOutputContract.BrainOutputStatus.COMPLETED)
+                .summary(content != null && content.length() > 500 ? content.substring(0, 500) : content)
+                .conversationId(original.getSessionId())
+                .riskLevel(BrainOutputContract.RiskLevel.LOW)
+                .metadata(Map.of(
+                    "original_message_id", original.getId(),
+                    "brain_id", getId(),
+                    "brain_name", name,
+                    "department", department,
+                    "type", "brain_response",
+                    "fallback", "true"
+                ))
+                .build();
+            this.lastOutputContract = contract;
         } catch (Exception e) {
             log.error("TechBrain failed to publish fallback response", e);
         }
@@ -159,6 +191,31 @@ public class TechBrain extends AbstractBrain {
             return false;
         }
         return sourceChannel.startsWith("channel://tech/") && !INPUT_CHANNEL.equals(sourceChannel);
+    }
+
+    /**
+     * 判断是否使用编译-修复闭环。
+     * 条件：BUG_FIX/TEST_GENERATE 任务类型，且 claude_cli 工具不可用或显式请求自身修复。
+     */
+    private boolean shouldUseCompileFixLoop(ChannelMessage message) {
+        Object taskType = message.getMetadata().get("task_type");
+        boolean isCodeModifyTask = "BUG_FIX".equals(taskType) || "TEST_GENERATE".equals(taskType) || "CODE_CHANGE".equals(taskType);
+        if (!isCodeModifyTask) {
+            return false;
+        }
+
+        // 检查 claude_cli 工具是否可用
+        if (getToolRegistry() != null) {
+            var claudeCliOpt = getToolRegistry().get("claude_cli");
+            if (claudeCliOpt.isPresent() && claudeCliOpt.get().isAllowed(null)) {
+                // ClaudeCliTool 可用，优先使用它（除非显式请求自身修复）
+                Object selfFix = message.getMetadata().get("self_fix");
+                return "true".equals(String.valueOf(selfFix));
+            }
+        }
+
+        // ClaudeCliTool 不可用，使用自身 ReAct + BuildTool 闭环
+        return true;
     }
 
     private void handleCollaborationControlMessage(ChannelMessage message) {

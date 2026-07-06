@@ -108,6 +108,13 @@ public class SessionContext {
             return;
         }
         history.add(Map.of("role", role, "content", content));
+        
+        // 保持历史记录在合理范围内，避免内存溢出
+        // 保留最新的 50 条记录（约 25 轮对话）
+        int MAX_HISTORY_SIZE = 50;
+        while (history.size() > MAX_HISTORY_SIZE) {
+            history.remove(0);
+        }
     }
 
     public List<Map<String, String>> getHistory() {

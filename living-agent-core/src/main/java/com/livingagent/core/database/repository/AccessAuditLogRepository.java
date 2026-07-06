@@ -22,6 +22,9 @@ public interface AccessAuditLogRepository extends JpaRepository<AccessAuditLog, 
 
     void deleteByTimestampBefore(long cutoffTime);
 
+    @Query("SELECT a FROM AccessAuditLog a ORDER BY a.timestamp DESC")
+    List<AccessAuditLog> findRecentAll(Pageable pageable);
+
     @Query("SELECT a FROM AccessAuditLog a WHERE a.employeeId = :employeeId AND a.timestamp >= :fromMillis AND a.timestamp <= :toMillis ORDER BY a.timestamp DESC")
     List<AccessAuditLog> findByEmployeeIdAndDetectedAtBetween(
         @Param("employeeId") String employeeId,

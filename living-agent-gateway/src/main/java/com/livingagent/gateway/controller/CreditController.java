@@ -5,6 +5,7 @@ import com.livingagent.core.autonomous.incentive.IncentiveManager;
 import com.livingagent.core.security.AccessGateService;
 import com.livingagent.core.security.AccessLevel;
 import com.livingagent.core.security.AuthContext;
+import com.livingagent.gateway.controller.common.ApiResponse;
 import com.livingagent.core.security.auth.UnifiedAuthService;
 import com.livingagent.core.security.auth.UnifiedAuthService.AuthSession;
 import org.slf4j.Logger;
@@ -55,7 +56,7 @@ public class CreditController {
         Optional<AuthContext> ctxOpt = getAuthContext(authorization);
         if (ctxOpt.isEmpty()) {
             return ResponseEntity.status(401)
-                    .body(ApiResponse.error("unauthorized", "请先登录"));
+                    .body(ApiResponse.err("unauthorized", "请先登录"));
         }
 
         AuthContext ctx = ctxOpt.get();
@@ -63,7 +64,7 @@ public class CreditController {
 
         if (!accessGateService.canRoute(employeeId, "brain", "FinanceBrain")) {
             return ResponseEntity.status(403)
-                    .body(ApiResponse.error("forbidden", "Access denied before routing"));
+                    .body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         
         try {
@@ -80,10 +81,10 @@ public class CreditController {
                 Instant.now().toString()
             );
             
-            return ResponseEntity.ok(ApiResponse.success(result));
+            return ResponseEntity.ok(ApiResponse.ok(result));
         } catch (Exception e) {
             log.error("Failed to get balance for employee {}: {}", employeeId, e.getMessage());
-            return ResponseEntity.ok(ApiResponse.success(
+            return ResponseEntity.ok(ApiResponse.ok(
                 new CreditBalanceDto(employeeId, ctx.getName(), 0, 0, 0.0, Instant.now().toString())
             ));
         }
@@ -100,12 +101,12 @@ public class CreditController {
         
         if (headerEmployeeId != null && !headerEmployeeId.isBlank() && !accessGateService.canRoute(headerEmployeeId, "brain", "FinanceBrain")) {
             return ResponseEntity.status(403)
-                    .body(ApiResponse.error("forbidden", "Access denied before routing"));
+                    .body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         Optional<AuthContext> ctxOpt = getAuthContext(authorization);
         if (ctxOpt.isEmpty()) {
             return ResponseEntity.status(401)
-                    .body(ApiResponse.error("unauthorized", "请先登录"));
+                    .body(ApiResponse.err("unauthorized", "请先登录"));
         }
 
         AuthContext ctx = ctxOpt.get();
@@ -113,7 +114,7 @@ public class CreditController {
         // 权限检查
         if (!canViewEmployee(ctx, employeeId)) {
             return ResponseEntity.status(403)
-                    .body(ApiResponse.error("forbidden", "无权查看该员工的积分"));
+                    .body(ApiResponse.err("forbidden", "无权查看该员工的积分"));
         }
 
         try {
@@ -130,10 +131,10 @@ public class CreditController {
                 Instant.now().toString()
             );
             
-            return ResponseEntity.ok(ApiResponse.success(result));
+            return ResponseEntity.ok(ApiResponse.ok(result));
         } catch (Exception e) {
             log.error("Failed to get balance for employee {}: {}", employeeId, e.getMessage());
-            return ResponseEntity.ok(ApiResponse.success(
+            return ResponseEntity.ok(ApiResponse.ok(
                 new CreditBalanceDto(employeeId, "Unknown", 0, 0, 0.0, Instant.now().toString())
             ));
         }
@@ -150,12 +151,12 @@ public class CreditController {
         
         if (headerEmployeeId != null && !headerEmployeeId.isBlank() && !accessGateService.canRoute(headerEmployeeId, "brain", "FinanceBrain")) {
             return ResponseEntity.status(403)
-                    .body(ApiResponse.error("forbidden", "Access denied before routing"));
+                    .body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         Optional<AuthContext> ctxOpt = getAuthContext(authorization);
         if (ctxOpt.isEmpty()) {
             return ResponseEntity.status(401)
-                    .body(ApiResponse.error("unauthorized", "请先登录"));
+                    .body(ApiResponse.err("unauthorized", "请先登录"));
         }
 
         AuthContext ctx = ctxOpt.get();
@@ -176,10 +177,10 @@ public class CreditController {
                 Instant.now().toString()
             );
             
-            return ResponseEntity.ok(ApiResponse.success(result));
+            return ResponseEntity.ok(ApiResponse.ok(result));
         } catch (Exception e) {
             log.error("Failed to get history for employee {}: {}", employeeId, e.getMessage());
-            return ResponseEntity.ok(ApiResponse.success(
+            return ResponseEntity.ok(ApiResponse.ok(
                 new CreditHistoryDto(employeeId, List.of(), 0, Instant.now().toString())
             ));
         }
@@ -197,12 +198,12 @@ public class CreditController {
         
         if (headerEmployeeId != null && !headerEmployeeId.isBlank() && !accessGateService.canRoute(headerEmployeeId, "brain", "FinanceBrain")) {
             return ResponseEntity.status(403)
-                    .body(ApiResponse.error("forbidden", "Access denied before routing"));
+                    .body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         Optional<AuthContext> ctxOpt = getAuthContext(authorization);
         if (ctxOpt.isEmpty()) {
             return ResponseEntity.status(401)
-                    .body(ApiResponse.error("unauthorized", "请先登录"));
+                    .body(ApiResponse.err("unauthorized", "请先登录"));
         }
 
         AuthContext ctx = ctxOpt.get();
@@ -258,10 +259,10 @@ public class CreditController {
                 Instant.now().toString()
             );
             
-            return ResponseEntity.ok(ApiResponse.success(result));
+            return ResponseEntity.ok(ApiResponse.ok(result));
         } catch (Exception e) {
             log.error("Failed to get leaderboard: {}", e.getMessage());
-            return ResponseEntity.ok(ApiResponse.success(
+            return ResponseEntity.ok(ApiResponse.ok(
                 new LeaderboardDto(targetDept, List.of(), Instant.now().toString())
             ));
         }
@@ -277,12 +278,12 @@ public class CreditController {
         
         if (headerEmployeeId != null && !headerEmployeeId.isBlank() && !accessGateService.canRoute(headerEmployeeId, "brain", "FinanceBrain")) {
             return ResponseEntity.status(403)
-                    .body(ApiResponse.error("forbidden", "Access denied before routing"));
+                    .body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         Optional<AuthContext> ctxOpt = getAuthContext(authorization);
         if (ctxOpt.isEmpty()) {
             return ResponseEntity.status(401)
-                    .body(ApiResponse.error("unauthorized", "请先登录"));
+                    .body(ApiResponse.err("unauthorized", "请先登录"));
         }
 
         AuthContext ctx = ctxOpt.get();
@@ -301,10 +302,10 @@ public class CreditController {
                 Instant.now().toString()
             );
             
-            return ResponseEntity.ok(ApiResponse.success(result));
+            return ResponseEntity.ok(ApiResponse.ok(result));
         } catch (Exception e) {
             log.error("Failed to get stats for employee {}: {}", employeeId, e.getMessage());
-            return ResponseEntity.ok(ApiResponse.success(
+            return ResponseEntity.ok(ApiResponse.ok(
                 new CreditStatsDto(employeeId, 0, 0, 0, 0.0, 0, Instant.now().toString())
             ));
         }
@@ -345,21 +346,6 @@ public class CreditController {
     }
 
     // ==================== DTO Records ====================
-
-    public record ApiResponse<T>(
-            boolean success,
-            T data,
-            String error,
-            String errorDescription
-    ) {
-        public static <T> ApiResponse<T> success(T data) {
-            return new ApiResponse<>(true, data, null, null);
-        }
-
-        public static <T> ApiResponse<T> error(String error, String description) {
-            return new ApiResponse<>(false, null, error, description);
-        }
-    }
 
     public record CreditBalanceDto(
             String employeeId,

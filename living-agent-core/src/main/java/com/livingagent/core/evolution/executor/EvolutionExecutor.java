@@ -1,6 +1,10 @@
 package com.livingagent.core.evolution.executor;
 
 import com.livingagent.core.evolution.SkillGenerator;
+import com.livingagent.core.evolution.codemapper.CodeContext;
+import com.livingagent.core.evolution.codemapper.ErrorCodeMapper;
+import com.livingagent.core.evolution.escalation.EscalationLevel;
+import com.livingagent.core.evolution.escalation.EscalationNotificationService;
 import com.livingagent.core.evolution.engine.EvolutionDecisionEngine;
 import com.livingagent.core.evolution.engine.EvolutionDecisionEngine.EvolutionDecision;
 import com.livingagent.core.evolution.engine.EvolutionDecisionEngine.EvolutionStrategy;
@@ -39,7 +43,11 @@ public class EvolutionExecutor {
     private final EvolutionDecisionEngine decisionEngine;
     private final EvolutionMemoryGraph memoryGraph;
     private LayeredKnowledgeBase knowledgeBase;
-    
+
+    // 可选注入：升级通知服务与错误代码映射器
+    private EscalationNotificationService escalationNotificationService;
+    private ErrorCodeMapper errorCodeMapper;
+
     private final ExecutorService executorService = Executors.newFixedThreadPool(2);
     private final Map<String, EvolutionResult> recentResults = new ConcurrentHashMap<>();
     
@@ -60,6 +68,17 @@ public class EvolutionExecutor {
     @Autowired(required = false)
     public void setKnowledgeBase(LayeredKnowledgeBase knowledgeBase) {
         this.knowledgeBase = knowledgeBase;
+    }
+
+    // setter 注入（可选，不破坏现有构造函数）
+    @Autowired(required = false)
+    public void setEscalationNotificationService(EscalationNotificationService service) {
+        this.escalationNotificationService = service;
+    }
+
+    @Autowired(required = false)
+    public void setErrorCodeMapper(ErrorCodeMapper mapper) {
+        this.errorCodeMapper = mapper;
     }
     
     public EvolutionResult execute(EvolutionSignal signal) {
@@ -113,7 +132,13 @@ public class EvolutionExecutor {
     
     private EvolutionResult executeRepair(EvolutionSignal signal, EvolutionDecision decision) {
         log.info("Executing REPAIR strategy for skill: {}", decision.getTargetSkillId());
-        
+
+        // 获取代码上下文
+        if (errorCodeMapper != null) {
+            CodeContext codeContext = errorCodeMapper.map(signal);
+            log.info("修复代码上下文: {}", codeContext);
+        }
+
         String skillId = decision.getTargetSkillId();
         if (skillId == null) {
             return EvolutionResult.failed(signal, decision, "No target skill specified for repair");
@@ -375,7 +400,25 @@ public class EvolutionExecutor {
     
     private EvolutionResult executeEscalate(EvolutionSignal signal, EvolutionDecision decision) {
         log.warn("Executing ESCALATE strategy - manual intervention required");
-        
+
+        // 发送升级通知
+        if (escalationNotificationService != null) {
+            String codeContext = "";
+            if (errorCodeMapper != null) {
+                CodeContext ctx = errorCodeMapper.map(signal);
+                codeContext = ctx.toString();
+            }
+            escalationNotificationService.escalate(
+                "evolution",
+                EscalationLevel.CRITICAL,
+                signal.getBrainDomain() != null ? signal.getBrainDomain() : "unknown",
+                signal.getContent() != null ? signal.getContent() : "进化升级",
+                codeContext,
+                List.of(),
+                "需要人工干预"
+            );
+        }
+
         return EvolutionResult.escalated(signal, decision)
                 .withAction("escalated_to_admin");
     }

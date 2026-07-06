@@ -11,6 +11,13 @@ files:
 asar: true
 asarUnpack:
   - resources/**
+extraResources:
+  - from: resources/win-automation
+    to: win-automation
+    filter: ["**/*"]
+  - from: resources/python
+    to: python
+    filter: ["**/*"]
 win:
   target:
     - target: nsis

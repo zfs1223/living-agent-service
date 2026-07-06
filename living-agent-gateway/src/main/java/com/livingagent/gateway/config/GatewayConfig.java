@@ -10,7 +10,9 @@ import com.livingagent.core.security.auth.OAuthService;
 import com.livingagent.core.security.auth.UnifiedAuthService;
 import com.livingagent.core.security.voiceprint.VoicePrintService;
 import com.livingagent.core.security.auth.PhoneVerificationService;
+import com.livingagent.core.database.repository.SessionContextRepository;
 import com.livingagent.core.tool.Tool;
+import com.livingagent.core.autonomy.PerformanceStatsService;
 import com.livingagent.core.tool.ToolRegistry;
 import com.livingagent.core.autonomy.*;
 import com.livingagent.core.autonomy.impl.ChannelBackedDepartmentExecutionCoordinator;
@@ -22,6 +24,18 @@ import com.livingagent.core.autonomy.impl.DefaultMainBrainRequirementClarifier;
 import com.livingagent.core.autonomy.impl.DefaultMainBrainResponseComposer;
 import com.livingagent.core.autonomy.impl.DefaultPerformanceCaptureService;
 import com.livingagent.core.autonomy.impl.DefaultFinalResponseCoordinator;
+import com.livingagent.core.autonomy.impl.DefaultTaskRouteClassifier;
+import com.livingagent.core.autonomy.impl.InMemoryDepartmentTodoPool;
+import com.livingagent.core.autonomy.impl.DefaultEmployeeSelfClaimService;
+import com.livingagent.core.autonomy.impl.DefaultCrossDepartmentCoordinator;
+import com.livingagent.core.autonomy.impl.DefaultDepartmentAggregationService;
+import com.livingagent.core.autonomy.impl.JpaDepartmentAggregationService;
+import com.livingagent.core.autonomy.impl.LlmDepartmentAggregationService;
+import com.livingagent.core.brain.impl.MainBrain;
+import com.livingagent.core.autonomy.review.InternalReviewService;
+import com.livingagent.core.autonomy.review.impl.DefaultInternalReviewService;
+import com.livingagent.core.autonomy.review.impl.JpaInternalReviewService;
+import com.livingagent.core.database.repository.InternalReviewRepository;
 import com.livingagent.core.autonomy.impl.LlmRequirementReadinessEvaluator;
 import com.livingagent.core.autonomy.impl.DynamicEmployeeTaskConsumerRegistry;
 import com.livingagent.core.autonomy.LLMEmployeeCreationService;
@@ -61,6 +75,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.EnableAspectJAutoProxy;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.context.ApplicationEventPublisher;
@@ -71,19 +86,22 @@ import java.util.Optional;
 
 @Configuration
 @EnableScheduling
+@EnableAspectJAutoProxy(proxyTargetClass = true)  // 强制启用 CGLIB 代理，解决 @EventListener 方法不在接口中的问题
 public class GatewayConfig {
     
     private static final Logger log = LoggerFactory.getLogger(GatewayConfig.class);
 
-    @Bean
+    @Bean(initMethod = "loadSessionsFromDb")
     public UnifiedAuthService unifiedAuthService(
             List<OAuthService> oauthServices,
             VoicePrintService voicePrintService,
-            PhoneVerificationService phoneVerificationService
+            PhoneVerificationService phoneVerificationService,
+            SessionContextRepository sessionContextRepository
     ) {
-        log.info("Initializing UnifiedAuthService with {} OAuth providers", 
+        log.info("Initializing UnifiedAuthService with {} OAuth providers and session persistence",
                 oauthServices != null ? oauthServices.size() : 0);
-        return new UnifiedAuthService(oauthServices, voicePrintService, phoneVerificationService);
+        return new UnifiedAuthService(oauthServices, voicePrintService, phoneVerificationService,
+                sessionContextRepository);
     }
 
     @Bean
@@ -132,17 +150,12 @@ public class GatewayConfig {
             public com.livingagent.core.tool.ToolResult execute(Map<String, Object> parameters, String userId) {
                 com.livingagent.core.tool.Tool.ToolParams params = com.livingagent.core.tool.Tool.ToolParams.of(parameters);
                 com.livingagent.core.tool.ToolContext context = com.livingagent.core.tool.ToolContext.of(
-                    userId, 
+                    userId,
                     "gateway-session"
                 );
                 return tool.execute(params, context);
             }
-            
-            @Override
-            public boolean requiresApproval() {
-                return tool.requiresApproval();
-            }
-            
+
             @Override
             public String[] getRequiredParameters() {
                 List<String> required = tool.getSchema().required();
@@ -177,16 +190,18 @@ public class GatewayConfig {
     public FixedEmployeeDispatcher fixedEmployeeDispatcher(
             FixedEmployeeRegistry fixedEmployeeRegistry,
             BrainRegistry brainRegistry,
-            AutonomyTraceService autonomyTraceService) {
-        log.info("Initializing LlmBasedFixedEmployeeDispatcher");
-        return new LlmBasedFixedEmployeeDispatcher(fixedEmployeeRegistry, brainRegistry, autonomyTraceService);
+            AutonomyTraceService autonomyTraceService,
+            PerformanceStatsService performanceStatsService) {
+        log.info("Initializing LlmBasedFixedEmployeeDispatcher with PerformanceStatsService");
+        return new LlmBasedFixedEmployeeDispatcher(fixedEmployeeRegistry, brainRegistry, autonomyTraceService, performanceStatsService);
     }
 
     @Bean
     public AssignmentPreparationService assignmentPreparationService(
-            com.livingagent.core.autonomy.ExecutionCapabilityResolver capabilityResolver) {
-        log.info("Initializing DefaultAssignmentPreparationService with ExecutionCapabilityResolver");
-        return new DefaultAssignmentPreparationService(capabilityResolver);
+            com.livingagent.core.autonomy.ExecutionCapabilityResolver capabilityResolver,
+            FixedEmployeeRegistry fixedEmployeeRegistry) {
+        log.info("Initializing DefaultAssignmentPreparationService with ExecutionCapabilityResolver and FixedEmployeeRegistry");
+        return new DefaultAssignmentPreparationService(capabilityResolver, fixedEmployeeRegistry);
     }
 
     @Bean
@@ -197,6 +212,53 @@ public class GatewayConfig {
         return new ChannelBackedDepartmentExecutionCoordinator(channelManager, employeeExecutionReceiptService);
     }
 
+    @Bean
+    public InternalReviewService internalReviewService(InternalReviewRepository internalReviewRepository) {
+        log.info("Initializing JpaInternalReviewService (persistent)");
+        return new JpaInternalReviewService(internalReviewRepository);
+    }
+
+    @Bean
+    public com.livingagent.core.autonomy.DepartmentTodoPool departmentTodoPool() {
+        log.info("Initializing InMemoryDepartmentTodoPool");
+        return new InMemoryDepartmentTodoPool();
+    }
+
+    @Bean
+    public com.livingagent.core.autonomy.EmployeeSelfClaimService employeeSelfClaimService(
+            com.livingagent.core.autonomy.DepartmentTodoPool departmentTodoPool,
+            FixedEmployeeRegistry fixedEmployeeRegistry) {
+        log.info("Initializing DefaultEmployeeSelfClaimService with maxLoad=3");
+        return new DefaultEmployeeSelfClaimService(departmentTodoPool, fixedEmployeeRegistry, 3);
+    }
+
+    /**
+     * #7: 部门聚合服务 Bean。
+     *
+     * <p>默认使用 LLM 增强版（LlmDepartmentAggregationService），LLM 调用失败时自动降级到规则版。
+     * 如果 MainBrain 不可用，则直接使用规则版（DefaultDepartmentAggregationService）。
+     */
+    @Bean
+    @org.springframework.context.annotation.Primary
+    public com.livingagent.core.autonomy.DepartmentAggregationService departmentAggregationService(
+            EmployeeExecutionReceiptService employeeExecutionReceiptService,
+            InternalReviewService internalReviewService,
+            com.livingagent.core.autonomy.DepartmentTodoPool departmentTodoPool,
+            MainBrain mainBrain,
+            com.livingagent.core.database.repository.DepartmentDeliverableRepository deliverableRepository) {
+        // M-DA: 使用 JPA 持久化版作为 fallback
+        JpaDepartmentAggregationService fallback = new JpaDepartmentAggregationService(
+            employeeExecutionReceiptService, internalReviewService, departmentTodoPool, deliverableRepository);
+
+        if (mainBrain != null) {
+            log.info("Initializing LlmDepartmentAggregationService with JPA fallback");
+            return new LlmDepartmentAggregationService(fallback, mainBrain);
+        } else {
+            log.info("MainBrain not available, using JpaDepartmentAggregationService");
+            return fallback;
+        }
+    }
+
     @Bean(initMethod = "registerAll")
     public DynamicEmployeeTaskConsumerRegistry dynamicEmployeeTaskConsumerRegistry(
             ChannelManager channelManager,
@@ -204,9 +266,11 @@ public class GatewayConfig {
             EmployeeExecutionReceiptService employeeExecutionReceiptService,
             BrainModelResolver brainModelResolver,
             ModelPoolManager modelPoolManager,
-            com.livingagent.core.autonomy.EmployeeTaskExecutor employeeTaskExecutor) {
-        log.info("Initializing DynamicEmployeeTaskConsumerRegistry with ToolBackedEmployeeTaskExecutor");
-        return new DynamicEmployeeTaskConsumerRegistry(channelManager, fixedEmployeeRegistry, employeeExecutionReceiptService, brainModelResolver, modelPoolManager, employeeTaskExecutor);
+            com.livingagent.core.autonomy.EmployeeTaskExecutor employeeTaskExecutor,
+            EmployeeService employeeService,
+            InternalReviewService internalReviewService) {
+        log.info("Initializing DynamicEmployeeTaskConsumerRegistry with ToolBackedEmployeeTaskExecutor, EmployeeService and InternalReviewService");
+        return new DynamicEmployeeTaskConsumerRegistry(channelManager, fixedEmployeeRegistry, employeeExecutionReceiptService, brainModelResolver, modelPoolManager, employeeTaskExecutor, employeeService, internalReviewService);
     }
 
     @Bean
@@ -226,16 +290,16 @@ public class GatewayConfig {
     }
 
     @Bean
-    public ExecutionResultAggregator executionResultAggregator(BrainRegistry brainRegistry) {
+    public ExecutionResultAggregator executionResultAggregator(BrainRegistry brainRegistry, PerformanceStatsService performanceStatsService) {
         log.info("Initializing LlmBasedExecutionResultAggregator");
-        ExecutionReceiptReviewer reviewer = new LlmExecutionReceiptReviewer(brainRegistry);
+        ExecutionReceiptReviewer reviewer = new LlmExecutionReceiptReviewer(brainRegistry, performanceStatsService);
         return new LlmBasedExecutionResultAggregator(brainRegistry, reviewer);
     }
 
     @Bean
-    public ExecutionReceiptReviewer executionReceiptReviewer(BrainRegistry brainRegistry) {
-        log.info("Initializing LlmExecutionReceiptReviewer");
-        return new LlmExecutionReceiptReviewer(brainRegistry);
+    public ExecutionReceiptReviewer executionReceiptReviewer(BrainRegistry brainRegistry, PerformanceStatsService performanceStatsService) {
+        log.info("Initializing LlmExecutionReceiptReviewer with PerformanceStatsService");
+        return new LlmExecutionReceiptReviewer(brainRegistry, performanceStatsService);
     }
 
     @Bean
@@ -253,6 +317,12 @@ public class GatewayConfig {
     }
 
     @Bean
+    public TaskRouteClassifier taskRouteClassifier(BrainRegistry brainRegistry) {
+        log.info("Initializing DefaultTaskRouteClassifier");
+        return new DefaultTaskRouteClassifier(brainRegistry);
+    }
+
+    @Bean
     public ConversationOrchestrator conversationOrchestrator(
             DialogueAnalyzer dialogueAnalyzer,
             MainBrainTaskDirector mainBrainTaskDirector,
@@ -260,10 +330,11 @@ public class GatewayConfig {
             AutonomyTraceService autonomyTraceService,
             RequirementReadinessEvaluator readinessEvaluator,
             MainBrainRequirementClarifier requirementClarifier,
-            FixedEmployeeDispatcher fixedEmployeeDispatcher) {
-        log.info("Initializing ConversationOrchestrator with RequirementReadinessEvaluator and FixedEmployeeDispatcher");
+            FixedEmployeeDispatcher fixedEmployeeDispatcher,
+            TaskRouteClassifier taskRouteClassifier) {
+        log.info("Initializing ConversationOrchestrator with TaskRouteClassifier");
         return new ConversationOrchestrator(dialogueAnalyzer, mainBrainTaskDirector, brainRegistry,
-            autonomyTraceService, readinessEvaluator, requirementClarifier, fixedEmployeeDispatcher);
+            autonomyTraceService, readinessEvaluator, requirementClarifier, fixedEmployeeDispatcher, null, taskRouteClassifier);
     }
 
     @Bean
@@ -401,7 +472,55 @@ public class GatewayConfig {
     public CrossDepartmentCoordinator crossDepartmentCoordinator(
             DepartmentExecutionCoordinator departmentExecutionCoordinator,
             AutonomyTraceService traceService) {
-        log.info("Initializing CrossDepartmentCoordinator");
-        return new CrossDepartmentCoordinator(departmentExecutionCoordinator, traceService);
+        log.info("Initializing DefaultCrossDepartmentCoordinator");
+        return new DefaultCrossDepartmentCoordinator(departmentExecutionCoordinator, traceService);
+    }
+
+    @Bean
+    public com.livingagent.core.diagnosis.impl.StartupDependencyChecker startupDependencyChecker(
+            com.livingagent.core.diagnosis.HealthMonitor healthMonitor,
+            Optional<com.livingagent.core.model.ModelClient> modelClient) {
+        log.info("Initializing StartupDependencyChecker with P20-A process monitor");
+        return modelClient
+            .map(mc -> new com.livingagent.core.diagnosis.impl.StartupDependencyChecker(healthMonitor, mc))
+            .orElseGet(() -> new com.livingagent.core.diagnosis.impl.StartupDependencyChecker(healthMonitor));
+    }
+
+    @Bean
+    public com.livingagent.core.nativelib.NativeLibraryHealthCheck nativeLibraryHealthCheck(
+            com.livingagent.core.nativelib.NativePerformanceMonitor performanceMonitor,
+            com.livingagent.core.diagnosis.HealthMonitor healthMonitor) {
+        com.livingagent.core.nativelib.NativeLibraryHealthCheck check =
+            new com.livingagent.core.nativelib.NativeLibraryHealthCheck(performanceMonitor);
+        healthMonitor.registerCheck("native_library", check);
+        log.info("P19-C: Registered NativeLibraryHealthCheck with HealthMonitor");
+        return check;
+    }
+
+    @Bean
+    public com.livingagent.gateway.websocket.ConnectionHealthCheck connectionHealthCheck(
+            com.livingagent.gateway.websocket.InMemoryConnectionRegistry connectionRegistry,
+            com.livingagent.core.diagnosis.HealthMonitor healthMonitor,
+            org.springframework.context.ApplicationEventPublisher eventPublisher) {
+        com.livingagent.gateway.websocket.ConnectionHealthCheck check =
+            new com.livingagent.gateway.websocket.ConnectionHealthCheck(connectionRegistry, eventPublisher);
+        healthMonitor.registerCheck("websocket_connections", check);
+        log.info("P24-C: Registered ConnectionHealthCheck with HealthMonitor");
+        return check;
+    }
+
+    @Bean
+    public com.livingagent.core.diagnosis.VitalSignsService vitalSignsService(
+            com.livingagent.core.diagnosis.HealthMonitor healthMonitor,
+            com.livingagent.gateway.websocket.InMemoryConnectionRegistry connectionRegistry,
+            org.springframework.context.ApplicationEventPublisher eventPublisher,
+            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
+        return new com.livingagent.core.diagnosis.VitalSignsService(
+            healthMonitor,
+            connectionRegistry::getActiveConnectionCount,
+            com.livingagent.core.diagnosis.AppModeUtil::isDegraded,
+            eventPublisher,
+            crossLoopEventBus
+        );
     }
 }

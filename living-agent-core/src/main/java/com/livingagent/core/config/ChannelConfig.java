@@ -7,7 +7,7 @@ import com.livingagent.core.neuron.NeuronRegistry;
 import com.livingagent.core.neuron.NeuronState;
 import com.livingagent.core.neuron.impl.NeuronRegistryImpl;
 import com.livingagent.core.neuron.impl.Qwen3Neuron;
-import com.livingagent.core.neuron.impl.BitNetNeuron;
+import com.livingagent.core.neuron.impl.ToolNeuron;
 import com.livingagent.core.neuron.impl.NeuronCoordinator;
 import com.livingagent.core.neuron.chat.ChatNeuronRouter;
 import com.livingagent.core.neuron.chat.ChatNeuronConfig;
@@ -63,9 +63,9 @@ public class ChannelConfig {
     }
 
     @Bean
-    public BitNetNeuron bitNetNeuron(ModelManager modelManager, NeuronRegistry neuronRegistry) {
-        log.info("Registering BitNetNeuron (Layer 3 - 工具神经元)");
-        BitNetNeuron neuron = new BitNetNeuron("neuron://tool/bitnet/001", modelManager);
+    public ToolNeuron toolNeuron(ModelManager modelManager, NeuronRegistry neuronRegistry) {
+        log.info("Registering ToolNeuron (Layer 3 - 工具神经元, B-1-12)");
+        ToolNeuron neuron = new ToolNeuron("neuron://tool/qwen35/001", modelManager);
         neuronRegistry.register(neuron);
         return neuron;
     }
@@ -91,14 +91,14 @@ public class ChannelConfig {
                 log.info("Post-ready: Started Qwen3Neuron with queue capacity=100");
             }
         });
-        neuronRegistry.get("neuron://tool/bitnet/001").ifPresent(n -> {
+        neuronRegistry.get("neuron://tool/qwen35/001").ifPresent(n -> {
             if (n.getState() != NeuronState.RUNNING) {
                 com.livingagent.core.channel.ChannelMessageQueue queue =
                     new com.livingagent.core.channel.ChannelMessageQueue(n.getId(), 100);
                 com.livingagent.core.neuron.NeuronContext ctx2 =
                     new com.livingagent.core.neuron.NeuronContext(n.getId(), null, null, queue, null, channelManager);
                 n.start(ctx2);
-                log.info("Post-ready: Started BitNetNeuron with queue capacity=100");
+                log.info("Post-ready: Started ToolNeuron with queue capacity=100");
             }
         });
     }

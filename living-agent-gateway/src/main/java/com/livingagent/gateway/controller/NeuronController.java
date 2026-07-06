@@ -3,6 +3,7 @@ package com.livingagent.gateway.controller;
 import com.livingagent.core.model.pool.BrainModelResolver;
 import com.livingagent.core.model.pool.ResolvedBrainModel;
 import com.livingagent.core.security.AccessGateService;
+import com.livingagent.gateway.controller.common.ApiResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -42,7 +43,7 @@ public class NeuronController {
     public ResponseEntity<ApiResponse<List<NeuronInfo>>> listNeurons(
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.debug("Listing neurons");
 
@@ -64,7 +65,7 @@ public class NeuronController {
                 Instant.now()
         ));
 
-        return ResponseEntity.ok(ApiResponse.success(neurons));
+        return ResponseEntity.ok(ApiResponse.ok(neurons));
     }
 
     @GetMapping("/{id}")
@@ -72,7 +73,7 @@ public class NeuronController {
             @PathVariable String id,
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.debug("Getting neuron: {}", id);
 
@@ -87,7 +88,7 @@ public class NeuronController {
                 Instant.now()
         );
 
-        return ResponseEntity.ok(ApiResponse.success(detail));
+        return ResponseEntity.ok(ApiResponse.ok(detail));
     }
 
     @GetMapping("/{id}/status")
@@ -95,7 +96,7 @@ public class NeuronController {
             @PathVariable String id,
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.debug("Getting neuron status: {}", id);
 
@@ -107,7 +108,7 @@ public class NeuronController {
                 Instant.now()
         );
 
-        return ResponseEntity.ok(ApiResponse.success(status));
+        return ResponseEntity.ok(ApiResponse.ok(status));
     }
 
     @GetMapping("/{id}/metrics")
@@ -115,7 +116,7 @@ public class NeuronController {
             @PathVariable String id,
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.debug("Getting neuron metrics: {}", id);
 
@@ -128,22 +129,7 @@ public class NeuronController {
                 Instant.now()
         );
 
-        return ResponseEntity.ok(ApiResponse.success(metrics));
-    }
-
-    public record ApiResponse<T>(
-            boolean success,
-            T data,
-            String error,
-            String errorDescription
-    ) {
-        public static <T> ApiResponse<T> success(T data) {
-            return new ApiResponse<>(true, data, null, null);
-        }
-
-        public static <T> ApiResponse<T> error(String error, String description) {
-            return new ApiResponse<>(false, null, error, description);
-        }
+        return ResponseEntity.ok(ApiResponse.ok(metrics));
     }
 
     public record NeuronInfo(

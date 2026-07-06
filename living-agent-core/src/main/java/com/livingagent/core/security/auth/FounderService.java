@@ -57,7 +57,7 @@ public class FounderService {
     public void refreshFromDatabase() {
         long now = Instant.now().toEpochMilli();
         if (now - lastRefreshTime < CACHE_TTL_MS && cachedFounderStatus != null) {
-            log.debug("Founder status from cache: {}", cachedFounderStatus);
+            // 缓存命中时不打印日志，避免频繁日志输出
             return;
         }
 
@@ -68,10 +68,9 @@ public class FounderService {
         cachedFounderStatus = newStatus;
         lastRefreshTime = now;
 
+        // 只在状态变更时打印INFO日志，减少噪音
         if (statusChanged) {
             log.info("Founder status changed: {}", newStatus);
-        } else {
-            log.debug("Founder status refreshed from database: {}", newStatus);
         }
     }
 

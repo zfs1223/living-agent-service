@@ -2,6 +2,7 @@ package com.livingagent.gateway.controller;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.livingagent.core.security.AccessGateService;
+import com.livingagent.gateway.controller.common.ApiResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -29,7 +30,7 @@ public class PlazaController {
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.debug("Getting plaza posts, limit: {}, tenant_id: {}", limit, tenant_id);
 
@@ -46,7 +47,7 @@ public class PlazaController {
                 Collections.emptyList()
         ));
 
-        return ResponseEntity.ok(ApiResponse.success(posts));
+        return ResponseEntity.ok(ApiResponse.ok(posts));
     }
 
     @GetMapping("/stats")
@@ -55,7 +56,7 @@ public class PlazaController {
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.debug("Getting plaza stats, tenant_id: {}", tenant_id);
 
@@ -66,7 +67,7 @@ public class PlazaController {
                 Collections.emptyList()
         );
 
-        return ResponseEntity.ok(ApiResponse.success(stats));
+        return ResponseEntity.ok(ApiResponse.ok(stats));
     }
 
     @PostMapping("/posts")
@@ -76,7 +77,7 @@ public class PlazaController {
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.info("Creating plaza post: {}", request.content());
 
@@ -92,7 +93,7 @@ public class PlazaController {
                 request.tags() != null ? request.tags() : Collections.emptyList()
         );
 
-        return ResponseEntity.ok(ApiResponse.success(post));
+        return ResponseEntity.ok(ApiResponse.ok(post));
     }
 
     @PostMapping("/posts/{postId}/like")
@@ -102,25 +103,10 @@ public class PlazaController {
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.info("Liking post: {}", postId);
-        return ResponseEntity.ok(ApiResponse.success(null));
-    }
-
-    public record ApiResponse<T>(
-            boolean success,
-            T data,
-            String error,
-            String errorDescription
-    ) {
-        public static <T> ApiResponse<T> success(T data) {
-            return new ApiResponse<>(true, data, null, null);
-        }
-
-        public static <T> ApiResponse<T> error(String error, String description) {
-            return new ApiResponse<>(false, null, error, description);
-        }
+        return ResponseEntity.ok(ApiResponse.ok(null));
     }
 
     public record PostInfo(

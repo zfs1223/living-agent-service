@@ -21,6 +21,9 @@ public class ClaudeCliProperties {
     private int maxConcurrentSessions = 3;
     private int sessionTimeoutMinutes = 30;
     private int jobTimeoutMinutes = 60;
+    private String mcpConfigPath = "classpath:claude/mcp.json";
+    private boolean mcpEnabled = true;
+    private Codegraph codegraph = new Codegraph();
     private Proxy proxy = new Proxy();
 
     public boolean isEnabled() { return enabled; }
@@ -45,8 +48,41 @@ public class ClaudeCliProperties {
     public void setSessionTimeoutMinutes(int sessionTimeoutMinutes) { this.sessionTimeoutMinutes = sessionTimeoutMinutes; }
     public int getJobTimeoutMinutes() { return jobTimeoutMinutes; }
     public void setJobTimeoutMinutes(int jobTimeoutMinutes) { this.jobTimeoutMinutes = jobTimeoutMinutes; }
+    public String getMcpConfigPath() { return mcpConfigPath; }
+    public void setMcpConfigPath(String mcpConfigPath) { this.mcpConfigPath = mcpConfigPath; }
+    public boolean isMcpEnabled() { return mcpEnabled; }
+    public void setMcpEnabled(boolean mcpEnabled) { this.mcpEnabled = mcpEnabled; }
+    public Codegraph getCodegraph() { return codegraph; }
+    public void setCodegraph(Codegraph codegraph) { this.codegraph = codegraph; }
     public Proxy getProxy() { return proxy; }
     public void setProxy(Proxy proxy) { this.proxy = proxy; }
+
+    /**
+     * CodeGraph 语义代码索引配置
+     * CodeGraph 为 Claude CLI 提供符号关系图谱、影响分析和全文搜索能力
+     * 索引建在客户端本地工作目录，不修改服务器端代码库镜像
+     */
+    public static class Codegraph {
+        private boolean enabled = true;
+        private String command = "codegraph";
+        private int watchDebounceMs = 5000;
+        private boolean autoSync = true;
+        private List<String> excludePatterns = List.of(
+            ".env", "credentials", "secret", "*.key", "*.pem", "*.p12",
+            "node_modules", ".git", "target", "build", "dist"
+        );
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public String getCommand() { return command; }
+        public void setCommand(String command) { this.command = command; }
+        public int getWatchDebounceMs() { return watchDebounceMs; }
+        public void setWatchDebounceMs(int watchDebounceMs) { this.watchDebounceMs = watchDebounceMs; }
+        public boolean isAutoSync() { return autoSync; }
+        public void setAutoSync(boolean autoSync) { this.autoSync = autoSync; }
+        public List<String> getExcludePatterns() { return excludePatterns; }
+        public void setExcludePatterns(List<String> excludePatterns) { this.excludePatterns = excludePatterns; }
+    }
 
     public static class Proxy {
         private boolean enabled = true;

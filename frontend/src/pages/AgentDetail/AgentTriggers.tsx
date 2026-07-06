@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
-import { getToken } from '../../stores';
 import { triggerApi, fileApi } from '../../services/api';
+import { request } from '../../services/apiBase';
 
 /** Convert rich schedule JSON to cron expression */
 export function schedToCron(sched: { freq: string; interval: number; time: string; weekdays?: number[] }): string {
@@ -43,11 +43,12 @@ export default function AgentTriggers({ agentId, activityLogs }: AgentTriggersPr
     const { data: reflectionSessions = [] } = useQuery({
         queryKey: ['reflection-sessions', agentId],
         queryFn: async () => {
-            const tkn = getToken();
-            const res = await fetch(`/api/agents/${encodeURIComponent(agentId!)}/sessions?scope=all`, { headers: { Authorization: `Bearer ${tkn}` } });
-            if (!res.ok) return [];
-            const all = await res.json();
-            return all.filter((s: any) => s.source_channel === 'trigger');
+            try {
+                const all = await request<any[]>(`/agents/${encodeURIComponent(agentId!)}/sessions?scope=all`);
+                return (all || []).filter((s: any) => s.source_channel === 'trigger');
+            } catch {
+                return [];
+            }
         },
         enabled: !!agentId,
         refetchInterval: 10000,
@@ -369,9 +370,8 @@ export default function AgentTriggers({ agentId, activityLogs }: AgentTriggersPr
                                             setExpandedReflection(session.id);
                                             if (!reflectionMessages[session.id]) {
                                                 try {
-                                                    const tkn = getToken();
-                                                    const res = await fetch(`/api/agents/${encodeURIComponent(agentId!)}/sessions/${session.id}/messages`, { headers: { Authorization: `Bearer ${tkn}` } });
-                                                    if (res.ok) { const data = await res.json(); setReflectionMessages(prev => ({ ...prev, [session.id]: data })); }
+                                                    const data = await request<any[]>(`/agents/${encodeURIComponent(agentId!)}/sessions/${session.id}/messages`);
+                                                    setReflectionMessages(prev => ({ ...prev, [session.id]: data || [] }));
                                                 } catch { /* ignore */ }
                                             }
                                         }} style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', transition: 'background 0.15s' }}

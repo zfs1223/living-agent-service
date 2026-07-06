@@ -8,8 +8,7 @@ import com.livingagent.core.skill.SkillRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.List;
-import java.util.StringJoiner;
+import java.util.*;
 
 public class DynamicPromptBuilder {
 
@@ -80,8 +79,27 @@ public class DynamicPromptBuilder {
         }
 
         try {
+            // 搜索部门相关知识
             List<KnowledgeEntry> results = knowledgeBase.search(query);
-            if (results == null || results.isEmpty()) {
+
+            // 额外搜索架构知识（让大脑能"看到"自己的代码结构）
+            List<KnowledgeEntry> archResults = knowledgeBase.search("arch");
+
+            // 合并去重（按 entryId 去重）
+            Set<String> seen = new HashSet<>();
+            List<KnowledgeEntry> merged = new ArrayList<>();
+            for (KnowledgeEntry entry : results) {
+                if (entry.getEntryId() != null && seen.add(entry.getEntryId())) {
+                    merged.add(entry);
+                }
+            }
+            for (KnowledgeEntry entry : archResults) {
+                if (entry.getEntryId() != null && seen.add(entry.getEntryId())) {
+                    merged.add(entry);
+                }
+            }
+
+            if (merged.isEmpty()) {
                 this.knowledgeSection = "";
                 return this;
             }
@@ -89,7 +107,7 @@ public class DynamicPromptBuilder {
             int count = 0;
             StringBuilder sb = new StringBuilder();
             sb.append("## 相关知识\n\n");
-            for (KnowledgeEntry entry : results) {
+            for (KnowledgeEntry entry : merged) {
                 if (count++ >= limit) break;
                 sb.append("### ").append(entry.getKey()).append("\n");
                 Object content = entry.getContent();

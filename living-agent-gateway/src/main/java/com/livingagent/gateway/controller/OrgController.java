@@ -3,6 +3,7 @@ package com.livingagent.gateway.controller;
 import com.livingagent.core.employee.Employee;
 import com.livingagent.core.employee.EmployeeService;
 import com.livingagent.core.security.AccessGateService;
+import com.livingagent.gateway.controller.common.ApiResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -32,7 +33,7 @@ public class OrgController {
         log.debug("Getting users for tenant: {}", tenant_id);
 
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
 
         List<UserInfo> users = new ArrayList<>();
@@ -54,7 +55,7 @@ public class OrgController {
             }
         }
 
-        return ResponseEntity.ok(ApiResponse.success(users));
+        return ResponseEntity.ok(ApiResponse.ok(users));
     }
 
     @GetMapping("/departments")
@@ -65,7 +66,7 @@ public class OrgController {
         log.debug("Getting departments for tenant: {}", tenant_id);
 
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
 
         List<DepartmentInfo> departments = Arrays.asList(
@@ -80,22 +81,7 @@ public class OrgController {
                 new DepartmentInfo("core", "核心层", 2, 1)
         );
 
-        return ResponseEntity.ok(ApiResponse.success(departments));
-    }
-
-    public record ApiResponse<T>(
-            boolean success,
-            T data,
-            String error,
-            String errorDescription
-    ) {
-        public static <T> ApiResponse<T> success(T data) {
-            return new ApiResponse<>(true, data, null, null);
-        }
-
-        public static <T> ApiResponse<T> error(String error, String description) {
-            return new ApiResponse<>(false, null, error, description);
-        }
+        return ResponseEntity.ok(ApiResponse.ok(departments));
     }
 
     public record UserInfo(

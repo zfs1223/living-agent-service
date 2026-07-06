@@ -3,13 +3,18 @@ package com.livingagent.core.evolution.circuitbreaker;
 import com.livingagent.core.evolution.memory.EvolutionMemoryGraph;
 import com.livingagent.core.evolution.signal.EvolutionSignal;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 
 public class EvolutionCircuitBreaker {
-    
+
+    private static final Logger log = LoggerFactory.getLogger(EvolutionCircuitBreaker.class);
+
     private final EvolutionMemoryGraph memoryGraph;
     private final Map<String, CircuitState> brainCircuits;
     
@@ -39,6 +44,14 @@ public class EvolutionCircuitBreaker {
             state.setTripReason(CircuitTripReason.FAILURE_STREAK);
             state.setTrippedAt(Instant.now());
             state.setForceStrategyChange(true);
+        }
+
+        // 检查空循环（已定义常量但未使用）
+        int emptyCycleCount = state.getEmptyCycleCount();
+        if (emptyCycleCount >= EMPTY_CYCLE_THRESHOLD) {
+            log.warn("进化空循环检测: {} 次空循环，阈值={}", emptyCycleCount, EMPTY_CYCLE_THRESHOLD);
+            state.setTripReason(CircuitTripReason.EMPTY_CYCLE);
+            state.setTrippedAt(Instant.now());
         }
         
         if (state.isTripped()) {

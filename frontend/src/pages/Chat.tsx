@@ -4,8 +4,9 @@ import { useTranslation } from 'react-i18next';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import MarkdownRenderer from '../components/MarkdownRenderer';
 import AgentBayLivePanel, { LivePreviewState } from '../components/AgentBayLivePanel';
-import { agentApi, enterpriseApi, authApi } from '../services/api';
+import { agentApi, enterpriseApi, authApi, wsApi, uploadFileWithProgress } from '../services/api';
 import { useAuthStore } from '../stores';
+import { request } from '../services/apiBase';
 import { useToastStore } from '../stores/toastStore';
 import { usePolling } from '../hooks/usePolling';
 
@@ -168,11 +169,8 @@ export default function Chat() {
     // Load chat history on mount
     useEffect(() => {
         if (!id || !token) return;
-        fetch(`/api/chat/${id}/history`, {
-            headers: { Authorization: `Bearer ${token}` },
-        })
-            .then(r => r.json())
-            .then((history: any[]) => {
+        request<any[]>(`/chat/${id}/history`)
+            .then((history) => {
                 if (history.length > 0) setMessages(history.map(h => {
                     const msg = parseMessage({ role: h.role, content: h.content, fileName: h.fileName, toolCalls: h.toolCalls, thinking: h.thinking, imageUrl: h.imageUrl });
                     msg.timestamp = h.created_at || undefined;
@@ -189,31 +187,26 @@ export default function Chat() {
 
         const connect = () => {
             if (cancelled) return;
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             // 入口优先级: id > brain > 身份兜底 (严格按此顺序)
             let wsUrl: string;
 
             if (id) {
                 // 优先级 1: agent 硬路由 -> /ws/agent
                 // 固定员工 (origin=fixed) 降级到 /ws/public
-                if (isFixedEmployee) {
-                    wsUrl = `${protocol}//${window.location.host}/ws/public?token=${token}`;
-                } else {
-                    wsUrl = `${protocol}//${window.location.host}/ws/agent?token=${token}&agentId=${encodeURIComponent(id)}`;
-                }
+                wsUrl = isFixedEmployee ? wsApi.publicUrl(token) : wsApi.agentUrl(id, token);
             } else if (brainDept) {
                 // 优先级 2: department/brain 硬路由 -> /ws/dept/{brain}
-                wsUrl = `${protocol}//${window.location.host}/ws/dept/${encodeURIComponent(brainDept)}?token=${token}`;
+                wsUrl = wsApi.deptUrl(brainDept, token);
             } else {
                 // 优先级 3: 身份软路由 (仅无参数 /chat 时触发)
                 // 使用部门 code (不是数据库 ID) 连接部门通道
                 const deptCode = user?.department_code;
                 if (user?.identity === 'INTERNAL_ENTERPRISE' || user?.access_level === 'FULL') {
-                    wsUrl = `${protocol}//${window.location.host}/ws/enterprise?token=${token}`;
+                    wsUrl = wsApi.chairmanUrl(token);
                 } else if (deptCode) {
-                    wsUrl = `${protocol}//${window.location.host}/ws/dept/${encodeURIComponent(deptCode)}?token=${token}`;
+                    wsUrl = wsApi.deptUrl(deptCode, token);
                 } else {
-                    wsUrl = `${protocol}//${window.location.host}/ws/public?token=${token}`;
+                    wsUrl = wsApi.publicUrl(token);
                 }
             }
             const ws = new WebSocket(wsUrl);
@@ -380,26 +373,11 @@ export default function Chat() {
 
         setUploading(true);
         try {
-            const formData = new FormData();
-            formData.append('file', file);
-            if (id) formData.append('agent_id', id);
-
-            const resp = await fetch('/api/chat/upload', {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${token}` },
-                body: formData,
-            });
-
-            if (!resp.ok) {
-                const err = await resp.json();
-                useToastStore.getState().showToast(err.detail || t('agent.upload.failed'), 'error');
-                return;
-            }
-
-            const data = await resp.json();
+            const { promise } = uploadFileWithProgress('/chat/upload', file, undefined, id ? { agent_id: id } : undefined);
+            const data = await promise;
             setAttachedFile({ name: data.filename, text: data.extracted_text, path: data.workspace_path, imageUrl: data.image_data_url || undefined });
-        } catch (err) {
-            useToastStore.getState().showToast(t('agent.upload.failed') + ': ' + (err as Error).message, 'error');
+        } catch (err: any) {
+            useToastStore.getState().showToast(err.message || t('agent.upload.failed'), 'error');
         } finally {
             setUploading(false);
             if (fileInputRef.current) fileInputRef.current.value = '';

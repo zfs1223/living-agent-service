@@ -5,6 +5,7 @@ import com.livingagent.core.database.entity.DagTaskEntity.DagTaskStatus;
 import com.livingagent.core.database.repository.DagTaskRepository;
 import com.livingagent.core.planner.dag.DagTask;
 import com.livingagent.core.planner.dag.TaskDagService;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Primary;
@@ -33,10 +34,19 @@ public class JpaTaskDagService implements TaskDagService {
 
     public JpaTaskDagService(DagTaskRepository repository) {
         this.repository = repository;
-        // 从数据库初始化 ID 计数器
-        Integer maxId = repository.findMaxTaskId();
-        this.idCounter = new AtomicInteger(maxId != null ? maxId : 0);
-        log.info("Initialized JpaTaskDagService with max taskId={}", idCounter.get());
+        this.idCounter = new AtomicInteger(0);
+    }
+
+    @PostConstruct
+    public void init() {
+        try {
+            Integer maxId = repository.findMaxTaskId();
+            this.idCounter.set(maxId != null ? maxId : 0);
+            log.info("Initialized JpaTaskDagService with max taskId={}", idCounter.get());
+        } catch (Exception e) {
+            log.warn("Failed to initialize taskId counter during startup (dag_tasks table may not exist yet): {}", e.getMessage());
+            this.idCounter.set(0);
+        }
     }
 
     @Override

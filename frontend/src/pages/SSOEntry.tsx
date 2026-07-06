@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../stores';
-import { fetchJson } from '../services/api';
+import { fetchJson, tenantApi } from '../services/api';
 
 export default function SSOEntry() {
     const [searchParams] = useSearchParams();
@@ -9,6 +9,8 @@ export default function SSOEntry() {
     const setAuth = useAuthStore((s) => s.setAuth);
     const sid = searchParams.get('sid');
     const complete = searchParams.get('complete') === '1';
+    const inviteCode = searchParams.get('invite_code');  // 邀请码参数
+    const companyName = searchParams.get('company');  // 公司名称参数
     const [error, setError] = useState('');
     const [providers, setProviders] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
@@ -71,6 +73,26 @@ export default function SSOEntry() {
                 const res = await fetchJson<any>(`/sso/session/${sid}/status`);
                 if (res?.access_token && res?.user) {
                     setAuth(res.user, res.access_token);
+
+                    // 如果有 invite_code,自动加入公司
+                    if (inviteCode && !res.user.tenant_id) {
+                        try {
+                            const joinResult = await tenantApi.join(inviteCode);
+                            if (joinResult?.tenantId) {
+                                // 更新用户的 tenantId
+                                const updatedUser = { ...res.user, tenant_id: joinResult.tenantId };
+                                setAuth(updatedUser, res.access_token);
+                                navigate('/');
+                                return;
+                            }
+                        } catch (joinError: any) {
+                            setError(`加入公司失败: ${joinError.message || '未知错误'}`);
+                            setLoading(false);
+                            return;
+                        }
+                    }
+
+                    // 如果没有 tenantId,跳转到 setup-company
                     if (res.user && !res.user.tenant_id) {
                         navigate('/setup-company');
                     } else {

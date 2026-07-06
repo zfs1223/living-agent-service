@@ -16,6 +16,8 @@ import com.livingagent.core.database.entity.DepartmentChatMessageEntity;
 import com.livingagent.core.database.entity.DepartmentConversationEntity;
 import com.livingagent.core.database.repository.DepartmentChatMessageRepository;
 import com.livingagent.core.database.repository.DepartmentConversationRepository;
+import com.livingagent.core.database.repository.DepartmentExecutionResultRepository;
+import com.livingagent.core.database.entity.DepartmentExecutionResultEntity;
 import com.livingagent.core.database.entity.TaskEntity;
 import com.livingagent.core.database.repository.TaskRepository;
 import com.livingagent.core.approval.ApprovalInstance;
@@ -87,6 +89,14 @@ public class DepartmentChatService {
     private final EmployeeCompensationService compensationService;
     private final CrossDepartmentCoordinator crossDepartmentCoordinator;
 
+    // #5/#6: DCS 接入聚合服务 + 自行领取服务
+    private final DepartmentAggregationService departmentAggregationService;
+    private final DepartmentTodoPool departmentTodoPool;
+    private final EmployeeSelfClaimService employeeSelfClaimService;
+
+    /** #5: executionId -> DepartmentAggregationService.AggregationResult 缓存，供最终响应使用 */
+    private final Map<String, com.livingagent.core.autonomy.AggregationResult> departmentAggregationResultCache = new ConcurrentHashMap<>();
+
     private final Map<String, Deque<ChatHistoryEntry>> chatHistory = new ConcurrentHashMap<>();
     private final Map<String, Set<String>> onlineUsers = new ConcurrentHashMap<>();
     private final Map<String, Instant> lastActivity = new ConcurrentHashMap<>();
@@ -97,6 +107,9 @@ public class DepartmentChatService {
 
     /** executionId -> DepartmentExecutionResult 缓存，供监听路径在 executionResult=null 时回查 */
     private final Map<String, DepartmentExecutionResult> executionResultCache = new ConcurrentHashMap<>();
+
+    /** B-0-1: DB 持久化回写 */
+    private final DepartmentExecutionResultRepository executionResultRepository;
 
     /** P2-4: sessionId -> 活跃的 MainBrainTaskPlan，用于需求冻结/防漂移检查 */
     private final Map<String, MainBrainTaskPlan> activeSessionPlans = new ConcurrentHashMap<>();
@@ -112,6 +125,8 @@ public class DepartmentChatService {
     private static final int MAX_DB_HISTORY_PER_DEPARTMENT = 500;
     private static final long RECEIPT_WAIT_TIMEOUT_MS = 60_000;
     private static final long RECEIPT_WAIT_POLL_MS = 500;
+    /** 等待过程中每隔 15 秒推送进度提示 */
+    private static final long WAIT_PROGRESS_INTERVAL_MS = 15_000;
     private static final Path ARTIFACT_ROOT = Path.of(
         System.getProperty("livingagent.artifact.dir", "data/artifacts"));
 
@@ -145,7 +160,12 @@ public class DepartmentChatService {
             ConversationService conversationService,
             ApprovalService approvalService,
             EmployeeCompensationService compensationService,
-            CrossDepartmentCoordinator crossDepartmentCoordinator) {
+            CrossDepartmentCoordinator crossDepartmentCoordinator,
+            // #5/#6: 新增聚合服务 + 自行领取服务
+            DepartmentAggregationService departmentAggregationService,
+            DepartmentTodoPool departmentTodoPool,
+            EmployeeSelfClaimService employeeSelfClaimService,
+            DepartmentExecutionResultRepository executionResultRepository) {
         this.authService = authService;
         this.brainRegistry = brainRegistry;
         this.channelManager = channelManager;
@@ -177,6 +197,11 @@ public class DepartmentChatService {
         this.approvalService = approvalService;
         this.compensationService = compensationService;
         this.crossDepartmentCoordinator = crossDepartmentCoordinator;
+        // #5/#6: 新增服务赋值
+        this.departmentAggregationService = departmentAggregationService;
+        this.departmentTodoPool = departmentTodoPool;
+        this.employeeSelfClaimService = employeeSelfClaimService;
+        this.executionResultRepository = executionResultRepository;
 
         employeeExecutionReceiptService.addReceiptListener(this::onReceiptRecorded);
     }
@@ -188,6 +213,10 @@ public class DepartmentChatService {
         // 从缓存中回查以获取 sessionId 和 dispatchedAssignments
         if (executionResult == null) {
             executionResult = executionResultCache.get(receipt.executionId());
+            // B-0-1: 内存未命中时从 DB 回查
+            if (executionResult == null) {
+                executionResult = loadExecutionResultFromDb(receipt.executionId());
+            }
         }
         if (executionResult == null) {
             log.debug("No cached executionResult for executionId={}, skipping receipt listener", receipt.executionId());
@@ -200,17 +229,11 @@ public class DepartmentChatService {
             int completed = (int) allReceipts.stream().filter(r -> r.status() == ReceiptStatus.COMPLETED).count();
             int failed = (int) allReceipts.stream().filter(r -> r.status() == ReceiptStatus.FAILED).count();
 
-            String sessionId = null;
-            if (executionResult.metadata() != null) {
-                Object sessionIdObj = executionResult.metadata().get("sessionId");
-                if (sessionIdObj != null) {
-                    sessionId = String.valueOf(sessionIdObj);
-                }
-                if (sessionId == null || sessionId.isBlank()) {
-                    Object convIdObj = executionResult.metadata().get("conversationId");
-                    if (convIdObj != null) {
-                        sessionId = conversationToSession.get(String.valueOf(convIdObj));
-                    }
+            String sessionId = executionResult.resolveSessionId();
+            if ((sessionId == null || sessionId.isBlank()) && executionResult.metadata() != null) {
+                Object convIdObj = executionResult.metadata().get("conversationId");
+                if (convIdObj != null) {
+                    sessionId = conversationToSession.get(String.valueOf(convIdObj));
                 }
             }
 
@@ -258,7 +281,49 @@ public class DepartmentChatService {
             }
             if (complete) {
                 log.info("All receipts collected for executionId={}, triggering async final response", executionResult.executionId());
-                triggerAsyncFinalResponse(executionResult.executionId(), sessionId);
+
+                // #5: 部门级聚合服务调用
+                if (departmentAggregationService != null) {
+                    try {
+                        String planId = executionResult.executionId();
+                        String department = executionResult.department();
+                        String goal = executionResult.metadata() != null
+                            ? String.valueOf(executionResult.metadata().getOrDefault("goal", ""))
+                            : "";
+
+                        traceService.recordEvent(AutonomyTraceEvent.of(
+                            planId, "department_aggregation_started", "DepartmentChatService",
+                            "Starting department-level aggregation",
+                            Map.of("department", department, "planId", planId)
+                        ));
+
+                        AggregationResult aggregationResult = departmentAggregationService.aggregate(
+                            department, planId, goal);
+
+                        if (aggregationResult.success()) {
+                            log.info("#5: Department aggregation completed: department={}, quality={}",
+                                department, aggregationResult.deliverable() != null
+                                    ? aggregationResult.deliverable().overallQualityScore() : "N/A");
+                            // 缓存聚合结果供最终响应使用
+                            departmentAggregationResultCache.put(planId, aggregationResult);
+                        } else {
+                            log.warn("#5: Department aggregation incomplete: department={}, issues={}",
+                                department, aggregationResult.message());
+                        }
+
+                        traceService.recordEvent(AutonomyTraceEvent.of(
+                            planId, "department_aggregation_completed", "DepartmentChatService",
+                            aggregationResult.success() ? "Aggregation successful" : "Aggregation incomplete",
+                            Map.of("department", department, "success", aggregationResult.success(),
+                                "qualityScore", aggregationResult.deliverable() != null
+                                    ? aggregationResult.deliverable().overallQualityScore() : 0.0)
+                        ));
+                    } catch (Exception e) {
+                        log.warn("#5: Department aggregation failed, falling back to receipt aggregation: {}", e.getMessage());
+                    }
+                }
+
+                triggerFinalResponse(executionResult.executionId(), sessionId);
             }
         } catch (Exception e) {
             log.warn("Failed to push execution progress for receipt: {}", e.getMessage());
@@ -400,6 +465,40 @@ public class DepartmentChatService {
             }
         }
 
+        // M-NC: 检查当前会话是否有待处理的 NEEDS_CLARIFICATION 任务
+        List<TaskEntity> pendingClarifications = findPendingClarifications(conversationId);
+        if (!pendingClarifications.isEmpty()) {
+            TaskEntity clarificationTask = pendingClarifications.get(0);
+            int currentRound = clarificationTask.getClarificationRound() != null ? clarificationTask.getClarificationRound() : 0;
+
+            if (currentRound >= 3) {
+                clarificationTask.setStatus(TaskStatus.BLOCKED.getDbValue());
+                clarificationTask.setReadinessStatus(TaskStatus.BLOCKED.getDbValue());
+                clarificationTask.setClarificationAnswer(message);
+                clarificationTask.setUpdatedAt(Instant.now());
+                taskRepository.save(clarificationTask);
+
+                String escalationMsg = "该任务已多次澄清仍未就绪，建议转交人工处理。";
+                saveMessage(department, "brain_" + department, resolvedBrain, escalationMsg, "assistant",
+                    conversationId, clarificationTask.getTaskKey(), clarificationTask.getExecutionId());
+                pushExecutionEventSafe(sessionId, clarificationTask.getExecutionId(), "clarification_escalated", Map.of(
+                    "requestId", requestId, "rounds", String.valueOf(currentRound), "message", escalationMsg
+                ));
+                return CompletableFuture.completedFuture(
+                    DepartmentChatResult.success(requestId, department, resolvedBrain, escalationMsg, null, null, null, null, null));
+            }
+
+            clarificationTask.setClarificationAnswer(message);
+            clarificationTask.setClarificationRound(currentRound + 1);
+            clarificationTask.setUpdatedAt(Instant.now());
+            taskRepository.save(clarificationTask);
+
+            String enhancedMessage = buildClarificationContextMessage(clarificationTask, message);
+            return processWithClarificationContext(requestId, department, resolvedBrain, brain,
+                enhancedMessage, sessionId, userId, userName, clientConversationId,
+                conversationId, clarificationTask);
+        }
+
         // P2-4: 需求冻结检查 — 如果当前 session 有活跃的执行中计划，拒绝重新规划
         if (sessionId != null) {
             MainBrainTaskPlan activePlan = activeSessionPlans.get(sessionId);
@@ -497,26 +596,9 @@ public class DepartmentChatService {
                         sessionId, mainBrainTaskPlan.planId(), mainBrainTaskPlan.requirementStatus());
                 }
 
-                // P0-6 增强：检查 LLM 返回的 requirementStatus 是否需要澄清
-                if (mainBrainTaskPlan != null && mainBrainTaskPlan.needsClarification()) {
-                    String clarificationMessage = mainBrainTaskPlan.clarificationQuestions() != null && !mainBrainTaskPlan.clarificationQuestions().isEmpty()
-                        ? "我需要更多信息来帮您完成任务：\n" + String.join("\n", mainBrainTaskPlan.clarificationQuestions())
-                        : "请提供更多关于您需求的信息。";
-                    log.info("MainBrain plan needs clarification: status={}, session={}, requestId={}",
-                        mainBrainTaskPlan.requirementStatus(), sessionId, requestId);
-
-                    saveMessage(department, "main-brain", resolvedBrain, clarificationMessage, "assistant",
-                        conversationId, null, null);
-
-                    pushExecutionEventSafe(sessionId, null, "clarification_needed", Map.of(
-                        "requestId", requestId,
-                        "message", clarificationMessage,
-                        "requirementStatus", mainBrainTaskPlan.requirementStatus() != null ? mainBrainTaskPlan.requirementStatus().name() : "UNKNOWN"
-                    ));
-
-                    return CompletableFuture.completedFuture(
-                        DepartmentChatResult.success(requestId, department, resolvedBrain, clarificationMessage, null, null, null, null, null));
-                }
+                // P0-3 删除：澄清检查已在 ConversationOrchestrator.orchestrate() 中统一处理
+                // 如果 orchestrationResult.needsClarification() 为 true，上面已经返回澄清结果
+                // mainBrainTaskPlan.needsClarification() 的情况在 orchestrate() 中已处理，不会走到这里
 
                 String effectiveDepartment = routingDecision != null && routingDecision.primaryDepartment() != null
                     ? routingDecision.primaryDepartment()
@@ -534,6 +616,11 @@ public class DepartmentChatService {
                     "Processing with routing department=" + effectiveDepartment + ", intent=" + decision.intent(),
                     buildWorkPlanMetadata(decision, routingDecision, mainBrainTaskPlan)
                 ));
+
+                // #6: 发布待办到 TodoPool（自行领取前置优化）
+                if (departmentTodoPool != null && mainBrainTaskPlan != null) {
+                    publishDepartmentTodos(requestId, mainBrainTaskPlan, effectiveDepartment, sessionId);
+                }
 
                 List<EmployeeWorkAssignment> employeeAssignments = planEmployeeAssignments(
                     requestId, mainBrainTaskPlan, effectiveDepartment, sessionId, userId);
@@ -709,6 +796,96 @@ public class DepartmentChatService {
         );
     }
 
+    private List<TaskEntity> findPendingClarifications(String conversationId) {
+        if (conversationId == null) return List.of();
+        try {
+            return taskRepository.findByConversationIdAndStatusIn(conversationId,
+                List.of(TaskStatus.NEEDS_CLARIFICATION.getDbValue()));
+        } catch (Exception e) {
+            log.warn("Failed to query pending clarifications for conversationId={}: {}", conversationId, e.getMessage());
+            return List.of();
+        }
+    }
+
+    private String buildClarificationContextMessage(TaskEntity clarificationTask, String userAnswer) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("[澄清对话上下文]\n");
+        sb.append("原始问题：\n").append(clarificationTask.getClarificationQuestions()).append("\n");
+        sb.append("用户回答：").append(userAnswer).append("\n\n");
+        sb.append("请基于以上澄清信息重新评估任务执行准备度。\n");
+        if (clarificationTask.getDescription() != null) {
+            sb.append("原始任务描述：").append(clarificationTask.getDescription());
+        }
+        return sb.toString();
+    }
+
+    private CompletableFuture<DepartmentChatResult> processWithClarificationContext(
+            String requestId, String department, String resolvedBrain, Brain brain,
+            String enhancedMessage, String sessionId, String userId, String userName,
+            String clientConversationId, String conversationId, TaskEntity clarificationTask) {
+        return conversationOrchestrator.orchestrate(enhancedMessage, userId, department, sessionId)
+            .thenCompose(orchestrationResult -> {
+                if (!orchestrationResult.success()) {
+                    clarificationTask.setStatus(TaskStatus.NEEDS_CLARIFICATION.getDbValue());
+                    clarificationTask.setReadinessStatus(TaskStatus.NEEDS_CLARIFICATION.getDbValue());
+                    taskRepository.save(clarificationTask);
+                    return CompletableFuture.completedFuture(
+                        DepartmentChatResult.error(requestId, department, orchestrationResult.status(), orchestrationResult.reason(), resolvedBrain));
+                }
+
+                if (orchestrationResult.needsClarification()) {
+                    String clarificationMessage = orchestrationResult.clarificationMessage();
+                    saveMessage(department, "main-brain", resolvedBrain, clarificationMessage, "assistant", conversationId, null, null);
+                    pushExecutionEventSafe(sessionId, null, "clarification_needed", Map.of(
+                        "requestId", requestId, "message", clarificationMessage
+                    ));
+                    return CompletableFuture.completedFuture(
+                        DepartmentChatResult.success(requestId, department, resolvedBrain, clarificationMessage, null, null, null, null, null));
+                }
+
+                DialogueDecision decision = orchestrationResult.decision();
+                BrainRoutingDecision routingDecision = orchestrationResult.routingDecision();
+                MainBrainTaskPlan mainBrainTaskPlan = orchestrationResult.mainBrainTaskPlan();
+                Brain targetBrain = orchestrationResult.brain();
+
+                String effectiveDepartment = routingDecision != null && routingDecision.primaryDepartment() != null
+                    ? routingDecision.primaryDepartment() : department;
+                String effectiveResolvedBrain = targetBrain != null ? targetBrain.getId() : resolvedBrain;
+
+                List<EmployeeWorkAssignment> employeeAssignments = planEmployeeAssignments(
+                    requestId, mainBrainTaskPlan, effectiveDepartment, sessionId, userId);
+                PreparedAssignmentBatch preparedAssignmentBatch = prepareAssignmentBatch(
+                    requestId, sessionId, mainBrainTaskPlan, effectiveDepartment, employeeAssignments);
+
+                DepartmentExecutionResult executionResult = coordinateDepartmentExecution(requestId, preparedAssignmentBatch);
+
+                if (executionResult != null && executionResult.executionId() != null
+                    && !TaskStatus.NEEDS_CLARIFICATION.getDbValue().equalsIgnoreCase(executionResult.status())
+                    && !TaskStatus.BLOCKED.getDbValue().equalsIgnoreCase(executionResult.status())) {
+                    clarificationTask.setStatus(TaskStatus.IN_PROGRESS.getDbValue());
+                    clarificationTask.setReadinessStatus("READY");
+                    clarificationTask.setExecutionId(executionResult.executionId());
+                    clarificationTask.setUpdatedAt(Instant.now());
+                    taskRepository.save(clarificationTask);
+                    log.info("Clarification task {} resumed as IN_PROGRESS, executionId={}",
+                        clarificationTask.getTaskKey(), executionResult.executionId());
+                }
+
+                if (executionResult != null
+                    && (TaskStatus.NEEDS_CLARIFICATION.getDbValue().equalsIgnoreCase(executionResult.status())
+                        || TaskStatus.BLOCKED.getDbValue().equalsIgnoreCase(executionResult.status()))) {
+                    return handleClarificationOrBlocked(requestId, effectiveDepartment, effectiveResolvedBrain,
+                        userId, userName, enhancedMessage, sessionId, decision, routingDecision,
+                        mainBrainTaskPlan, employeeAssignments, preparedAssignmentBatch, executionResult, conversationId);
+                }
+
+                return processWithBrain(requestId, effectiveDepartment, effectiveResolvedBrain,
+                    targetBrain != null ? targetBrain : brain, enhancedMessage, sessionId,
+                    userId, userName, decision, routingDecision, mainBrainTaskPlan,
+                    employeeAssignments, preparedAssignmentBatch, executionResult, conversationId);
+            });
+    }
+
     @SuppressWarnings("unchecked")
     private List<String> extractClarificationQuestions(PreparedAssignmentBatch batch, DepartmentExecutionResult executionResult) {
         if (batch != null && batch.metadata() != null) {
@@ -815,7 +992,7 @@ public class DepartmentChatService {
             String conversationId) {
         try {
             // 避免重复创建：如果已存在相同 executionId 的 TaskEntity 则跳过
-            if (executionId != null && taskRepository.findByExecutionId(executionId).isPresent()) {
+            if (executionId != null && !taskRepository.findByExecutionId(executionId).isEmpty()) {
                 log.info("TaskEntity already exists for executionId={}, skipping creation", executionId);
                 return;
             }
@@ -848,7 +1025,7 @@ public class DepartmentChatService {
 
     private void updateTaskEntityStatus(String executionId, DepartmentExecutionResult responseExecutionResult) {
         try {
-            Optional<TaskEntity> taskOpt = taskRepository.findByExecutionId(executionId);
+            Optional<TaskEntity> taskOpt = taskRepository.findByExecutionId(executionId).stream().findFirst();
             if (taskOpt.isEmpty()) {
                 log.debug("No TaskEntity found for executionId={}, skipping status update", executionId);
                 return;
@@ -1028,7 +1205,11 @@ public class DepartmentChatService {
                 requestId, department, "SYSTEM_ERROR", "处理失败: " + e.getMessage(), resolvedBrain));
         }
 
-        return future.orTimeout(90, TimeUnit.SECONDS)
+        // P2-1: 根据 complexity 动态调整超时时间
+        // complexity 1-2: 60秒, 3-4: 120秒, 5+: 180秒
+        int timeoutSeconds = resolveTimeoutSeconds(decision != null ? decision.complexity() : 3);
+
+        return future.orTimeout(timeoutSeconds, TimeUnit.SECONDS)
             .exceptionally(e -> {
                 String errorStatus;
                 String errorReason;
@@ -1127,7 +1308,8 @@ public class DepartmentChatService {
 
         // P0-2.2/P0-2.3: 重试逻辑闭环 + 换人逻辑
         // 当聚合结果标记 needsRetry=true 时，调用 ConversationOrchestrator.retryWithReassignment 换人重派
-        ExecutionResultAggregator.AggregationResult currentAggregation = this.lastAggregationResult;
+        ExecutionResultAggregator.AggregationResult currentAggregation =
+            executionResult != null ? aggregationResultCache.get(executionResult.executionId()) : null;
         if (currentAggregation != null && currentAggregation.needsRetry()
                 && mainBrainTaskPlan != null && executionResult != null) {
             try {
@@ -1170,6 +1352,7 @@ public class DepartmentChatService {
                         // 缓存重试的 executionResult
                         if (retryExecutionResult != null && retryExecutionResult.executionId() != null) {
                             executionResultCache.put(retryExecutionResult.executionId(), retryExecutionResult);
+                            saveExecutionResultToDb(retryExecutionResult);
                         }
 
                         // 收集重试回执
@@ -1215,6 +1398,7 @@ public class DepartmentChatService {
                                 executionResult.executionId(),
                                 executionResult.batchId(),
                                 executionResult.department(),
+                                executionResult.resolveSessionId(),
                                 retryAggregation.accepted()
                                     ? TaskStatus.COMPLETED.getDbValue()
                                     : TaskStatus.PARTIALLY_COMPLETED.getDbValue(),
@@ -1228,8 +1412,10 @@ public class DepartmentChatService {
                                 aggregatedResponse = retryAggregation.summaryForUser();
                             }
 
-                            // 更新 lastAggregationResult
-                            this.lastAggregationResult = retryAggregation;
+                            // 更新 aggregationResultCache
+                            if (retryExecutionResult != null) {
+                                aggregationResultCache.put(retryExecutionResult.executionId(), retryAggregation);
+                            }
 
                             pushExecutionEventSafe(
                                 preparedAssignmentBatch != null ? preparedAssignmentBatch.sessionId() : "",
@@ -1271,26 +1457,31 @@ public class DepartmentChatService {
         FinalResponseCoordinator.FinalResponseStrategy strategy = finalResponseCoordinator.determineStrategy(
             requestId, department, decision, routingDecision, mainBrainTaskPlan, responseExecutionResult);
         if (strategy == FinalResponseCoordinator.FinalResponseStrategy.MAIN_BRAIN_COMPOSE) {
-            try {
-                ExecutionResultAggregator.AggregationResult aggregationResult = executionResultAggregator.aggregateWithCompensation(
-                    executionResult.executionId(), department, mainBrainTaskPlan, collectExecutionReceipts(executionResult), responseText, compensationService);
-                MainBrainFinalSummaryService.FinalSummaryResult summaryResult = mainBrainFinalSummaryService.generateSummary(
-                    originalMessage,
-                    decision,
-                    mainBrainTaskPlan,
-                    executionResult,
-                    aggregationResult,
-                    List.of(),
-                    "accepted",
-                    List.of(),
-                    List.of()
-                );
-                if (summaryResult != null && summaryResult.userMessage() != null && !summaryResult.userMessage().isBlank()) {
-                    composedResponse = summaryResult.userMessage();
-                    log.info("Main brain final summary applied for request {}, source={}", requestId, summaryResult.summarySource());
+            // 单部门路由等场景下 executionResult 可能为 null，此时无法走聚合+汇总流程，直接使用已组合响应
+            if (executionResult == null) {
+                log.info("Skip main brain final summary for request {} because executionResult is null (single-department routing), using composed response", requestId);
+            } else {
+                try {
+                    ExecutionResultAggregator.AggregationResult aggregationResult = executionResultAggregator.aggregateWithCompensation(
+                        executionResult.executionId(), department, mainBrainTaskPlan, collectExecutionReceipts(executionResult), responseText, compensationService);
+                    MainBrainFinalSummaryService.FinalSummaryResult summaryResult = mainBrainFinalSummaryService.generateSummary(
+                        originalMessage,
+                        decision,
+                        mainBrainTaskPlan,
+                        executionResult,
+                        aggregationResult,
+                        List.of(),
+                        "accepted",
+                        List.of(),
+                        List.of()
+                    );
+                    if (summaryResult != null && summaryResult.userMessage() != null && !summaryResult.userMessage().isBlank()) {
+                        composedResponse = summaryResult.userMessage();
+                        log.info("Main brain final summary applied for request {}, source={}", requestId, summaryResult.summarySource());
+                    }
+                } catch (Exception e) {
+                    log.warn("Main brain final summary failed, using composed response: {}", e.getMessage());
                 }
-            } catch (Exception e) {
-                log.warn("Main brain final summary failed, using composed response: {}", e.getMessage());
             }
         } else if (strategy == FinalResponseCoordinator.FinalResponseStrategy.ESCALATE_TO_HUMAN) {
             // P0-2.4: 人工接管闭环 - 执行结果需要人工干预
@@ -1471,7 +1662,8 @@ public class DepartmentChatService {
     }
 
     /**
-     * 基于 BrainOutputContract 直接构建响应（不走 ChannelMessage 回调路径）
+     * NP1-4: 基于 BrainOutputContract 直接构建响应，统一委托到 processBrainResponse。
+     * 从 Contract 构建合成 ChannelMessage，消除双通道重复逻辑。
      */
     private DepartmentChatResult processBrainResponseWithContract(
             String requestId, String department, String resolvedBrain, String responseText,
@@ -1492,53 +1684,134 @@ public class DepartmentChatService {
         log.info("processBrainResponseWithContract: requestId={}, status={}, riskLevel={}",
             requestId, contract.status(), contract.riskLevel());
 
-        switch (contract.status()) {
-            case NEEDS_CLARIFICATION -> {
-                List<String> questions = contract.clarificationQuestions();
-                String clarificationMessage = questions != null && !questions.isEmpty()
-                    ? "我需要更多信息来帮您完成任务：\n" + String.join("\n", questions)
-                    : contract.summary() != null ? contract.summary() : "请提供更多信息";
-                saveMessage(department, "brain_" + department, resolvedBrain, clarificationMessage, "assistant",
-                    conversationId, contract.taskKey(), contract.executionId());
-                return DepartmentChatResult.success(requestId, department, resolvedBrain, clarificationMessage, null,
-                    TaskStatus.NEEDS_CLARIFICATION.getDbValue(),
-                    decision.intent() != null ? decision.intent() : "department_chat", resolvedBrain, null);
-            }
-            case BLOCKED -> {
-                List<String> issues = contract.blockingIssues();
-                String blockedMessage = issues != null && !issues.isEmpty()
-                    ? "任务执行被阻塞：\n" + String.join("\n", issues)
-                    : contract.summary() != null ? contract.summary() : "任务被阻塞";
-                saveMessage(department, "brain_" + department, resolvedBrain, blockedMessage, "assistant",
-                    conversationId, contract.taskKey(), contract.executionId());
-                return DepartmentChatResult.success(requestId, department, resolvedBrain, blockedMessage, null,
-                    TaskStatus.BLOCKED.getDbValue(),
-                    decision.intent() != null ? decision.intent() : "department_chat", resolvedBrain, null);
-            }
-            case FAILED -> {
-                String failedMessage = contract.summary() != null ? contract.summary() : "处理失败";
-                saveMessage(department, "brain_" + department, resolvedBrain, failedMessage, "assistant",
-                    conversationId, contract.taskKey(), contract.executionId());
-                return DepartmentChatResult.error(requestId, department, "BRAIN_FAILED", failedMessage, resolvedBrain);
-            }
-            case COMPLETED -> {
-                String completedMessage = contract.summary() != null ? contract.summary() : responseText;
-                saveMessage(department, "brain_" + department, resolvedBrain, completedMessage, "assistant",
-                    conversationId, contract.taskKey(), contract.executionId());
-                return DepartmentChatResult.success(requestId, department, resolvedBrain, completedMessage, null,
-                    "SUCCESS",
-                    decision.intent() != null ? decision.intent() : "department_chat", resolvedBrain, null);
-            }
-            default -> {
-                // EXECUTING / READY: 返回当前状态信息
-                String statusMessage = contract.summary() != null ? contract.summary() : responseText;
-                saveMessage(department, "brain_" + department, resolvedBrain, statusMessage, "assistant",
-                    conversationId, contract.taskKey(), contract.executionId());
-                return DepartmentChatResult.success(requestId, department, resolvedBrain, statusMessage, null,
-                    contract.status().name(),
-                    decision.intent() != null ? decision.intent() : "department_chat", resolvedBrain, null);
+        // NP1-4: 从 Contract 构建合成 ChannelMessage，统一走 processBrainResponse
+        String syntheticChannel = "channel://output/text";
+        if (brainRegistry != null) {
+            Optional<Brain> deptBrainOpt = brainRegistry.getByDepartment(department);
+            if (deptBrainOpt.isPresent() && !deptBrainOpt.get().getPublishChannels().isEmpty()) {
+                syntheticChannel = deptBrainOpt.get().getPublishChannels().get(0);
             }
         }
+        ChannelMessage syntheticResponse = ChannelMessage.text(
+            syntheticChannel,
+            resolvedBrain,
+            "channel://department/" + department,
+            conversationId != null ? conversationId : requestId,
+            responseText != null ? responseText : (contract.summary() != null ? contract.summary() : "")
+        );
+        syntheticResponse.addMetadata("brain_id", resolvedBrain);
+        syntheticResponse.addMetadata("department", department);
+        syntheticResponse.addMetadata("synthetic_from_contract", "true");
+
+        return processBrainResponse(
+            requestId, department, resolvedBrain, responseText, userId, userName, originalMessage,
+            syntheticResponse, decision, routingDecision, mainBrainTaskPlan, employeeAssignments,
+            preparedAssignmentBatch, executionResult, conversationId, contract);
+    }
+
+    /**
+     * P2-1: 根据 complexity 动态调整超时时间。
+     * complexity 1-2: 简单任务 60秒
+     * complexity 3-4: 中等任务 120秒
+     * complexity 5+: 复杂任务 180秒
+     */
+    private int resolveTimeoutSeconds(int complexity) {
+        if (complexity <= 2) return 60;
+        if (complexity <= 4) return 120;
+        return 180;
+    }
+
+    /**
+     * #6: 发布待办到部门待办池，支持员工自行领取。
+     */
+    private void publishDepartmentTodos(String requestId, MainBrainTaskPlan mainPlan,
+                                          String department, String sessionId) {
+        try {
+            List<DepartmentTodoItem> items = new ArrayList<>();
+
+            // 从 MainBrainTaskPlan 的部门计划中提取待办项
+            if (mainPlan.departmentPlans() != null) {
+                for (DepartmentTaskPlan deptPlan : mainPlan.departmentPlans()) {
+                    if (deptPlan.department().equals(department)) {
+                        // 为每个建议的员工角色创建待办项
+                        for (String role : deptPlan.suggestedRoles()) {
+                            String objective = deptPlan.objective() != null ? deptPlan.objective() : mainPlan.goal();
+                            // 使用主计划的 requiredTools（ExecutionCapability 是枚举，没有 requiredTools 方法）
+                            List<String> requiredTools = mainPlan.requiredTools() != null
+                                ? mainPlan.requiredTools()
+                                : List.of();
+                            String taskType = mainPlan.taskType() != null ? mainPlan.taskType() : "general";
+
+                            DepartmentTodoItem item = new DepartmentTodoItem(
+                                "todo-" + UUID.randomUUID().toString().substring(0, 8),
+                                department,
+                                objective,
+                                role + " 任务",  // instruction
+                                List.of(role),  // requiredRoles
+                                requiredTools,
+                                List.of(role),  // requiredCapabilities
+                                DepartmentTodoItem.Priority.MEDIUM,
+                                requestId,      // planId
+                                taskType        // taskType
+                            );
+                            items.add(item);
+                        }
+                    }
+                }
+            }
+
+            if (!items.isEmpty()) {
+                departmentTodoPool.publishAll(items);
+                log.info("#6: Published {} todo items to pool for department={}, requestId={}",
+                    items.size(), department, requestId);
+
+                traceService.recordEvent(AutonomyTraceEvent.of(
+                    requestId, "department_todo_published", "DepartmentChatService",
+                    "Todo items published to pool",
+                    Map.of("department", department, "count", items.size())
+                ));
+
+                // 窗口期后兜底指派（2秒）
+                scheduleFallbackAssignment(department, items.size(), sessionId, requestId);
+            }
+        } catch (Exception e) {
+            log.warn("#6: Failed to publish todo items: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * #6: 窗口期后兜底指派未领取的待办。
+     */
+    private void scheduleFallbackAssignment(String department, int expectedCount,
+                                              String sessionId, String requestId) {
+        if (employeeSelfClaimService == null) return;
+
+        // 2秒后检查未领取的待办，执行兜底指派
+        java.util.concurrent.CompletableFuture.delayedExecutor(2, java.util.concurrent.TimeUnit.SECONDS)
+            .execute(() -> {
+                try {
+                    List<TodoClaimResult> results = employeeSelfClaimService.assignUnclaimed(department);
+                    if (!results.isEmpty()) {
+                        log.info("#6: Fallback assignment for department={}: {} items assigned",
+                            department, results.size());
+
+                        traceService.recordEvent(AutonomyTraceEvent.of(
+                            requestId, "todo_brain_assigned", "DepartmentChatService",
+                            "Fallback assignment completed",
+                            Map.of("department", department, "assignedCount", results.size())
+                        ));
+
+                        if (sessionId != null) {
+                            pushExecutionEventSafe(sessionId, requestId, "todo_assigned", Map.of(
+                                "department", department,
+                                "assignedCount", results.size()
+                            ));
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("#6: Fallback assignment failed for department={}: {}", department, e.getMessage());
+                }
+            });
     }
 
     private Map<String, Object> buildWorkPlanMetadata(
@@ -1699,8 +1972,12 @@ public class DepartmentChatService {
         }
         long deadline = System.currentTimeMillis() + RECEIPT_WAIT_TIMEOUT_MS;
         long adaptiveDeadline = deadline;
+        long lastProgressPushTime = System.currentTimeMillis();
         List<EmployeeExecutionReceipt> receipts = List.of();
         int lastReceiptCount = 0;
+        int totalExpected = executionResult.dispatchedAssignments().size();
+        // 从 record 字段或 metadata 获取 sessionId
+        String sessionId = executionResult.resolveSessionId();
         while (System.currentTimeMillis() <= adaptiveDeadline) {
             try {
                 receipts = employeeExecutionReceiptService.getReceipts(executionResult.executionId());
@@ -1714,6 +1991,23 @@ public class DepartmentChatService {
                         System.currentTimeMillis() + 15_000,
                         deadline
                     );
+                }
+                // 定期推送等待进度提示（每 15 秒）
+                long now = System.currentTimeMillis();
+                if (now - lastProgressPushTime >= WAIT_PROGRESS_INTERVAL_MS && sessionId != null) {
+                    int completed = (int) receipts.stream().filter(r -> r.status() == ReceiptStatus.COMPLETED).count();
+                    int failed = (int) receipts.stream().filter(r -> r.status() == ReceiptStatus.FAILED).count();
+                    int working = totalExpected - completed - failed;
+                    String progressMsg = String.format("⏳ 任务执行中... 已完成 %d/%d，正在执行 %d 个", completed, totalExpected, working);
+                    pushExecutionEventSafe(sessionId, executionResult.executionId(), "waiting_progress", Map.of(
+                        "message", progressMsg,
+                        "completedCount", completed,
+                        "failedCount", failed,
+                        "workingCount", working,
+                        "totalCount", totalExpected,
+                        "elapsedSeconds", (now - (deadline - RECEIPT_WAIT_TIMEOUT_MS)) / 1000
+                    ));
+                    lastProgressPushTime = now;
                 }
             } catch (Exception e) {
                 log.warn("Failed to collect execution receipts: executionId={}, error={}", executionResult.executionId(), e.getMessage());
@@ -1755,7 +2049,7 @@ public class DepartmentChatService {
             ExecutionResultAggregator.AggregationResult structured = executionResultAggregator.aggregateStructured(
                 executionResult.executionId(), department, mainBrainTaskPlan, receipts, responseText);
 
-            this.lastAggregationResult = structured;
+            aggregationResultCache.put(executionResult.executionId(), structured);
 
             traceService.recordEvent(AutonomyTraceEvent.of(
                 requestId, "execution_receipts_aggregated", "ExecutionResultAggregator",
@@ -1800,7 +2094,7 @@ public class DepartmentChatService {
         }
     }
 
-    private volatile ExecutionResultAggregator.AggregationResult lastAggregationResult;
+    private final Map<String, ExecutionResultAggregator.AggregationResult> aggregationResultCache = new ConcurrentHashMap<>();
 
     private DepartmentExecutionResult enrichExecutionResultWithAggregation(
             DepartmentExecutionResult executionResult,
@@ -1812,7 +2106,7 @@ public class DepartmentChatService {
         List<EmployeeExecutionReceipt> safeReceipts = receipts != null ? receipts : List.of();
         Map<String, Object> metadata = new LinkedHashMap<>(executionResult.metadata() != null ? executionResult.metadata() : Map.of());
 
-        ExecutionResultAggregator.AggregationResult aggregation = this.lastAggregationResult;
+        ExecutionResultAggregator.AggregationResult aggregation = aggregationResultCache.get(executionResult.executionId());
 
         long acceptedReceipts;
         long failedReceipts;
@@ -1866,6 +2160,7 @@ public class DepartmentChatService {
             executionResult.executionId(),
             executionResult.batchId(),
             executionResult.department(),
+            executionResult.resolveSessionId(),
             reviewedStatus,
             executionResult.dispatchedAssignments(),
             metadata
@@ -2051,6 +2346,18 @@ public class DepartmentChatService {
         String executionReadiness = String.valueOf(preparedAssignmentBatch.metadata().get("executionReadiness"));
         if (TaskStatus.BLOCKED.getDbValue().equalsIgnoreCase(executionReadiness) || TaskStatus.NEEDS_CLARIFICATION.getDbValue().equalsIgnoreCase(executionReadiness)) {
             log.info("Skipping department execution for request {}: readiness={}", requestId, executionReadiness);
+
+            // 当执行被 BLOCKED 或 NEEDS_CLARIFICATION 时，清除冻结状态，允许用户追问重新规划
+            String sessionIdFromBatch = preparedAssignmentBatch.sessionId();
+            if (sessionIdFromBatch != null) {
+                MainBrainTaskPlan removedPlan = activeSessionPlans.remove(sessionIdFromBatch);
+                activePlanLastUpdated.remove(sessionIdFromBatch);
+                if (removedPlan != null) {
+                    log.info("Cleared frozen plan for session={} due to execution readiness={}, allowing re-planning",
+                        sessionIdFromBatch, executionReadiness);
+                }
+            }
+
             Map<String, Object> skippedMetadata = new LinkedHashMap<>();
             skippedMetadata.put("executionReadiness", executionReadiness);
             skippedMetadata.put("skippedAt", Instant.now().toString());
@@ -2058,6 +2365,7 @@ public class DepartmentChatService {
                 "skipped-" + requestId,
                 preparedAssignmentBatch.batchId(),
                 preparedAssignmentBatch.department(),
+                preparedAssignmentBatch.sessionId(),
                 executionReadiness,
                 List.of(),
                 skippedMetadata
@@ -2070,6 +2378,7 @@ public class DepartmentChatService {
         // 缓存 executionResult，供 onReceiptRecorded 监听路径回查
         if (result != null && result.executionId() != null) {
             executionResultCache.put(result.executionId(), result);
+            saveExecutionResultToDb(result);
 
             Map<String, Object> eventData = new LinkedHashMap<>();
             eventData.put("requestId", requestId);
@@ -2445,7 +2754,7 @@ public class DepartmentChatService {
         }
     }
 
-    private void triggerAsyncFinalResponse(String executionId, String sessionId) {
+    private void triggerFinalResponse(String executionId, String sessionId) {
         // 防止轮询路径和监听路径重复触发
         if (!triggeredFinalResponses.add(executionId)) {
             log.debug("Async final response already triggered for executionId={}, skipping", executionId);
@@ -2458,7 +2767,30 @@ public class DepartmentChatService {
                 return;
             }
 
+            // #5: 检查是否有聚合结果，使用 DepartmentDeliverable 信息
+            com.livingagent.core.autonomy.AggregationResult aggregationResult = departmentAggregationResultCache.remove(executionId);
+            com.livingagent.core.autonomy.DepartmentDeliverable deliverable = aggregationResult != null && aggregationResult.success()
+                ? aggregationResult.deliverable() : null;
+
             StringBuilder summary = new StringBuilder("📋 任务执行完成\n\n");
+
+            // #5: 如果有聚合结果，先展示质量评分和交付项
+            if (deliverable != null) {
+                summary.append("## 部门级聚合结果\n");
+                summary.append("- **质量评分**: ").append(String.format("%.2f", deliverable.overallQualityScore())).append("\n");
+                if (deliverable.items() != null && !deliverable.items().isEmpty()) {
+                    summary.append("- **交付项数量**: ").append(deliverable.items().size()).append("\n");
+                    for (var item : deliverable.items()) {
+                        summary.append("  - ").append(item.employeeName() != null ? item.employeeName() : item.employeeCode())
+                            .append(" (").append(item.reviewPassed() ? "已通过" : "待审查").append(")\n");
+                    }
+                }
+                if (deliverable.issues() != null && !deliverable.issues().isEmpty()) {
+                    summary.append("- **发现问题**: ").append(deliverable.issues().size()).append(" 个\n");
+                }
+                summary.append("\n## 员工执行明细\n");
+            }
+
             int completed = 0;
             int degraded = 0;
             int failed = 0;
@@ -2500,6 +2832,7 @@ public class DepartmentChatService {
 
             // 清理缓存，避免内存泄漏
             executionResultCache.remove(executionId);
+            try { executionResultRepository.deleteByExecutionId(executionId); } catch (Exception e) { log.warn("B-0-1: failed to delete execution result from DB: {}", e.getMessage()); }
 
             // P2-4: 清理活跃计划映射，允许 session 发起新请求
             if (sessionId != null) {
@@ -2512,6 +2845,50 @@ public class DepartmentChatService {
         } catch (Exception e) {
             log.error("Failed to trigger async final response for executionId={}: {}", executionId, e.getMessage());
         }
+    }
+
+    // ========== B-0-1: DepartmentExecutionResult DB 双写/查询 ==========
+
+    private void saveExecutionResultToDb(DepartmentExecutionResult result) {
+        try {
+            DepartmentExecutionResultEntity entity = new DepartmentExecutionResultEntity();
+            entity.setExecutionId(result.executionId());
+            entity.setBatchId(result.batchId());
+            entity.setDepartment(result.department());
+            entity.setStatus(result.status());
+            entity.setDispatchedAssignments(objectMapper.writeValueAsString(result.dispatchedAssignments()));
+            entity.setMetadata(result.metadata() != null ? objectMapper.writeValueAsString(result.metadata()) : null);
+            entity.setCreatedAt(java.time.Instant.now());
+            entity.setUpdatedAt(java.time.Instant.now());
+            executionResultRepository.save(entity);
+        } catch (Exception e) {
+            log.warn("B-0-1: failed to persist execution result to DB (executionId={}): {}", result.executionId(), e.getMessage());
+        }
+    }
+
+    private DepartmentExecutionResult loadExecutionResultFromDb(String executionId) {
+        try {
+            var optEntity = executionResultRepository.findByExecutionId(executionId);
+            if (optEntity.isPresent()) {
+                DepartmentExecutionResultEntity entity = optEntity.get();
+                List<EmployeeExecutionDispatch> assignments = null;
+                if (entity.getDispatchedAssignments() != null) {
+                    assignments = objectMapper.readValue(entity.getDispatchedAssignments(),
+                        objectMapper.getTypeFactory().constructCollectionType(List.class, EmployeeExecutionDispatch.class));
+                }
+                Map<String, Object> metadata = null;
+                if (entity.getMetadata() != null) {
+                    metadata = objectMapper.readValue(entity.getMetadata(), Map.class);
+                }
+                return new DepartmentExecutionResult(
+                    entity.getExecutionId(), entity.getBatchId(), entity.getDepartment(),
+                    metadata != null && metadata.get("sessionId") != null ? String.valueOf(metadata.get("sessionId")) : null,
+                    entity.getStatus(), assignments, metadata);
+            }
+        } catch (Exception e) {
+            log.warn("B-0-1: failed to load execution result from DB (executionId={}): {}", executionId, e.getMessage());
+        }
+        return null;
     }
 
     public void bindSessionToConversation(String sessionId, String conversationId) {
@@ -2952,25 +3329,34 @@ public class DepartmentChatService {
         String reason,
         String intent,
         String neuron,
-        String conversationId
+        String conversationId,
+        String executionId
     ) {
         public static DepartmentChatResult success(
                 String requestId, String department, String brain,
                 String text, String model, String status,
                 String intent, String neuron, String reason, String conversationId) {
-            return new DepartmentChatResult(true, requestId, department, brain, text, model, status, reason, intent, neuron, conversationId);
+            return new DepartmentChatResult(true, requestId, department, brain, text, model, status, reason, intent, neuron, conversationId, null);
         }
 
         public static DepartmentChatResult success(
                 String requestId, String department, String brain,
                 String text, String model, String status,
                 String intent, String neuron, String reason) {
-            return new DepartmentChatResult(true, requestId, department, brain, text, model, status, reason, intent, neuron, null);
+            return new DepartmentChatResult(true, requestId, department, brain, text, model, status, reason, intent, neuron, null, null);
+        }
+
+        /** P2-4: 带 executionId 的成功结果 */
+        public static DepartmentChatResult success(
+                String requestId, String department, String brain,
+                String text, String model, String status,
+                String intent, String neuron, String reason, String conversationId, String executionId) {
+            return new DepartmentChatResult(true, requestId, department, brain, text, model, status, reason, intent, neuron, conversationId, executionId);
         }
 
         public static DepartmentChatResult error(
                 String requestId, String department, String status, String reason, String brain) {
-            return new DepartmentChatResult(false, requestId, department, brain, null, null, status, reason, null, null, null);
+            return new DepartmentChatResult(false, requestId, department, brain, null, null, status, reason, null, null, null, null);
         }
     }
 

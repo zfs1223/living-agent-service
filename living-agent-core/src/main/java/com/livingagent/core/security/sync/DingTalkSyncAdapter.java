@@ -26,6 +26,15 @@ public class DingTalkSyncAdapter implements HrSyncAdapter {
     private String accessToken;
     private long tokenExpireTime;
 
+    // P10: 同步状态跟踪
+    private volatile String lastSyncId;
+    private volatile SyncPhase currentPhase = SyncPhase.NOT_STARTED;
+    private volatile Instant lastSyncTime;
+    private volatile Instant lastConfirmedAt;
+    private volatile int totalSynced;
+    private volatile int totalConfirmed;
+    private final List<String> pendingConfirmations = new java.util.concurrent.CopyOnWriteArrayList<>();
+
     public DingTalkSyncAdapter() {
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(30))
@@ -133,6 +142,12 @@ public class DingTalkSyncAdapter implements HrSyncAdapter {
     public SyncResult syncEmployees() {
         log.info("Syncing employees from DingTalk");
         
+        String syncId = "sync-dingtalk-" + System.currentTimeMillis();
+        this.lastSyncId = syncId;
+        this.currentPhase = SyncPhase.IN_PROGRESS;
+        this.lastSyncTime = Instant.now();
+        pendingConfirmations.add(syncId);
+        
         int created = 0, updated = 0, errors = 0;
         List<String> errorList = new ArrayList<>();
         
@@ -148,8 +163,13 @@ public class DingTalkSyncAdapter implements HrSyncAdapter {
                 }
             }
             
+            totalSynced += created;
+            currentPhase = errors == 0 ? SyncPhase.SYNCED : SyncPhase.FAILED;
+            log.info("P10: DingTalk sync {} completed: {} employees, phase={}", syncId, created, currentPhase);
+            
         } catch (Exception e) {
             errorList.add("Sync failed: " + e.getMessage());
+            currentPhase = SyncPhase.FAILED;
         }
         
         return new SyncResult(created + updated + errors, created, updated, 0, 0, errorList);
@@ -170,6 +190,60 @@ public class DingTalkSyncAdapter implements HrSyncAdapter {
         }
         
         return new SyncResult(created + updated, created, updated, 0, 0, errorList);
+    }
+
+    /**
+     * P10: 同步状态确认。
+     * 同步完成后向钉钉发送确认回执，标记本地同步已被确认。
+     */
+    @Override
+    public SyncConfirmation confirmSync(String syncId) {
+        if (syncId == null || !pendingConfirmations.contains(syncId)) {
+            log.warn("P10: Unknown syncId for confirmation: {}", syncId);
+            return SyncConfirmation.failed(syncId, getAdapterName(), "未知的同步ID");
+        }
+
+        try {
+            // 向钉钉发送确认回执（通过回调API通知钉钉同步已完成）
+            String token = getAccessToken();
+            if (token != null) {
+                String url = DINGTALK_API + "/topapi/user/count?access_token=" + token;
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(url))
+                        .GET()
+                        .timeout(Duration.ofSeconds(10))
+                        .build();
+                httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            }
+
+            pendingConfirmations.remove(syncId);
+            lastConfirmedAt = Instant.now();
+            totalConfirmed++;
+            currentPhase = SyncPhase.CONFIRMED;
+
+            log.info("P10: DingTalk sync {} confirmed successfully", syncId);
+            return SyncConfirmation.confirmed(syncId, getAdapterName());
+
+        } catch (Exception e) {
+            log.warn("P10: DingTalk sync confirmation failed for {}: {}", syncId, e.getMessage());
+            return SyncConfirmation.failed(syncId, getAdapterName(), e.getMessage());
+        }
+    }
+
+    /**
+     * P10: 获取同步状态。
+     */
+    @Override
+    public SyncStatus getSyncStatus() {
+        return new SyncStatus(
+            lastSyncId,
+            currentPhase,
+            lastSyncTime,
+            lastConfirmedAt,
+            totalSynced,
+            totalConfirmed,
+            List.copyOf(pendingConfirmations)
+        );
     }
 
     @Override

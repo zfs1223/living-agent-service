@@ -8,18 +8,24 @@ import com.livingagent.core.database.entity.EmployeeExecutionReceiptEntity;
 import com.livingagent.core.database.repository.EmployeeExecutionReceiptRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * JPA 持久化实现的员工执行回执服务。
  * 回执数据存储在 PostgreSQL，重启不丢失。
+ *
+ * <p>B-0-3 修复：移除了原先的 executionResultsById 内存缓存。
+ * 原代码在内存缓存优先的查询路径中没有实际意义（getReceipts/isExecutionComplete 已走 DB），
+ * 仅用于向 listener 传递 DepartmentExecutionResult。但 DepartmentChatService 已自带
+ * executionResultCache 作为回退，故这里直接传 null，避免依赖内存缓存造成的数据不一致。
+ * 持久化查询始终走 DB（receiptRepository）。
  */
 public class JpaEmployeeExecutionReceiptService implements EmployeeExecutionReceiptService {
 
@@ -32,12 +38,6 @@ public class JpaEmployeeExecutionReceiptService implements EmployeeExecutionRece
     private final ExecutionReceiptReviewer executionReceiptReviewer;
 
     private final List<ReceiptListener> listeners = new CopyOnWriteArrayList<>();
-
-    /**
-     * 内存缓存 DepartmentExecutionResult，确保 recordReceipt 的 listener 能拿到完整的执行结果。
-     * 与 InMemoryEmployeeExecutionReceiptService / FileBasedEmployeeExecutionReceiptService 行为对齐。
-     */
-    private final ConcurrentMap<String, DepartmentExecutionResult> executionResultsById = new ConcurrentHashMap<>();
 
     public JpaEmployeeExecutionReceiptService(EmployeeExecutionReceiptRepository receiptRepository,
                                                CodeReviewWorkflowService codeReviewWorkflowService,
@@ -61,8 +61,7 @@ public class JpaEmployeeExecutionReceiptService implements EmployeeExecutionRece
         if (executionResult == null || executionResult.executionId() == null) {
             return;
         }
-        // 缓存执行结果，确保后续 recordReceipt 的 listener 能获取到
-        executionResultsById.put(executionResult.executionId(), executionResult);
+        // B-0-3: 不再缓存 executionResult，仅维护 CodeReviewWorkflow 状态
         if (executionResult.dispatchedAssignments() != null) {
             for (com.livingagent.core.autonomy.EmployeeExecutionDispatch dispatch : executionResult.dispatchedAssignments()) {
                 if (dispatch == null) continue;
@@ -106,6 +105,7 @@ public class JpaEmployeeExecutionReceiptService implements EmployeeExecutionRece
     }
 
     @Override
+    @Transactional
     public EmployeeExecutionReceipt recordReceipt(EmployeeExecutionReceipt receipt) {
         if (receipt == null) {
             return null;
@@ -118,27 +118,54 @@ public class JpaEmployeeExecutionReceiptService implements EmployeeExecutionRece
 
         EmployeeExecutionReceipt savedReceipt = toReceipt(entity);
 
-        // 从缓存中获取执行结果，传递给 listener（与 InMemory/FileBased 实现对齐）
-        DepartmentExecutionResult executionResult = executionResultsById.get(receipt.executionId());
+        // B3 修复：listener 回调（含 updateTaskFromReceipt）在事务内同步执行，
+        // 确保回执+任务更新在同一事务边界内，任一步失败整体回滚。
+        // WebSocket 推送等通知类操作仍通过 AFTER_COMMIT 延迟执行，
+        // 避免客户端收到"COMPLETED"后查询到未提交数据。
+        notifyListeners(savedReceipt);
 
-        for (ReceiptListener listener : listeners) {
-            try {
-                listener.onReceiptRecorded(savedReceipt, executionResult);
-            } catch (Exception e) {
-                log.warn("Receipt listener failed for receiptId={}: {}", savedReceipt.receiptId(), e.getMessage());
-            }
-        }
-
-        if (codeReviewWorkflowService != null) {
-            routeToReviewWorkflow(savedReceipt);
+        // review workflow 和 trace 记录在事务提交后执行（非关键路径，允许异步）
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new org.springframework.transaction.support.TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    routeReviewAndNotify(savedReceipt);
+                }
+            });
+        } else {
+            routeReviewAndNotify(savedReceipt);
         }
 
         return savedReceipt;
     }
 
+    private void notifyListeners(EmployeeExecutionReceipt savedReceipt) {
+        for (ReceiptListener listener : listeners) {
+            try {
+                listener.onReceiptRecorded(savedReceipt, null);
+            } catch (Exception e) {
+                log.warn("Receipt listener failed for receiptId={}: {}", savedReceipt.receiptId(), e.getMessage());
+            }
+        }
+    }
+
+    private void routeReviewAndNotify(EmployeeExecutionReceipt savedReceipt) {
+        if (codeReviewWorkflowService != null) {
+            routeToReviewWorkflow(savedReceipt);
+        }
+    }
+
     @Override
     public List<EmployeeExecutionReceipt> getReceipts(String executionId) {
         return receiptRepository.findByExecutionId(executionId)
+            .stream()
+            .map(this::toReceipt)
+            .toList();
+    }
+
+    @Override
+    public List<EmployeeExecutionReceipt> getReceiptsByDepartment(String department) {
+        return receiptRepository.findByDepartment(department)
             .stream()
             .map(this::toReceipt)
             .toList();
@@ -292,6 +319,7 @@ public class JpaEmployeeExecutionReceiptService implements EmployeeExecutionRece
         entity.setAssignmentId(receipt.assignmentId());
         entity.setEmployeeCode(receipt.employeeCode());
         entity.setEmployeeNeuronId(receipt.employeeNeuronId());
+        entity.setDepartment(stringValue(receipt.metadata(), "department"));
         entity.setStatus(receipt.status() != null ? receipt.status().getCode() : "UNKNOWN");
         entity.setSummary(receipt.summary());
         entity.setReceivedAt(receipt.receivedAt() != null ? receipt.receivedAt() : Instant.now());

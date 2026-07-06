@@ -1,6 +1,7 @@
 # Living Agent Desktop 落地方案与进度跟踪
 
 > 创建日期：2026-06-04
+> 最后更新：2026-06-16
 > 依据：[HERMES_COMPARISON_AND_BORROWING_PLAN.md](file:///f:/SoarCloudAI/docker/living-agent-service/docs/HERMES_COMPARISON_AND_BORROWING_PLAN.md) §3 §5 §6 §6.18 §6.19
 > 目标：基于 Electron + Vite + React + TypeScript 构建**独立桌面客户端** living-agent-desktop
 > 与后端 Web 服务（端口 8382）通过 HTTP/WS 通信；与 `frontend/` 完全解耦，**不复用其任何代码**
@@ -11,12 +12,12 @@
 
 | 维度 | 说明 |
 |------|------|
-| **目标用户** | 数字员工/管理员需要在本地 PC 客户端管理任务、查看虚拟办公室、接收系统通知 |
-| **与 Web 端差异** | 系统托盘、本地文件访问、离线缓存、OS 通知、本地产物保存、任务中心悬浮窗、客户端唯一标识 |
+| **目标用户** | 数字员工/管理员需要在本地 PC 客户端管理任务、**登录认证**、查看虚拟办公室、接收系统通知 |
+| **与 Web 端差异** | 系统托盘、本地文件访问、离线缓存、OS 通知、本地产物保存、任务中心悬浮窗、客户端唯一标识、**独立手机号+验证码登录（与 frontend 对齐）** |
 | **后端复用** | **API 层面**复用 living-agent-service 后端（WebSocket + REST，端口 8382） |
 | **代码基础** | **不复用 frontend/ 任何代码**。渲染层入口、CSS、组件、类型都位于 `living-agent-desktop/src/renderer/` 独立维护 |
-| **部署位置** | **客户端机器**（用户 PC），以安装包形式分发（electron-builder 打包 Windows x64） |
-| **与 frontend 的关系** | 两个**完全独立**的应用，部署在**不同物理机器**。desktop 通过 HTTP/WS 走后端 API 复用同一后端服务；复杂业务（部门详情/虚拟办公室/AI 对话）由 desktop 主动跳转 `frontend/` 完成 |
+| **部署位置** | **客户端机器**（用户 PC），以安装包形式分发（electron-builder 打包 Windows x64）。**桌面端是主要使用方式，Web 端仅用于测试和复杂业务场景** |
+| **与 frontend 的关系** | 两个**完全独立**的应用，部署在**不同物理机器**。desktop 通过 HTTP/WS **直连后端 API**（REST + WebSocket），**不复用、不嵌套 frontend 任何代码或页面**。**登录流程与 frontend 完全对齐（手机号+短信验证码）** |
 | **新增工程** | `f:\SoarCloudAI\docker\living-agent-service\living-agent-desktop\` |
 
 ---
@@ -34,8 +35,10 @@
 | **P7 产物权限控制** | 后端 API 权限过滤 + 前端 UI Tabs + 桌面端同步 | 2 天 | ✅ 已完成 |
 | **P8 依赖与类型修复** | vite/electron-vite/plugin-react 版本对齐 + Electron 42 API 调整 + tsconfig 6.0 deprecation | 0.5 天 | ✅ 已完成 |
 | **P9 桌面端独立性 + clientId** | 与 `frontend/` 完全解耦（移除 tsconfig 跨目录、electron.vite.config renderer 改用本地）；新增 `client-id.ts` + HTTP `X-Client-Id` + WS `clientId` 携带；新增 `taskboard:list/claim` / `credits:get-balance` IPC；独立 `PublicTaskBoard` 组件 | 1.5 天 | ✅ 已完成 |
-| **P10 构建与验证** | electron-builder + 启动测试 + 文档收口 | 1 天 | 🔲 待启动验证 |
-| **总计** | | **~14 天** | - |
+| **P10a 登录对齐 frontend** | ~~window.prompt() 粘贴 token~~ → 手机号+短信验证码登录（与 frontend Login.tsx 完全对齐）；新增 `sendSmsCode` / `phoneLogin` / `getCurrentUser` API；IPC handler + preload 暴露；登录表单 UI（手机号输入+验证码发送+倒计时+测试模式自动填入）；登录后获取用户信息并展示 | 1 天 | ✅ 已完成 |
+| **P10b 构建与验证** | electron-builder 打包 + npm run dev 启动验证 + 文档收口 | 1 天 | 🔲 待完成 |
+| **P11 桌面端功能集成** | 移除浏览器跳转，改为直连后端 API；侧边栏按权限分类（基础功能 + 管理功能）；新增部门聊天/项目/审批/消息/管理设置页面；管理功能无权限时隐藏 | 1 天 | ✅ 已完成（2026-06-16） |
+| **总计** | | **~16 天** | - |
 
 ---
 
@@ -72,7 +75,8 @@ living-agent-desktop/
 │   │   ├── task-notification.ts     # 任务 OS 通知
 │   │   ├── task-board-cache.ts      # 任务本地缓存
 │   │   ├── floating-task-board.ts   # 任务中心悬浮窗
-│   │   └── client-id.ts             # ⭐ 客户端唯一标识（UUID 持久化到 userData）
+│   │   ├── client-id.ts             # ⭐ 客户端唯一标识（UUID 持久化到 userData）
+│   │   ├── app-scanner.ts           # ⭐ 本机应用扫描器（注册表+开始菜单+桌面快捷方式）
 │   ├── preload/
 │   │   └── index.ts                 # contextBridge 暴露 window.livingAgentAPI
 │   ├── renderer/                    # ⭐ 独立渲染层（与 frontend/ 完全解耦）
@@ -184,7 +188,11 @@ contextBridge.exposeInMainWorld('livingAgentAPI', {
   auth: {
     getToken: () => ipcRenderer.invoke('auth:get-token'),
     setToken: (t: string) => ipcRenderer.invoke('auth:set-token'),
-    clearToken: () => ipcRenderer.invoke('auth:clear-token')
+    clearToken: () => ipcRenderer.invoke('auth:clear-token'),
+    // ⭐ 手机号+验证码登录（与 frontend 对齐）
+    smsSend: (phone: string, type?: string) => ipcRenderer.invoke('auth:sms-send', phone, type || 'login'),
+    phoneLogin: (phone: string, code: string) => ipcRenderer.invoke('auth:phone-login', phone, code),
+    me: () => ipcRenderer.invoke('auth:me')
   },
   
   // 文件系统
@@ -441,10 +449,25 @@ ALTER TABLE artifact_record
 - [x] `App.tsx` HomeView 展示客户端标识
 - [x] `npm run typecheck` 完整通过
 
-### Step 10：构建与验证（P10）
-- [ ] `electron-builder.yml` 配置
-- [ ] npm run dev 验证启动
-- [ ] 打包 Windows x64
+### Step 10a：登录对齐 frontend（P10a）—— ⭐ 核心改进
+- [x] `api-client.ts` 新增 `sendSmsCode()` / `phoneLogin()` / `getCurrentUser()` API（对齐 frontend `/auth/sms/send`、`/auth/phone/login`、`/auth/me`）
+- [x] `shared/types.ts` 新增 `DesktopUser` 接口（与 frontend User 对齐）
+- [x] `ipc.ts` 新增 `auth:sms-send` / `auth:phone-login` / `auth:me` handler
+- [x] `preload/index.ts` 暴露 `auth.smsSend()` / `auth.phoneLogin()` / `auth.me()`
+- [x] `shared/api-types.ts` 更新 `LivingAgentAPI.auth` 类型契约 + re-export DesktopUser
+- [x] **App.tsx** 登录对话框重构：~~window.prompt() 粘贴 token~~ → 手机号+验证码登录表单
+  - 手机号输入（11位限制、自动聚焦）
+  - 验证码发送按钮 + 60s 倒计时
+  - 测试模式自动填入验证码（与 frontend 行为一致）
+  - 错误提示（invalid/expired/not found 分支处理）
+  - 加载动画（spinner）
+  - 登录成功后自动获取用户信息并展示在 header
+- [x] `index.css` 完整登录表单样式（字段/按钮/错误提示/测试模式提示/加载旋转器）
+
+### Step 10b：构建与验证（P10b）—— 待完成
+- [ ] `electron-builder.yml` 配置验证
+- [ ] npm run dev 启动验证（主流程走通）
+- [ ] 打包 Windows x64 安装包
 - [ ] 多客户端安装 + clientId 唯一性验证
 - [ ] 后端侧 WindowsAppTool 接收 `X-Client-Id` 路由到 pywinauto 节点
 - [ ] 编写用户文档
@@ -470,7 +493,12 @@ ALTER TABLE artifact_record
 | 2026-06-04 | P9 桌面端独立性：移除与 frontend/ 跨目录耦合、electron.vite.config renderer 改用本地、独立 App.tsx / PublicTaskBoard / index.html / main.tsx | ✅ |
 | 2026-06-04 | P9 客户端标识：client-id.ts UUID 持久化、HTTP `X-Client-Id`、WS `clientId`、HomeView 展示 | ✅ |
 | 2026-06-04 | P9 文档：LIVING_AGENT_DESKTOP_PLAN.md 同步更新（与现状对齐） | ✅ |
-| 待开始 | P10 npm run dev 启动验证 + electron-builder 打包 + 多客户端 clientId 验证 + 后端 WindowsAppTool 路由接入 | - |
+| 2026-06-15 | **P10a 登录对齐 frontend**：手机号+验证码登录替代 window.prompt()；sendSmsCode/phoneLogin/getCurrentUser API 全链路（api-client→ipc→preload→App.tsx）；登录表单 UI（倒计时/测试模式/错误提示/加载动画）；DesktopUser 类型对齐 | ✅ |
+| 2026-06-15 | **后端 SecurityConfig**：`/api/health` 和 `/api/tasks/public` 加入公开端点列表，解决桌面端连接 403 问题 | ✅ |
+| 2026-06-15 | **ModelHealthProber**：新增 minAvailableThreshold 配置（默认3），可用模型充足时跳过探测避免频繁检查 | ✅ |
+| 2026-06-15 | **客户端应用列表上报**：新增 app-scanner.ts 扫描本机已安装应用（注册表+开始菜单+桌面快捷方式）；ws-client.ts 连接时自动携带设备信息和应用列表；后端 client_device_registry 表新增 applications 字段；ClientDeviceRegistryService 支持保存和追加应用记录 | ✅ |
+| 2026-06-15 | **WebSocket 架构改进**：ws-client.ts 添加 handshakeTimeout（10秒）、指数退避重连（2s→4s→8s→16s→30s）、自动携带设备信息（hostname/macAddress/platform/osUser） | ✅ |
+| 待开始 | P10b electron-builder 打包 + npm run dev 启动验证 + 多客户端 clientId 验证 + 后端 WindowsAppTool 路由接入 | - |
 
 ---
 
@@ -585,16 +613,106 @@ HTTP Header:    X-Client-Id: <uuid>
 
 ## 13. 后续重点
 
-1. **P10 启动验证**：npm run dev 跑通 desktop 主流程，验证 clientId 持久化、托盘/悬浮窗/通知/快捷键
-2. **多客户端 clientId 验证**：在不同机器安装 desktop，确认每个 clientId 唯一
-3. **后端 WindowsAppTool 接入**：
+### P10b 待完成（构建与验证）
+1. **npm run dev 启动验证**：跑通桌面端完整主流程（连接后端 → 手机号登录 → 查看任务 → 接取任务 → 查看积分/产物）
+2. **electron-builder 打包**：Windows x64 安装包，签名证书（避免杀毒误报）
+3. **多客户端 clientId 验证**：在不同机器安装 desktop，确认每个 clientId 唯一
+
+### P11+ 未来扩展（桌面端独立使用）
+4. **后端 WindowsAppTool 接入**：
    - WebSocket 连接解析 `clientId` query
    - HTTP 拦截器读取 `X-Client-Id` header
    - `node_registry` 表建立 `clientId → pywinauto_node` 映射
    - 自动化任务派发时按 clientId 路由
-4. **electron-builder 打包**：Windows x64 安装包，签名证书（避免杀毒误报）
-5. **HERMES_COMPARISON_AND_BORROWING_PLAN.md 同步**：将 desktop 独立性 + clientId 决策同步到主项目对比文档
+5. **AI 对话内嵌**（P11）：在桌面端窗口内实现部门聊天/AI 对话（当前跳转 web 端），可选 BrowserView 嵌入或独立 WebSocket 直连后端 `/ws/dept/{dept}`
+6. **数字员工管理**（P11）：桌面端内嵌员工配置页面（当前跳转 web 端）
+7. **HERMES_COMPARISON_AND_BORROWING_PLAN.md 同步**：将 desktop 独立性 + clientId + 登录对齐决策同步到主项目对比文档
 
 ---
 
-**文档状态**：与代码实现同步（2026-06-04 更新到 P9 完工）
+## 14. WebSocket 架构审查改进项（前端/桌面端）
+
+> 来源：[websocket-architecture-review.md](file:///f:/SoarCloudAI/docker/living-agent-service/docs/websocket-architecture-review.md) 核查确认
+> 核查日期：2026-06-15
+
+### 14.1 CRITICAL（必须修复）
+
+| # | 问题 | 代码位置 | 修复方案 | 状态 |
+|---|------|----------|----------|------|
+| 1 | **WebSocket connect() 从未被调用** | [ws-client.ts:33](file:///f:/SoarCloudAI/docker/living-agent-service/living-agent-desktop/src/main/ws-client.ts#L33) | 在 `index.ts` 启动流程中，Token 加载成功后调用 `wsClient.connect('/ws/agent', { clientId })`；Token 变更时重新连接 | ✅ 已修复（2026-06-15） |
+
+**影响**：所有依赖 WebSocket 的功能（实时任务通知、执行事件推送、制品就绪通知）全部不工作。系统退化为 HTTP 轮询模式。
+
+### 14.2 MODERATE（应该修复）
+
+| # | 问题 | 代码位置 | 修复方案 | 状态 |
+|---|------|----------|----------|------|
+| 3 | **Token 通过 URL 查询参数传递**（不安全） | [ws-client.ts:42-47](file:///f:/SoarCloudAI/docker/living-agent-service/living-agent-desktop/src/main/ws-client.ts#L42) | 改用 `Sec-WebSocket-Protocol` 头传递 token（后端已支持） | ✅ 已修复（2026-06-15） |
+| 5 | **WebSocket 未设置 handshakeTimeout** | [ws-client.ts:50](file:///f:/SoarCloudAI/docker/living-agent-service/living-agent-desktop/src/main/ws-client.ts#L50) | `new WebSocket(url, { handshakeTimeout: 10000 })` | ✅ 已修复（2026-06-15） |
+| 6 | **重连使用固定 5s 间隔，无指数退避** | [ws-client.ts:80](file:///f:/SoarCloudAI/docker/living-agent-service/living-agent-desktop/src/main/ws-client.ts#L80) | 改为指数退避：2s→4s→8s→16s→30s 上限（参考 `DepartmentChatInline.tsx` 实现） | ✅ 已修复（2026-06-15） |
+| 9 | **safeStorage 不可用时明文存储 token** | [auth.ts:34-37](file:///f:/SoarCloudAI/docker/living-agent-service/living-agent-desktop/src/main/auth.ts#L34) | 明文降级时弹出警告，或拒绝登录而非明文存储 | ✅ 已修复（2026-06-15） |
+| 10 | **无 Token 刷新机制** | api-client.ts 全文件 | 登录时保存 refreshToken，定时检查过期，401 响应拦截自动刷新 | ✅ 已修复（2026-06-15） |
+
+### 14.3 MINOR（可以改进）
+
+| # | 问题 | 代码位置 | 修复方案 | 状态 |
+|---|------|----------|----------|------|
+| 14 | **DEFAULT_BACKEND_URL 为空字符串** | [types.ts:17](file:///f:/SoarCloudAI/docker/living-agent-service/living-agent-desktop/src/shared/types.ts#L17) | 改为 `http://localhost:8382`（已修复） | ✅ 已修复 |
+| 15 | **sandbox: false** | [window.ts:21](file:///f:/SoarCloudAI/docker/living-agent-service/living-agent-desktop/src/main/window.ts#L21) | 生产环境改为 `sandbox: true` + 确保 contextBridge 满足所有 IPC 需求 | ✅ 已修复（2026-06-15） |
+| 16 | **computeStats() 返回零值** | [local-save-config.ts:110-121](file:///f:/SoarCloudAI/docker/living-agent-service/living-agent-desktop/src/main/local-save-config.ts#L110) | 实现异步分批遍历目录计算文件数和总大小 | ✅ 已修复（2026-06-15） |
+
+### 14.4 修复优先级路线图
+
+```
+✅ P0: #1 WebSocket connect() 从未被调用 → 已修复（2026-06-15）
+✅ P1: #3 Token 传递方式迁移到 Sec-WebSocket-Protocol → 已修复（2026-06-15）
+✅ P1: #6 重连改为指数退避 → 已修复（2026-06-15）
+✅ P1: #10 Token 刷新机制 → 已修复（2026-06-15）
+✅ P2: #5 handshakeTimeout → 已修复（2026-06-15）
+✅ P2: #9 明文存储降级警告 → 已修复（2026-06-15）
+✅ P3: #15 sandbox: true → 已修复（2026-06-15）
+✅ P3: #16 computeStats() 实现 → 已修复（2026-06-15）
+```
+
+---
+
+**文档状态**：与代码实现同步（2026-06-15 更新到 P10a 登录对齐完成，WebSocket 架构改进全部完成，P10b 待验证）
+
+---
+
+## 14. 当前状态总览与剩余项
+
+### 已完成（P1~P10a，共 10 个阶段）
+
+| 阶段 | 状态 | 核心交付物 |
+|------|------|-----------|
+| P1 基础骨架 | ✅ | 项目初始化、package.json、tsconfig、electron-vite |
+| P2 主进程 | ✅ | 窗口/托盘/菜单/IPC/连接/shortcuts/auth/notifications/api-client/ws-client |
+| P3 Preload + 类型 | ✅ | contextBridge 暴露 window.livingAgentAPI |
+| P4 渲染层接入 | ✅ | 独立渲染层（index.html/main.tsx/App.tsx） |
+| P5 本地产物保存 | ✅ | LocalSaveConfig + LocalSaveSyncService + UI |
+| P6 公共任务栏 | ✅ | 托盘红点/OS通知/快捷键/悬浮窗/本地缓存/独立组件 |
+| P7 产物权限控制 | ✅ | 后端权限过滤 + 前端 Tabs + 桌面端同步 |
+| P8 依赖修复 | ✅ | 版本对齐/Electron 42 API/tsconfig 6.0 |
+| P9 桌面端独立性 + clientId | ✅ | 完全解耦 frontend/、UUID 客户端标识、HTTP/WS 携带 |
+| **P10a 登录对齐 frontend** | **✅** | **手机号+验证码登录（替代 window.prompt）、全链路 API 对齐、完整 UI** |
+
+### 待完成（P10b）
+
+| # | 任务 | 优先级 | 说明 |
+|---|------|--------|------|
+| 1 | `npm run dev` 启动验证 | P0 | 跑通完整主流程：连接→登录→任务→积分→产物 |
+| 2 | electron-builder 打包 | P0 | Windows x64 安装包 |
+| 3 | 多客户端 clientId 验证 | P1 | 不同机器安装后确认唯一性 |
+| 4 | 后端 WindowsAppTool 接入 X-Client-Id | P1 | pywinauto 节点路由 |
+| 5 | 用户文档 / 开发者文档 | P2 | 安装指南 + 开发者手册 |
+
+### 未来扩展（P11+，桌面端独立使用）
+
+| # | 功能 | 说明 | 当前方案 |
+|---|------|------|----------|
+| 1 | AI 对话 | 部门聊天/AI 对话内嵌到桌面端 | 跳转 web 端 → 可改为 BrowserView 或独立 WS 直连 `/ws/dept/{dept}` |
+| 2 | 数字员工管理 | 员工配置/查看页面 | 跳转 web 端 → 可改为独立页面 |
+| 3 | 部门详情/虚拟办公室 | 办公室视图 | 跳转 web 端 → 可改为独立页面或 BrowserView |
+
+> **核心结论**：P1-P10a 全部代码已完成，TypeScript 编译通过。**当前阻塞项是 P10b 的启动验证和打包**。一旦 npm run dev 验证通过并打包成功，桌面端即可作为独立客户端分发使用。

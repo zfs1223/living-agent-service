@@ -25,6 +25,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.livingagent.core.provider.Provider;
 import com.livingagent.core.tool.ToolSchema;
 
+/**
+ * Ollama Provider - 连接 Ollama 远程服务。
+ *
+ * <p>设计说明：
+ * - 模型由调用方明确指定，不使用默认模型
+ * - 启动时检查 Ollama 服务可用性和已下载模型
+ * - 无可用模型时提示用户下载
+ */
 @Component
 public class OllamaProvider implements Provider {
     
@@ -33,11 +41,14 @@ public class OllamaProvider implements Provider {
     private RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     
+    /** Ollama 服务是否可用 */
+    private volatile boolean serviceAvailable = false;
+    
+    /** 已下载的模型列表 */
+    private volatile List<String> availableModels = new ArrayList<>();
+    
     @Value("${ai-models.ollama.base-url}")
     private String baseUrl;
-    
-    @Value("${ai-models.ollama.default-model}")
-    private String defaultModel;
     
     @Value("${ai-models.ollama.timeout}")
     private int timeout;
@@ -48,9 +59,8 @@ public class OllamaProvider implements Provider {
         this.objectMapper = new ObjectMapper();
     }
     
-    public OllamaProvider(String baseUrl, String defaultModel, int timeout) {
+    public OllamaProvider(String baseUrl, int timeout) {
         this.baseUrl = baseUrl;
-        this.defaultModel = defaultModel;
         this.timeout = timeout;
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(timeout);
@@ -65,8 +75,71 @@ public class OllamaProvider implements Provider {
         factory.setConnectTimeout(timeout);
         factory.setReadTimeout(timeout);
         this.restTemplate = new RestTemplate(factory);
-        log.info("OllamaProvider initialized with baseUrl={}, model={}, timeout={}ms", 
-            baseUrl, defaultModel, timeout);
+        
+        // 检查 Ollama 服务可用性和已下载模型
+        checkOllamaService();
+        
+        log.info("OllamaProvider initialized: baseUrl={}, timeout={}ms, available={}, models={}", 
+            baseUrl, timeout, serviceAvailable, availableModels.size());
+    }
+    
+    /**
+     * 检查 Ollama 服务可用性和已下载模型。
+     */
+    private void checkOllamaService() {
+        try {
+            String url = baseUrl + "/api/tags";
+            String response = restTemplate.getForObject(url, String.class);
+            
+            if (response != null && !response.isEmpty()) {
+                serviceAvailable = true;
+                
+                Map<String, Object> responseMap = objectMapper.readValue(response, Map.class);
+                List<Map<String, Object>> models = (List<Map<String, Object>>) responseMap.get("models");
+                
+                if (models != null && !models.isEmpty()) {
+                    for (Map<String, Object> model : models) {
+                        String modelName = (String) model.get("name");
+                        if (modelName != null) {
+                            availableModels.add(modelName);
+                        }
+                    }
+                    log.info("Ollama service available with {} models: {}", availableModels.size(), availableModels);
+                } else {
+                    log.warn("Ollama service available but no models found. Please download models using: ollama pull <model>");
+                }
+            }
+        } catch (Exception e) {
+            serviceAvailable = false;
+            log.warn("Ollama service not available at {}. Error: {}. Please ensure Ollama is running.", baseUrl, e.getMessage());
+        }
+    }
+    
+    /**
+     * 验证模型是否可用。
+     *
+     * @param model 模型名称
+     * @throws IllegalArgumentException 如果模型为空或不可用
+     */
+    private void validateModel(String model) {
+        if (model == null || model.isEmpty()) {
+            if (!serviceAvailable) {
+                throw new IllegalArgumentException(
+                    "Ollama service not available. Please ensure Ollama is running at " + baseUrl);
+            }
+            if (availableModels.isEmpty()) {
+                throw new IllegalArgumentException(
+                    "No models available in Ollama. Please download a model using: ollama pull <model>");
+            }
+            throw new IllegalArgumentException(
+                "Model must be specified. Available models: " + availableModels + 
+                ". Please select a model from the model pool.");
+        }
+        
+        // 检查模型是否在已下载列表中（宽松检查，因为模型可能有别名）
+        if (!availableModels.isEmpty() && !availableModels.contains(model)) {
+            log.debug("Model '{}' not in available list, but will attempt to use it. Available: {}", model, availableModels);
+        }
     }
     
     @Override
@@ -112,7 +185,8 @@ public class OllamaProvider implements Provider {
     
     @Override
     public CompletableFuture<String> chatWithSystem(String systemPrompt, String message, String model, double temperature) {
-        String useModel = model != null ? model : defaultModel;
+        // 验证模型参数
+        validateModel(model);
         
         List<Map<String, String>> messages = new ArrayList<>();
         
@@ -122,7 +196,7 @@ public class OllamaProvider implements Provider {
         messages.add(Map.of("role", "user", "content", message));
         
         Map<String, Object> request = new HashMap<>();
-        request.put("model", useModel);
+        request.put("model", model);
         request.put("messages", messages);
         request.put("stream", false);
         request.put("options", Map.of("temperature", temperature));
@@ -148,7 +222,9 @@ public class OllamaProvider implements Provider {
     
     @Override
     public CompletableFuture<ChatResponse> chat(ChatRequest request) {
-        String useModel = request.model() != null ? request.model() : defaultModel;
+        // 验证模型参数
+        validateModel(request.model());
+        String model = request.model();
         
         List<Map<String, Object>> messages = new ArrayList<>();
         
@@ -185,7 +261,7 @@ public class OllamaProvider implements Provider {
         }
         
         Map<String, Object> ollamaRequest = new HashMap<>();
-        ollamaRequest.put("model", useModel);
+        ollamaRequest.put("model", model);
         ollamaRequest.put("messages", messages);
         ollamaRequest.put("stream", false);
         
@@ -296,7 +372,17 @@ public class OllamaProvider implements Provider {
         this.baseUrl = baseUrl;
     }
     
-    public void setDefaultModel(String defaultModel) {
-        this.defaultModel = defaultModel;
+    /**
+     * 获取已下载的模型列表。
+     */
+    public List<String> getAvailableModels() {
+        return List.copyOf(availableModels);
+    }
+    
+    /**
+     * 检查服务是否可用。
+     */
+    public boolean isServiceAvailable() {
+        return serviceAvailable;
     }
 }

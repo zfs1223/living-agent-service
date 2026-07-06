@@ -5,6 +5,8 @@ import com.livingagent.core.autonomy.ArtifactRecordService;
 import com.livingagent.core.database.entity.ArtifactRecordEntity;
 import com.livingagent.core.database.repository.ArtifactRecordRepository;
 import com.livingagent.core.security.AuthContext;
+import com.livingagent.core.security.auth.UnifiedAuthService;
+import com.livingagent.core.security.auth.UnifiedAuthService.AuthSession;
 import com.livingagent.gateway.controller.common.ApiResponse;
 import com.livingagent.gateway.security.ArtifactAccessService;
 import org.slf4j.Logger;
@@ -33,18 +35,22 @@ import java.util.Map;
 public class ArtifactController {
 
     private static final Logger log = LoggerFactory.getLogger(ArtifactController.class);
-    private static final String ARTIFACTS_BASE_DIR = "data/artifacts";
+    private static final String ARTIFACTS_BASE_DIR = System.getProperty("livingagent.artifact.dir", "data/artifacts");
+    private static final String ARTIFACTS_DEFAULT_DIR = "data/artifacts";
 
     private final ArtifactRecordService artifactRecordService;
     private final ArtifactRecordRepository artifactRecordRepository;
     private final ArtifactAccessService accessService;
+    private final UnifiedAuthService authService;
 
     public ArtifactController(ArtifactRecordService artifactRecordService,
                               ArtifactRecordRepository artifactRecordRepository,
-                              ArtifactAccessService accessService) {
+                              ArtifactAccessService accessService,
+                              UnifiedAuthService authService) {
         this.artifactRecordService = artifactRecordService;
         this.artifactRecordRepository = artifactRecordRepository;
         this.accessService = accessService;
+        this.authService = authService;
     }
 
     @GetMapping
@@ -202,14 +208,16 @@ public class ArtifactController {
 
     @PostMapping("/reindex")
     public ApiResponse<Map<String, Object>> reindexArtifacts(
-            @RequestParam(defaultValue = ARTIFACTS_BASE_DIR) String baseDir) {
+            @RequestParam(defaultValue = ARTIFACTS_DEFAULT_DIR) String baseDir) {
 
-        log.info("Starting artifact reindex from directory: {}", baseDir);
-        List<ArtifactRecord> indexed = artifactRecordService.scanAndIndexDirectory(baseDir);
+        // 若调用方未显式指定（使用默认占位），则回退到运行时系统属性
+        String effectiveDir = ARTIFACTS_DEFAULT_DIR.equals(baseDir) ? ARTIFACTS_BASE_DIR : baseDir;
+        log.info("Starting artifact reindex from directory: {}", effectiveDir);
+        List<ArtifactRecord> indexed = artifactRecordService.scanAndIndexDirectory(effectiveDir);
 
         return ApiResponse.ok(Map.of(
             "indexedCount", indexed.size(),
-            "baseDir", baseDir
+            "baseDir", effectiveDir
         ));
     }
 
@@ -298,13 +306,15 @@ public class ArtifactController {
     }
 
     private AuthContext resolveUser(String headerEmployeeId, String authorization) {
-        // 简化：解析 Authorization 中的 employeeId（base64）
+        // 优先从 Authorization: Bearer {sessionId} 验证
         if (authorization != null && authorization.startsWith("Bearer ")) {
-            String token = authorization.substring(7);
-            // 假设 token 格式为 "employeeId:name:..."
-            // 实际应解析 JWT
-            return null; // TODO: 解析 JWT 后填充 AuthContext
+            String sessionId = authorization.substring(7);
+            java.util.Optional<AuthSession> sessionOpt = authService.validateSession(sessionId);
+            if (sessionOpt.isPresent()) {
+                return sessionOpt.get().authContext();
+            }
         }
+        // 降级：从 X-Employee-Id header 构建 AuthContext
         if (headerEmployeeId != null && !headerEmployeeId.isBlank()) {
             AuthContext ctx = new AuthContext();
             ctx.setEmployeeId(headerEmployeeId);

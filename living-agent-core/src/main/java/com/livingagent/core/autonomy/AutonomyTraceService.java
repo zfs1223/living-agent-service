@@ -6,6 +6,7 @@ import com.livingagent.core.database.entity.TraceEventEntity;
 import com.livingagent.core.database.repository.TraceEventRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.concurrent.ExecutorService;
@@ -47,6 +48,7 @@ public class AutonomyTraceService {
         this.traceExecutor = traceExecutor;
     }
 
+    @Transactional
     public void recordEvent(AutonomyTraceEvent event) {
         traceEvents.add(event);
 
@@ -97,14 +99,14 @@ public class AutonomyTraceService {
             if (traceExecutor != null) {
                 traceExecutor.submit(() -> {
                     try {
-                        traceEventRepository.save(entity);
+                        traceEventRepository.saveAndVerify(entity);
                     } catch (Exception e) {
                         log.warn("Failed to persist trace event (async): requestId={}, stage={}, error={}",
                             event.requestId(), event.stage(), e.getMessage());
                     }
                 });
             } else {
-                traceEventRepository.save(entity);
+                traceEventRepository.saveAndVerify(entity);
             }
         } catch (JsonProcessingException e) {
             log.warn("Failed to serialize trace event data for persistence: {}", e.getMessage());
@@ -115,53 +117,47 @@ public class AutonomyTraceService {
     }
 
     public List<AutonomyTraceEvent> getTraceByRequestId(String requestId) {
-        // 优先从内存获取
-        List<AutonomyTraceEvent> memoryResults = traceEvents.stream()
-            .filter(e -> e.requestId().equals(requestId))
-            .toList();
-
-        // 如果内存有结果，直接返回
-        if (!memoryResults.isEmpty()) {
-            return memoryResults;
-        }
-
-        // 内存没有，从数据库查询
+        // B-0-4: DB 优先查询，内存作为兜底/补充。
+        // 原代码内存优先，会丢失已落库但尚未载入内存的事件（如服务重启后内存清空）。
         if (traceEventRepository != null) {
             try {
-                return traceEventRepository.findByRequestIdOrderByTimestampAsc(requestId).stream()
+                List<AutonomyTraceEvent> dbResults = traceEventRepository.findByRequestIdOrderByTimestampAsc(requestId).stream()
                     .map(this::entityToEvent)
                     .collect(Collectors.toList());
+                if (!dbResults.isEmpty()) {
+                    return dbResults;
+                }
             } catch (Exception e) {
                 log.warn("Failed to query trace events from database for requestId={}: {}", requestId, e.getMessage());
             }
         }
 
-        return List.of();
+        // DB 没有则回退到内存（兜底，未配置 repository 时仍可用）
+        return traceEvents.stream()
+            .filter(e -> e.requestId().equals(requestId))
+            .toList();
     }
 
     public List<AutonomyTraceEvent> getRecentTraces(int limit) {
-        int fromIndex = Math.max(0, traceEvents.size() - limit);
-        List<AutonomyTraceEvent> memoryResults = traceEvents.subList(fromIndex, traceEvents.size());
-
-        // 如果内存足够，直接返回
-        if (memoryResults.size() >= limit) {
-            return memoryResults;
-        }
-
-        // 否则从数据库补充
+        // B-0-4: DB 优先查询
         if (traceEventRepository != null) {
             try {
                 List<TraceEventEntity> dbResults = traceEventRepository.findTop1000ByOrderByTimestampDesc();
-                return dbResults.stream()
+                List<AutonomyTraceEvent> events = dbResults.stream()
                     .map(this::entityToEvent)
                     .limit(limit)
                     .collect(Collectors.toList());
+                if (!events.isEmpty()) {
+                    return events;
+                }
             } catch (Exception e) {
                 log.warn("Failed to query recent trace events from database: {}", e.getMessage());
             }
         }
 
-        return memoryResults;
+        // 兜底：使用内存
+        int fromIndex = Math.max(0, traceEvents.size() - limit);
+        return new java.util.ArrayList<>(traceEvents.subList(fromIndex, traceEvents.size()));
     }
 
     public void clearTraces() {
@@ -187,62 +183,58 @@ public class AutonomyTraceService {
 
     /**
      * P1-6.2: 通过 taskKey 查询 Trace 事件，实现与 RuntimeEventStore 的交叉查询
+     * B-0-4: DB 优先查询，内存兜底
      */
     public List<AutonomyTraceEvent> getTraceByTaskKey(String taskKey) {
         if (taskKey == null || taskKey.isBlank()) {
             return List.of();
         }
-        // 优先从内存获取
-        List<AutonomyTraceEvent> memoryResults = traceEvents.stream()
-            .filter(e -> taskKey.equals(e.taskKey()))
-            .toList();
-
-        if (!memoryResults.isEmpty()) {
-            return memoryResults;
-        }
-
-        // 内存没有，从数据库查询
+        // B-0-4: DB 优先查询
         if (traceEventRepository != null) {
             try {
-                return traceEventRepository.findByTaskKeyOrderByTimestampAsc(taskKey).stream()
+                List<AutonomyTraceEvent> dbResults = traceEventRepository.findByTaskKeyOrderByTimestampAsc(taskKey).stream()
                     .map(this::entityToEvent)
                     .collect(Collectors.toList());
+                if (!dbResults.isEmpty()) {
+                    return dbResults;
+                }
             } catch (Exception e) {
                 log.warn("Failed to query trace events by taskKey={}: {}", taskKey, e.getMessage());
             }
         }
 
-        return List.of();
+        // 兜底：内存
+        return traceEvents.stream()
+            .filter(e -> taskKey.equals(e.taskKey()))
+            .toList();
     }
 
     /**
      * P1-6.2: 通过 executionId 查询 Trace 事件，实现与 RuntimeEventStore 的交叉查询
+     * B-0-4: DB 优先查询，内存兜底
      */
     public List<AutonomyTraceEvent> getTraceByExecutionId(String executionId) {
         if (executionId == null || executionId.isBlank()) {
             return List.of();
         }
-        // 优先从内存获取
-        List<AutonomyTraceEvent> memoryResults = traceEvents.stream()
-            .filter(e -> executionId.equals(e.executionId()))
-            .toList();
-
-        if (!memoryResults.isEmpty()) {
-            return memoryResults;
-        }
-
-        // 内存没有，从数据库查询
+        // B-0-4: DB 优先查询
         if (traceEventRepository != null) {
             try {
-                return traceEventRepository.findByExecutionIdOrderByTimestampAsc(executionId).stream()
+                List<AutonomyTraceEvent> dbResults = traceEventRepository.findByExecutionIdOrderByTimestampAsc(executionId).stream()
                     .map(this::entityToEvent)
                     .collect(Collectors.toList());
+                if (!dbResults.isEmpty()) {
+                    return dbResults;
+                }
             } catch (Exception e) {
                 log.warn("Failed to query trace events by executionId={}: {}", executionId, e.getMessage());
             }
         }
 
-        return List.of();
+        // 兜底：内存
+        return traceEvents.stream()
+            .filter(e -> executionId.equals(e.executionId()))
+            .toList();
     }
 
     /**

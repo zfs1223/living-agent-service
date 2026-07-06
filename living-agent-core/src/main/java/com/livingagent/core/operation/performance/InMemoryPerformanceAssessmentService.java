@@ -140,10 +140,12 @@ public class InMemoryPerformanceAssessmentService implements PerformanceAssessme
         return Map.copyOf(indicators);
     }
 
+    @Override
     public List<EmployeeRanking> getCompanyTopPerformers(int limit) {
         return buildRankings(null, limit, true);
     }
 
+    @Override
     public List<EmployeeRanking> getCompanyBottomPerformers(int limit) {
         return buildRankings(null, limit, false);
     }

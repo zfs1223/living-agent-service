@@ -26,4 +26,21 @@ public interface TraceEventRepository extends JpaRepository<TraceEventEntity, UU
     List<TraceEventEntity> findByTaskKeyOrderByTimestampAsc(String taskKey);
 
     List<TraceEventEntity> findByExecutionIdOrderByTimestampAsc(String executionId);
+
+    // P18-A: traceId 查询（用于写入验证）
+    List<TraceEventEntity> findByTraceId(String traceId);
+
+    /**
+     * P18-A: 写入验证 — 保存后立即查询确认
+     */
+    default TraceEventEntity saveAndVerify(TraceEventEntity entity) {
+        TraceEventEntity saved = save(entity);
+        if (saved.getId() == null) {
+            throw new IllegalStateException("TraceEvent save verification failed: id is null");
+        }
+        if (!existsById(saved.getId())) {
+            throw new IllegalStateException("TraceEvent save verification failed: " + saved.getId());
+        }
+        return saved;
+    }
 }

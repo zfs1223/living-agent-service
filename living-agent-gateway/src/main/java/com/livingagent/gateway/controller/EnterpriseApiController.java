@@ -107,6 +107,7 @@ public class EnterpriseApiController {
                 emp.getTitle(),
                 emp.getIdentity().name(),
                 emp.getAccessLevel().name(),
+                emp.isDigital() ? "DIGITAL" : "HUMAN",
                 emp.getStatus() == com.livingagent.core.employee.EmployeeStatus.ACTIVE
             ));
         });
@@ -442,10 +443,24 @@ public class EnterpriseApiController {
         }
 
         String code = UUID.randomUUID().toString().substring(0, 12).toUpperCase();
+        String tenantId = (String) request.getOrDefault("tenantId", "tenant_default");
+
+        // 获取公司名称
+        String companyName = "未知公司";
+        try {
+            var tenantInfo = systemConfigService.getTenant(tenantId);
+            if (tenantInfo != null) {
+                companyName = tenantInfo.name();
+            }
+        } catch (Exception e) {
+            log.warn("Failed to get tenant name for tenantId: {}", tenantId);
+        }
+
         Map<String, Object> entry = new HashMap<>();
         entry.put("id", UUID.randomUUID().toString());
         entry.put("code", code);
-        entry.put("tenantId", request.getOrDefault("tenantId", "tenant_default"));
+        entry.put("tenantId", tenantId);
+        entry.put("companyName", companyName);
         entry.put("role", request.getOrDefault("role", "MEMBER"));
         entry.put("maxUses", request.getOrDefault("maxUses", 1));
         entry.put("usedCount", 0);
@@ -454,14 +469,21 @@ public class EnterpriseApiController {
         entry.put("createdAt", java.time.Instant.now().toString());
         entry.put("createdBy", ctxOpt.get().getEmployeeId());
 
+        // 生成完整邀请链接
+        // TODO: 从配置中读取 baseUrl
+        String baseUrl = "http://localhost:5173";  // 默认前端地址
+        String inviteUrl = String.format("%s/sso/entry?invite_code=%s&company=%s",
+            baseUrl, code, java.net.URLEncoder.encode(companyName, java.nio.charset.StandardCharsets.UTF_8));
+        entry.put("inviteUrl", inviteUrl);
+
         var settings = systemConfigService.getSettings();
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> codes = (List<Map<String, Object>>) settings.getOrDefault("invitationCodes", new ArrayList<>());
         codes.add(entry);
         settings.put("invitationCodes", codes);
 
-        log.info("Created invitation code: {} for tenant: {}", code, entry.get("tenantId"));
-        return ResponseEntity.ok(Map.of("success", true, "code", code, "entry", entry));
+        log.info("Created invitation code: {} for tenant: {} (company: {})", code, tenantId, companyName);
+        return ResponseEntity.ok(Map.of("success", true, "code", code, "inviteUrl", inviteUrl, "entry", entry));
     }
 
     @DeleteMapping("/invitation-codes/{id}")
@@ -553,6 +575,7 @@ public class EnterpriseApiController {
         String position,
         String identity,
         String accessLevel,
+        String employeeType,  // HUMAN / DIGITAL
         boolean active
     ) {}
 

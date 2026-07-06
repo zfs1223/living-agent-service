@@ -17,7 +17,10 @@ public record EmployeeWorkAssignment(
     List<String> allowedTools,
     Map<String, Object> context,
     String worktreePath,
-    String diffPath
+    String diffPath,
+    boolean reviewRequired,
+    String reviewerCode,
+    int maxReviewRounds
 ) {
     /** 兼容旧构造：无 worktree/diff 路径时使用 */
     public EmployeeWorkAssignment(String assignmentId, String department, String employeeCode,
@@ -26,7 +29,20 @@ public record EmployeeWorkAssignment(
                                    List<String> expectedDeliverables, List<String> allowedTools,
                                    Map<String, Object> context) {
         this(assignmentId, department, employeeCode, employeeNeuronId, employeeName, role,
-             objective, instruction, expectedDeliverables, allowedTools, context, null, null);
+             objective, instruction, expectedDeliverables, allowedTools, context, null, null,
+             false, null, 3);
+    }
+
+    /** 兼容旧构造：有 worktree/diff 路径但无审查字段 */
+    public EmployeeWorkAssignment(String assignmentId, String department, String employeeCode,
+                                   String employeeNeuronId, String employeeName, String role,
+                                   String objective, String instruction,
+                                   List<String> expectedDeliverables, List<String> allowedTools,
+                                   Map<String, Object> context,
+                                   String worktreePath, String diffPath) {
+        this(assignmentId, department, employeeCode, employeeNeuronId, employeeName, role,
+             objective, instruction, expectedDeliverables, allowedTools, context,
+             worktreePath, diffPath, false, null, 3);
     }
 
     /**
@@ -38,7 +54,18 @@ public record EmployeeWorkAssignment(
         return new EmployeeWorkAssignment(
             assignmentId, department, employeeCode, employeeNeuronId, employeeName, role,
             objective, instruction, expectedDeliverables, allowedTools, newContext,
-            worktreePath, diffPath
+            worktreePath, diffPath, reviewRequired, reviewerCode, maxReviewRounds
+        );
+    }
+
+    /**
+     * 设置审查信息，返回新的 EmployeeWorkAssignment
+     */
+    public EmployeeWorkAssignment withReview(String reviewerCode, int maxReviewRounds) {
+        return new EmployeeWorkAssignment(
+            assignmentId, department, employeeCode, employeeNeuronId, employeeName, role,
+            objective, instruction, expectedDeliverables, allowedTools, context,
+            worktreePath, diffPath, true, reviewerCode, maxReviewRounds
         );
     }
 }

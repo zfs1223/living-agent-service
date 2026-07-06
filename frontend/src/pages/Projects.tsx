@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../stores';
-import { projectApi, departmentApi } from '../services/api';
+import { projectApi, projectActionApi, departmentApi } from '../services/api';
 import { DEPARTMENTS, type Project, type ProjectTask, type ProjectStatus } from '../types';
 import {
     IconPlus,
@@ -61,6 +61,11 @@ export default function Projects() {
         queryKey: ['departments'],
         queryFn: () => departmentApi.list(),
     });
+
+    const { data: statistics } = useQuery({
+        queryKey: ['project-statistics'],
+        queryFn: () => projectActionApi.getStatistics(),
+    });
     
     const createMutation = useMutation({
         mutationFn: (data: any) => projectApi.create(data),
@@ -103,6 +108,20 @@ export default function Projects() {
                             <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{t('projects.projectCount')}</div>
                             <div style={{ fontSize: '22px', fontWeight: 700, marginTop: '6px' }}>{projects.length}</div>
                         </div>
+                        <div style={{ padding: '12px 14px', borderRadius: '16px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{t('projects.activeCount', '进行中')}</div>
+                            <div style={{ fontSize: '22px', fontWeight: 700, marginTop: '6px', color: 'var(--success)' }}>
+                                {(statistics as Record<string, any>)?.active ?? (statistics as Record<string, any>)?.activeCount ?? projects.filter((p: Project) => p.status === 'active').length}
+                            </div>
+                        </div>
+                        {(statistics as Record<string, any>)?.completed !== undefined && (
+                            <div style={{ padding: '12px 14px', borderRadius: '16px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{t('projects.completedCount', '已完成')}</div>
+                                <div style={{ fontSize: '22px', fontWeight: 700, marginTop: '6px', color: 'var(--accent-primary)' }}>
+                                    {(statistics as Record<string, any>)?.completed}
+                                </div>
+                            </div>
+                        )}
                         <button className="btn btn-primary" onClick={() => setShowCreateModal(true)} style={{ height: '100%', justifyContent: 'center' }}>
                             <IconPlus size={16} stroke={1.5} />
                             <span>{t('projects.newProject')}</span>

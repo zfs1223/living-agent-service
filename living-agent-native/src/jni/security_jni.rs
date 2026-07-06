@@ -5,7 +5,7 @@ use crate::security::{SecurityValidator, SecurityContext, SecurityLevel};
 use crate::jni::jstring_to_string;
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_native_SecurityNative_createValidator(
+pub extern "system" fn Java_com_livingagent_core_nativelib_SecurityNative_createValidator(
     _env: Env,
     _class: JClass,
 ) -> jlong {
@@ -15,7 +15,7 @@ pub extern "system" fn Java_com_livingagent_native_SecurityNative_createValidato
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_native_SecurityNative_destroyValidator(
+pub extern "system" fn Java_com_livingagent_core_nativelib_SecurityNative_destroyValidator(
     _env: Env,
     _class: JClass,
     handle: jlong,
@@ -28,7 +28,7 @@ pub extern "system" fn Java_com_livingagent_native_SecurityNative_destroyValidat
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_native_SecurityNative_validateCommand(
+pub extern "system" fn Java_com_livingagent_core_nativelib_SecurityNative_validateCommand(
     mut env: Env,
     _class: JClass,
     handle: jlong,
@@ -71,7 +71,7 @@ pub extern "system" fn Java_com_livingagent_native_SecurityNative_validateComman
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_native_SecurityNative_validatePath(
+pub extern "system" fn Java_com_livingagent_core_nativelib_SecurityNative_validatePath(
     mut env: Env,
     _class: JClass,
     handle: jlong,
@@ -114,7 +114,7 @@ pub extern "system" fn Java_com_livingagent_native_SecurityNative_validatePath(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_native_SecurityNative_addAllowedPath(
+pub extern "system" fn Java_com_livingagent_core_nativelib_SecurityNative_addAllowedPath(
     mut env: Env,
     _class: JClass,
     handle: jlong,
@@ -133,7 +133,7 @@ pub extern "system" fn Java_com_livingagent_native_SecurityNative_addAllowedPath
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_native_SecurityNative_addDeniedPath(
+pub extern "system" fn Java_com_livingagent_core_nativelib_SecurityNative_addDeniedPath(
     mut env: Env,
     _class: JClass,
     handle: jlong,

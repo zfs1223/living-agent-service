@@ -7,6 +7,7 @@ import com.livingagent.core.project.*;
 import com.livingagent.core.runtime.RuntimeEventStore;
 import com.livingagent.core.security.AccessGateService;
 import com.livingagent.core.security.AuthContext;
+import com.livingagent.gateway.controller.common.ApiResponse;
 import com.livingagent.core.security.auth.UnifiedAuthService;
 import com.livingagent.core.security.auth.UnifiedAuthService.AuthSession;
 import com.livingagent.gateway.security.WorkItemPermissionService;
@@ -423,21 +424,6 @@ public class ProjectController {
         if (request.managerId() != null) project.setManagerId(request.managerId());
         if (request.startDate() != null) project.setStartDate(request.startDate());
         if (request.endDate() != null) project.setEndDate(request.endDate());
-    }
-
-    public record ApiResponse<T>(
-            boolean success,
-            T data,
-            String error,
-            String errorDescription
-    ) {
-        public static <T> ApiResponse<T> ok(T data) {
-            return new ApiResponse<>(true, data, null, null);
-        }
-
-        public static <T> ApiResponse<T> err(String error, String description) {
-            return new ApiResponse<>(false, null, error, description);
-        }
     }
 
     public record ProjectSummary(

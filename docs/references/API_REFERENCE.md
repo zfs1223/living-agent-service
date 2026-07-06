@@ -15,6 +15,7 @@
 
 - 认证模块
 - 系统模块
+- 健康检查模块（HealthController）
 - 租户模块
 - 智能体模块
 - Agent 子资源模块
@@ -260,6 +261,49 @@ public ResponseEntity<?> adminMethod(@RequestHeader("X-Employee-Id") String empl
 | GET | `/api/system/health/detail` | 获取系统健康详情 |
 
 **说明**：`/api/system/register` 会创建董事长身份并可联动创建租户/公司初始化配置。
+
+### HealthController (`/api/health`)
+
+> **P12-B 专用健康检查端点**，用于 Kubernetes 容器探针和桌面端状态检查。无需登录，轻量级响应。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/health` | 基础健康状态（status, timestamp, version, uptime） |
+| GET | `/api/health/live` | Liveness 探针（返回 `{status: "alive"}`） |
+| GET | `/api/health/ready` | Readiness 探针（检查 DB + model_daemon 连通性） |
+
+**响应示例（GET /api/health）**：
+```json
+{
+  "success": true,
+  "data": {
+    "status": "UP",
+    "timestamp": "2026-07-06T01:42:10Z",
+    "version": "1.0.0",
+    "uptime": "2h30m"
+  }
+}
+```
+
+**响应示例（GET /api/health/ready）**：
+```json
+{
+  "success": true,
+  "data": {
+    "status": "ready",
+    "checks": {
+      "database": "ok",
+      "model_daemon": "ok"
+    }
+  }
+}
+```
+
+**说明**：
+- `/api/health/live` 仅检查 JVM 存活，适合 K8s livenessProbe
+- `/api/health/ready` 检查关键依赖可用性，适合 K8s readinessProbe
+- 与 `SystemController` `/api/system/health` 不同，后者返回完整健康详情并需权限检查
+
 ### SystemSettingsController (`/api/enterprise/settings`)
 
 | 方法 | 路径 | 说明 |
@@ -374,11 +418,12 @@ public ResponseEntity<?> adminMethod(@RequestHeader("X-Employee-Id") String empl
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/health` | 健康检查 |
 | GET | `/api/status` | 获取系统状态 |
 | POST | `/api/session/{sessionId}/start` | 启动会话 |
 | POST | `/api/session/{sessionId}/end` | 结束会话 |
 | GET | `/api/session/{sessionId}/status` | 获取会话状态 |
+
+**说明**：`/api/health` 已移至 `HealthController`（P12-B 专用健康检查端点）。
 
 ---
 

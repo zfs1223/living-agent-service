@@ -11,6 +11,7 @@ import com.livingagent.core.security.auth.UnifiedAuthService.AuthResult;
 import com.livingagent.core.security.auth.UnifiedAuthService.AuthSession;
 import com.livingagent.core.security.AccessGateService;
 import com.livingagent.core.security.auth.PhoneVerificationService;
+import com.livingagent.gateway.controller.common.ApiResponse;
 import com.livingagent.core.security.service.EnterpriseEmployeeService;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
@@ -310,7 +311,7 @@ public class PhoneAuthController {
                 employee.getIdentity().name(),
                 employee.getAccessLevel().name(),
                 employee.isFounder(),
-                "tenant_default",
+                employee.getTenantId(),
                 new ArrayList<>(employee.getAllowedBrains()),
                 new ArrayList<>(),
                 new ArrayList<>()
@@ -346,21 +347,6 @@ public class PhoneAuthController {
 
         response.addHeader("Set-Cookie", accessTokenCookie.toString());
         response.addHeader("Set-Cookie", refreshTokenCookie.toString());
-    }
-
-    public record ApiResponse<T>(
-            boolean success,
-            T data,
-            String error,
-            String errorDescription
-    ) {
-        public static <T> ApiResponse<T> ok(T data) {
-            return new ApiResponse<>(true, data, null, null);
-        }
-
-        public static <T> ApiResponse<T> err(String error, String description) {
-            return new ApiResponse<>(false, null, error, description);
-        }
     }
 
     public record SendSmsRequest(String phone, String type) {}

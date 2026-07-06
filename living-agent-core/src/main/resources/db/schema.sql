@@ -654,7 +654,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     clarification_questions TEXT,
     clarification_answer TEXT,
     clarification_requested_at TIMESTAMP WITH TIME ZONE,
-    blocking_issues TEXT
+    blocking_issues TEXT,
+    clarification_round INTEGER DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_task_task_id ON tasks(task_id);
@@ -763,6 +764,88 @@ CREATE INDEX IF NOT EXISTS idx_review_states_execution_id ON code_review_states(
 CREATE INDEX IF NOT EXISTS idx_review_states_developer ON code_review_states(developer_employee_code);
 CREATE INDEX IF NOT EXISTS idx_review_states_reviewer ON code_review_states(reviewer_employee_code);
 
+-- Internal Reviews Table (部门内审查持久化)
+CREATE TABLE IF NOT EXISTS internal_reviews (
+    id BIGSERIAL PRIMARY KEY,
+    review_id VARCHAR(100) NOT NULL UNIQUE,
+    todo_item_id VARCHAR(200) NOT NULL,
+    author_code VARCHAR(100),
+    reviewer_code VARCHAR(100),
+    execution_id VARCHAR(500),
+    review_round INTEGER DEFAULT 0,
+    max_rounds INTEGER DEFAULT 3,
+    status VARCHAR(50) NOT NULL,
+    result VARCHAR(50),
+    quality_score DOUBLE PRECISION,
+    review_comment TEXT,
+    revision_notes TEXT,
+    submitted_at TIMESTAMP WITH TIME ZONE,
+    reviewed_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_internal_review_todo_item_id ON internal_reviews(todo_item_id);
+CREATE INDEX IF NOT EXISTS idx_internal_review_status ON internal_reviews(status);
+
+-- Department Deliverables Table (M-DA: 部门交付物持久化)
+CREATE TABLE IF NOT EXISTS department_deliverables (
+    id BIGSERIAL PRIMARY KEY,
+    deliverable_id VARCHAR(200) NOT NULL UNIQUE,
+    department VARCHAR(50) NOT NULL,
+    plan_id VARCHAR(200),
+    objective TEXT,
+    status VARCHAR(50) NOT NULL,
+    items_json JSONB,
+    summary TEXT,
+    issues_json JSONB,
+    overall_quality_score DOUBLE PRECISION,
+    delivered_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_deliverable_department ON department_deliverables(department);
+CREATE INDEX IF NOT EXISTS idx_deliverable_plan_id ON department_deliverables(plan_id);
+
+-- Intervention Decisions Table (16.3: 干预决策持久化)
+CREATE TABLE IF NOT EXISTS intervention_decisions (
+    id BIGSERIAL PRIMARY KEY,
+    decision_id VARCHAR(100) NOT NULL UNIQUE,
+    session_id VARCHAR(100),
+    conversation_id VARCHAR(100),
+    operation_type VARCHAR(200) NOT NULL,
+    operation_details JSONB,
+    source_neuron_id VARCHAR(200),
+    source_channel_id VARCHAR(200),
+    risk_level VARCHAR(20),
+    risk_score DOUBLE PRECISION,
+    risk_factors JSONB,
+    impact_level VARCHAR(20),
+    impact_score DOUBLE PRECISION,
+    impact_scope JSONB,
+    intervention_type VARCHAR(30),
+    ai_decision TEXT,
+    human_decision TEXT,
+    final_decision TEXT,
+    status VARCHAR(30) NOT NULL,
+    department VARCHAR(64),
+    assigned_to VARCHAR(100),
+    responded_by VARCHAR(100),
+    timeout_seconds INTEGER,
+    escalation_level INTEGER,
+    learning_applied BOOLEAN,
+    learning_notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    responded_at TIMESTAMP WITH TIME ZONE,
+    completed_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE INDEX IF NOT EXISTS idx_intervention_decision_id ON intervention_decisions(decision_id);
+CREATE INDEX IF NOT EXISTS idx_intervention_status ON intervention_decisions(status);
+CREATE INDEX IF NOT EXISTS idx_intervention_department ON intervention_decisions(department);
+CREATE INDEX IF NOT EXISTS idx_intervention_created ON intervention_decisions(created_at);
+
 -- ============================================
 -- 6. Session / Conversation Tables
 -- ============================================
@@ -845,6 +928,10 @@ CREATE INDEX IF NOT EXISTS idx_sess_user_id ON session_contexts(user_id);
 CREATE INDEX IF NOT EXISTS idx_sess_tenant_id ON session_contexts(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_sess_conversation_id ON session_contexts(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_sess_last_activity ON session_contexts(last_activity);
+-- V28: 反向索引支持 (InMemoryConnectionRegistry 重启恢复)
+CREATE INDEX IF NOT EXISTS idx_sess_task_key ON session_contexts(task_key);
+CREATE INDEX IF NOT EXISTS idx_sess_execution_id ON session_contexts(execution_id);
+CREATE INDEX IF NOT EXISTS idx_sess_project_key ON session_contexts(project_key);
 
 -- Pending Events Table (V13)
 CREATE TABLE IF NOT EXISTS pending_events (
@@ -1815,7 +1902,7 @@ CREATE TABLE IF NOT EXISTS autonomy_trace_events (
     data TEXT,
     -- V22: 统一 Trace 关联键
     task_key VARCHAR(100),
-    execution_id VARCHAR(100),
+    execution_id VARCHAR(500),
     timestamp TIMESTAMP NOT NULL,
     created_at TIMESTAMP NOT NULL
 );
@@ -1826,6 +1913,84 @@ CREATE INDEX IF NOT EXISTS idx_trace_actor ON autonomy_trace_events (actor);
 CREATE INDEX IF NOT EXISTS idx_trace_timestamp ON autonomy_trace_events (timestamp);
 CREATE INDEX IF NOT EXISTS idx_trace_task_key ON autonomy_trace_events (task_key);
 CREATE INDEX IF NOT EXISTS idx_trace_execution_id ON autonomy_trace_events (execution_id);
+-- P18-A: trace_id unique constraint for write verification
+CREATE UNIQUE INDEX IF NOT EXISTS idx_trace_trace_id_unique ON autonomy_trace_events (trace_id);
+
+-- ============================================
+-- 21.2. Runtime Events Table (B-0-4)
+-- ============================================
+CREATE TABLE IF NOT EXISTS runtime_events (
+    id UUID PRIMARY KEY,
+    scope VARCHAR(32) NOT NULL,
+    scope_key VARCHAR(255) NOT NULL,
+    tenant_id VARCHAR(64),
+    event_type VARCHAR(128) NOT NULL,
+    data TEXT,
+    timestamp TIMESTAMP NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_re_scope ON runtime_events (scope);
+CREATE INDEX IF NOT EXISTS idx_re_scope_key ON runtime_events (scope, scope_key);
+CREATE INDEX IF NOT EXISTS idx_re_tenant ON runtime_events (tenant_id);
+CREATE INDEX IF NOT EXISTS idx_re_type ON runtime_events (event_type);
+CREATE INDEX IF NOT EXISTS idx_re_timestamp ON runtime_events (timestamp);
+
+-- ============================================
+-- 21.2.1. Department Execution Results Table (B-0-1)
+-- ============================================
+CREATE TABLE IF NOT EXISTS department_execution_results (
+    id UUID PRIMARY KEY,
+    execution_id VARCHAR(100) NOT NULL,
+    batch_id VARCHAR(100),
+    department VARCHAR(64),
+    status VARCHAR(32),
+    dispatched_assignments TEXT,
+    metadata TEXT,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_der_execution_id ON department_execution_results (execution_id);
+CREATE INDEX IF NOT EXISTS idx_der_batch_id ON department_execution_results (batch_id);
+CREATE INDEX IF NOT EXISTS idx_der_department ON department_execution_results (department);
+CREATE INDEX IF NOT EXISTS idx_der_status ON department_execution_results (status);
+
+-- ============================================
+-- 21.2.2. Notifications Table (B-1-11)
+-- ============================================
+CREATE TABLE IF NOT EXISTS notifications (
+    id BIGSERIAL PRIMARY KEY,
+    notification_id VARCHAR(64) NOT NULL UNIQUE,
+    department VARCHAR(64) NOT NULL,
+    type VARCHAR(32) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    content TEXT,
+    priority VARCHAR(16) NOT NULL DEFAULT 'NORMAL',
+    metadata_json TEXT,
+    timestamp TIMESTAMP NOT NULL,
+    read BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+CREATE INDEX IF NOT EXISTS idx_notif_dept ON notifications (department);
+CREATE INDEX IF NOT EXISTS idx_notif_dept_unread ON notifications (department, read);
+CREATE INDEX IF NOT EXISTS idx_notif_timestamp ON notifications (timestamp);
+
+-- ============================================
+-- 21.2.3. Brain Boundary Audit Table (T-1-5)
+-- ============================================
+CREATE TABLE IF NOT EXISTS brain_boundary_audit (
+    id BIGSERIAL PRIMARY KEY,
+    timestamp TIMESTAMP NOT NULL,
+    brain_id VARCHAR(64) NOT NULL,
+    action_type VARCHAR(128) NOT NULL,
+    result VARCHAR(32) NOT NULL,
+    violation_type VARCHAR(64),
+    message TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_bba_brain ON brain_boundary_audit (brain_id);
+CREATE INDEX IF NOT EXISTS idx_bba_timestamp ON brain_boundary_audit (timestamp);
+CREATE INDEX IF NOT EXISTS idx_bba_result ON brain_boundary_audit (result);
 
 -- ============================================
 -- 21.3. Ledger Transaction Tables (V27)
@@ -1894,6 +2059,137 @@ CREATE TABLE IF NOT EXISTS service_admin_bootstrap_state (
 );
 
 CREATE INDEX IF NOT EXISTS idx_bootstrap_state_status ON service_admin_bootstrap_state(status);
+
+-- ============================================
+-- 21.6. Plan Approval Requests Table (V27)
+-- 计划审批请求持久化表 - P2-3 修复
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS plan_approval_requests (
+    request_id VARCHAR(50) PRIMARY KEY,
+    submitter_neuron_id VARCHAR(255),
+    plan_text TEXT,
+    plan_type VARCHAR(32),
+    status VARCHAR(16) DEFAULT 'PENDING',
+    submitted_at TIMESTAMP WITH TIME ZONE,
+    deadline_ms BIGINT
+);
+
+CREATE INDEX IF NOT EXISTS idx_plan_approval_status ON plan_approval_requests(status);
+CREATE INDEX IF NOT EXISTS idx_plan_approval_submitter ON plan_approval_requests(submitter_neuron_id);
+CREATE INDEX IF NOT EXISTS idx_plan_approval_submitted_at ON plan_approval_requests(submitted_at);
+
+COMMENT ON TABLE plan_approval_requests IS '计划审批请求持久化表';
+COMMENT ON COLUMN plan_approval_requests.request_id IS '请求ID(主键)';
+COMMENT ON COLUMN plan_approval_requests.submitter_neuron_id IS '提交者神经元ID';
+COMMENT ON COLUMN plan_approval_requests.plan_text IS '计划文本内容';
+COMMENT ON COLUMN plan_approval_requests.plan_type IS '计划类型(CODE_CHANGE/ARCHITECTURE_DECISION/DEPLOYMENT_PLAN/DATA_MIGRATION/SECURITY_CHANGE/GENERAL)';
+COMMENT ON COLUMN plan_approval_requests.status IS '审批状态(PENDING/APPROVED/REJECTED/EXPIRED)';
+COMMENT ON COLUMN plan_approval_requests.submitted_at IS '提交时间';
+COMMENT ON COLUMN plan_approval_requests.deadline_ms IS '截止时间(毫秒)';
+
+-- ============================================
+-- 21.7. Approval Workflow Tables (V27)
+-- 审批流程定义与实例持久化
+-- ============================================
+
+-- 审批流程定义表
+CREATE TABLE IF NOT EXISTS approval_workflows (
+    id BIGSERIAL PRIMARY KEY,
+    workflow_id VARCHAR(100) NOT NULL UNIQUE,
+    name VARCHAR(200),
+    description TEXT,
+    steps_json JSONB,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_approval_workflow_id ON approval_workflows(workflow_id);
+CREATE INDEX IF NOT EXISTS idx_approval_workflow_enabled ON approval_workflows(enabled);
+
+-- 审批实例表
+CREATE TABLE IF NOT EXISTS approval_instances (
+    id BIGSERIAL PRIMARY KEY,
+    instance_id VARCHAR(100) NOT NULL UNIQUE,
+    workflow_id VARCHAR(100),
+    business_type VARCHAR(64),
+    business_id VARCHAR(200),
+    title VARCHAR(500),
+    description TEXT,
+    status VARCHAR(30) NOT NULL,
+    current_step INTEGER NOT NULL DEFAULT 0,
+    submitter_id VARCHAR(200),
+    records_json JSONB,
+    context_json TEXT,
+    created_at TIMESTAMP NOT NULL,
+    completed_at TIMESTAMP,
+    updated_at TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_approval_instance_id ON approval_instances(instance_id);
+CREATE INDEX IF NOT EXISTS idx_approval_submitter ON approval_instances(submitter_id);
+CREATE INDEX IF NOT EXISTS idx_approval_status ON approval_instances(status);
+CREATE INDEX IF NOT EXISTS idx_approval_workflow_inst ON approval_instances(workflow_id);
+CREATE INDEX IF NOT EXISTS idx_approval_business ON approval_instances(business_type, business_id);
+CREATE INDEX IF NOT EXISTS idx_approval_created_at ON approval_instances(created_at);
+
+-- ============================================
+-- 21.8. DAG Task Tables (P2-3)
+-- 任务依赖图持久化
+-- ============================================
+
+-- DAG 任务表
+CREATE TABLE IF NOT EXISTS dag_tasks (
+    task_id VARCHAR(50) PRIMARY KEY,
+    subject VARCHAR(255),
+    description VARCHAR(1000),
+    status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+    blocked_by TEXT,  -- JSON array of task IDs
+    blocks TEXT,      -- JSON array of task IDs
+    assignee VARCHAR(255),
+    worktree VARCHAR(100),
+    role VARCHAR(100),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_dag_task_status ON dag_tasks(status);
+CREATE INDEX IF NOT EXISTS idx_dag_task_assignee ON dag_tasks(assignee);
+CREATE INDEX IF NOT EXISTS idx_dag_task_role ON dag_tasks(role);
+
+COMMENT ON TABLE dag_tasks IS 'DAG 任务持久化表(P2-3)';
+COMMENT ON COLUMN dag_tasks.task_id IS '任务ID(主键)';
+COMMENT ON COLUMN dag_tasks.subject IS '任务主题';
+COMMENT ON COLUMN dag_tasks.description IS '任务描述';
+COMMENT ON COLUMN dag_tasks.status IS '任务状态(PENDING/IN_PROGRESS/COMPLETED/FAILED/CANCELLED)';
+COMMENT ON COLUMN dag_tasks.blocked_by IS '阻塞依赖(JSON数组:被哪些任务阻塞)';
+COMMENT ON COLUMN dag_tasks.blocks IS '阻塞下游(JSON数组:阻塞哪些任务)';
+COMMENT ON COLUMN dag_tasks.assignee IS '分配给谁';
+COMMENT ON COLUMN dag_tasks.worktree IS '工作树路径';
+COMMENT ON COLUMN dag_tasks.role IS '角色标识';
+COMMENT ON COLUMN dag_tasks.created_at IS '创建时间';
+COMMENT ON COLUMN dag_tasks.updated_at IS '更新时间';
+
+-- ============================================
+-- 21.9. Visitors Table
+-- 前台访客签到持久化
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS visitors (
+    id BIGSERIAL PRIMARY KEY,
+    visitor_id VARCHAR(64) NOT NULL UNIQUE,
+    name VARCHAR(100) NOT NULL,
+    purpose VARCHAR(255),
+    contact VARCHAR(100),
+    host_employee_id VARCHAR(100),
+    check_in_time TIMESTAMP NOT NULL,
+    check_out_time TIMESTAMP,
+    status VARCHAR(32) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_visitor_status ON visitors (status);
+CREATE INDEX IF NOT EXISTS idx_visitor_checkin ON visitors (check_in_time);
 
 -- ============================================
 -- 22. Views (from V4)
@@ -2111,13 +2407,8 @@ VALUES
     ('ollama', 'Ollama', 'OPENAI_COMPATIBLE', 'http://localhost:11434/v1', TRUE, 4096)
 ON CONFLICT (id) DO NOTHING;
 
--- Insert default models (V2) — 仅保留 ollama 本地模型
-INSERT INTO llm_models (provider_id, model_name, display_name, context_window, max_output_tokens, supports_vision, supports_reasoning, enabled, recommended, best_for, input_types)
-VALUES 
-    ('ollama', 'qwen2.5:7b', 'Qwen2.5 7B (本地)', 32768, 4096, FALSE, FALSE, TRUE, TRUE, '本地部署、低延迟', 'text'),
-    ('ollama', 'qwen2.5:14b', 'Qwen2.5 14B (本地)', 32768, 4096, FALSE, FALSE, FALSE, FALSE, '本地部署、中等复杂度', 'text'),
-    ('ollama', 'llama3.2:3b', 'Llama 3.2 3B (本地)', 8192, 2048, FALSE, FALSE, FALSE, FALSE, '本地部署、轻量任务', 'text')
-ON CONFLICT (provider_id, model_name) DO NOTHING;
+-- 默认模型不写入种子数据，由用户通过模型池管理界面自行配置添加
+-- 模型池支持动态注册多个供应商（OpenAI、Ollama、DeepSeek 等）和多个模型
 
 -- 大脑模型分配不写入种子数据，由 BrainModelAssigner 在运行时动态分配
 -- 如需初始化默认分配，通过 API 调用 ModelPoolController.assignBrainModel() 完成
@@ -2309,3 +2600,23 @@ ON CONFLICT (code) DO UPDATE SET
     accessory_variant = EXCLUDED.accessory_variant,
     badge_label = EXCLUDED.badge_label,
     updated_at = CURRENT_TIMESTAMP;
+
+-- ============================================
+-- 26. Messages Table (MessageController)
+-- ============================================
+CREATE TABLE IF NOT EXISTS messages (
+    id BIGSERIAL PRIMARY KEY,
+    message_id VARCHAR(64) NOT NULL UNIQUE,
+    recipient_id VARCHAR(100) NOT NULL,
+    sender_id VARCHAR(100),
+    type VARCHAR(32) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    content TEXT,
+    metadata_json TEXT,
+    created_at TIMESTAMP NOT NULL,
+    read_at TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_msg_recipient ON messages (recipient_id);
+CREATE INDEX IF NOT EXISTS idx_msg_recipient_unread ON messages (recipient_id, read_at);
+CREATE INDEX IF NOT EXISTS idx_msg_created_at ON messages (created_at);

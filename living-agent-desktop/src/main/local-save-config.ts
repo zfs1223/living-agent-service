@@ -5,7 +5,7 @@
  * - 用户可修改（设置 UI）
  */
 import { app } from 'electron';
-import { writeFile, readFile, mkdir } from 'fs/promises';
+import { writeFile, readFile, mkdir, readdir, stat } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { SHARED_CONSTANTS } from '../shared/constants';
@@ -106,16 +106,92 @@ export function resolveLocalPath(
 
 /**
  * 统计本地保存目录
+ * 异步分批遍历目录，计算文件数和总大小，避免阻塞主线程
  */
 export async function computeStats(): Promise<LocalSaveStats> {
   if (!cachedConfig) {
     return { totalBytes: 0, fileCount: 0, lastSyncAt: null, oldestFileAt: null };
   }
-  // TODO: 实际遍历目录计算（避免阻塞，异步分批）
-  return {
-    totalBytes: 0,
-    fileCount: 0,
-    lastSyncAt: null,
-    oldestFileAt: null
-  };
+
+  const basePath = cachedConfig.basePath;
+  if (!existsSync(basePath)) {
+    return { totalBytes: 0, fileCount: 0, lastSyncAt: null, oldestFileAt: null };
+  }
+
+  let totalBytes = 0;
+  let fileCount = 0;
+  let lastSyncAt: string | null = null;
+  let oldestFileAt: string | null = null;
+
+  // 异步分批遍历目录
+  const BATCH_SIZE = 100; // 每批处理 100 个文件
+  const queue: string[] = [basePath];
+
+  while (queue.length > 0) {
+    const batch = queue.splice(0, BATCH_SIZE);
+    const results = await Promise.all(
+      batch.map(async (dirPath) => {
+        try {
+          const entries = await readdir(dirPath, { withFileTypes: true });
+          const subdirs: string[] = [];
+          const files: string[] = [];
+
+          for (const entry of entries) {
+            const fullPath = join(dirPath, entry.name);
+            if (entry.isDirectory()) {
+              subdirs.push(fullPath);
+            } else if (entry.isFile()) {
+              files.push(fullPath);
+            }
+          }
+
+          return { subdirs, files };
+        } catch (e) {
+          console.warn('[local-save-config] Failed to read directory:', dirPath, e);
+          return { subdirs: [], files: [] };
+        }
+      })
+    );
+
+    // 合并结果
+    for (const result of results) {
+      queue.push(...result.subdirs);
+
+      // 批量获取文件信息
+      const fileStats = await Promise.all(
+        result.files.map(async (filePath) => {
+          try {
+            const fileStat = await stat(filePath);
+            return {
+              size: fileStat.size,
+              mtime: fileStat.mtime.toISOString()
+            };
+          } catch (e) {
+            console.warn('[local-save-config] Failed to stat file:', filePath, e);
+            return null;
+          }
+        })
+      );
+
+      // 更新统计信息
+      for (const fileStat of fileStats) {
+        if (fileStat) {
+          totalBytes += fileStat.size;
+          fileCount++;
+
+          if (!lastSyncAt || fileStat.mtime > lastSyncAt) {
+            lastSyncAt = fileStat.mtime;
+          }
+          if (!oldestFileAt || fileStat.mtime < oldestFileAt) {
+            oldestFileAt = fileStat.mtime;
+          }
+        }
+      }
+    }
+
+    // 让出主线程，避免阻塞
+    await new Promise(resolve => setImmediate(resolve));
+  }
+
+  return { totalBytes, fileCount, lastSyncAt, oldestFileAt };
 }

@@ -8,6 +8,7 @@ import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry
 import org.springframework.web.socket.server.standard.ServletServerContainerFactoryBean;
 
 import com.livingagent.gateway.websocket.AgentWebSocketHandler;
+import com.livingagent.gateway.websocket.AuthHandshakeInterceptor;
 import com.livingagent.gateway.websocket.DepartmentWebSocketHandler;
 
 @Configuration
@@ -19,31 +20,37 @@ public class WebSocketConfig implements WebSocketConfigurer {
     
     private final AgentWebSocketHandler agentWebSocketHandler;
     private final DepartmentWebSocketHandler departmentWebSocketHandler;
+    private final AuthHandshakeInterceptor authHandshakeInterceptor;
     
     public WebSocketConfig(AgentWebSocketHandler agentWebSocketHandler,
-                          DepartmentWebSocketHandler departmentWebSocketHandler) {
+                          DepartmentWebSocketHandler departmentWebSocketHandler,
+                          AuthHandshakeInterceptor authHandshakeInterceptor) {
         this.agentWebSocketHandler = agentWebSocketHandler;
         this.departmentWebSocketHandler = departmentWebSocketHandler;
+        this.authHandshakeInterceptor = authHandshakeInterceptor;
     }
     
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
-        // 生产环境应限制为具体域名，通过 WS_ALLOWED_ORIGINS 环境变量配置
-        String allowedOrigins = System.getenv("WS_ALLOWED_ORIGINS");
-        String[] origins = (allowedOrigins != null && !allowedOrigins.isBlank())
-            ? allowedOrigins.split(",") : new String[]{"*"};
+        // 使用 setAllowedOriginPatterns("*") 允许所有来源连接 WebSocket
+        // 安全性由 AuthHandshakeInterceptor 的 Token 认证保证
+        String[] origins = {"*"};
 
         registry.addHandler(agentWebSocketHandler, "/ws/agent")
-            .setAllowedOrigins(origins);
+            .addInterceptors(authHandshakeInterceptor)
+            .setAllowedOriginPatterns(origins);
 
         registry.addHandler(departmentWebSocketHandler, "/ws/dept/*")
-            .setAllowedOrigins(origins);
+            .addInterceptors(authHandshakeInterceptor)
+            .setAllowedOriginPatterns(origins);
 
         registry.addHandler(departmentWebSocketHandler, "/ws/enterprise")
-            .setAllowedOrigins(origins);
+            .addInterceptors(authHandshakeInterceptor)
+            .setAllowedOriginPatterns(origins);
 
         registry.addHandler(departmentWebSocketHandler, "/ws/public")
-            .setAllowedOrigins(origins);
+            .addInterceptors(authHandshakeInterceptor)
+            .setAllowedOriginPatterns(origins);
     }
 
     @Bean

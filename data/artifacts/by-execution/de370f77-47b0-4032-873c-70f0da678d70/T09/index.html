@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>跳动的小球</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      background-color: #f0f2f5;
+      font-family: 'Arial', sans-serif;
+    }
+
+    .container {
+      text-align: center;
+    }
+
+    h1 {
+      color: #333;
+      margin-bottom: 30px;
+      font-size: 2rem;
+    }
+
+    .ball {
+      width: 60px;
+      height: 60px;
+      background-color: #ff4757;
+      border-radius: 50%;
+      margin: 0 auto;
+      animation: jump 0.6s infinite alternate ease-in-out;
+      box-shadow: 0 6px 12px rgba(0,0,0,0.2);
+    }
+
+    @keyframes jump {
+      from {
+        transform: translateY(0);
+      }
+      to {
+        transform: translateY(-30px);
+      }
+    }
+
+    .info {
+      margin-top: 40px;
+      color: #666;
+      font-size: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>跳动的小球</h1>
+    <div class="ball"></div>
+    <p class="info">这是一个具有CSS动画效果的跳动小球。</p>
+  </div>
+
+  <script>
+    // 可扩展逻辑预留（例如：控制动画启停、记录跳动次数等）
+    document.addEventListener('DOMContentLoaded', () => {
+      console.log('页面加载完成，跳动动画已启动。');
+      
+      // 示例：点击小球暂停/恢复动画
+      const ball = document.querySelector('.ball');
+      let isAnimating = true;
+
+      ball.addEventListener('click', () => {
+        if (isAnimating) {
+          ball.style.animationPlayState = 'paused';
+          isAnimating = false;
+        } else {
+          ball.style.animationPlayState = 'running';
+          isAnimating = true;
+        }
+      });
+    });
+  </script>
+</body>
+</html>

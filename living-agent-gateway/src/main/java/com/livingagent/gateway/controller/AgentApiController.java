@@ -9,6 +9,7 @@ import com.livingagent.core.security.AccessGateService;
 import com.livingagent.core.neuron.Neuron;
 import com.livingagent.core.neuron.NeuronRegistry;
 import com.livingagent.core.util.IdUtils;
+import com.livingagent.gateway.controller.common.ApiResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -315,7 +316,7 @@ public class AgentApiController {
         return ResponseEntity.ok(ApiResponse.ok(metrics));
     }
 
-    // Note: /{agentId}/tasks endpoint is handled by AgentTaskController
+    // Note: /{agentId}/tasks endpoint 已废弃，任务接口统一使用 TaskController 的 /api/tasks
 
     @GetMapping("/{agentId}/activity")
     public ResponseEntity<ApiResponse<List<ActivityInfo>>> getAgentActivity(
@@ -740,21 +741,6 @@ public class AgentApiController {
                 0.0,
                 employee.getLastActiveAt()
         );
-    }
-
-    public record ApiResponse<T>(
-            boolean success,
-            T data,
-            String error,
-            String errorDescription
-    ) {
-        public static <T> ApiResponse<T> ok(T data) {
-            return new ApiResponse<>(true, data, null, null);
-        }
-
-        public static <T> ApiResponse<T> err(String error, String description) {
-            return new ApiResponse<>(false, null, error, description);
-        }
     }
 
     public record AgentSummary(

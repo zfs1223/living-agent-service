@@ -198,4 +198,24 @@ public class ChannelManagerImpl implements ChannelManager {
     public int count() {
         return channels.size();
     }
+
+    @Override
+    public ChannelHealthSummary getHealthSummary() {
+        int total = channels.size();
+        int active = 0;
+        int empty = 0;
+        int totalSubscribers = 0;
+        long totalMessages = 0;
+
+        for (Channel channel : channels.values()) {
+            int subs = channel.getSubscribers().size();
+            int msgs = channel.getMessageCount();
+            totalSubscribers += subs;
+            totalMessages += msgs;
+            if (subs > 0) active++;
+            if (subs == 0) empty++;
+        }
+
+        return new ChannelHealthSummary(total, active, empty, totalSubscribers, totalMessages);
+    }
 }

@@ -4,8 +4,11 @@ import com.livingagent.core.autonomy.DepartmentTaskPlan;
 import com.livingagent.core.autonomy.EmployeeWorkAssignment;
 import com.livingagent.core.autonomy.FixedEmployeeDispatcher;
 import com.livingagent.core.autonomy.MainBrainTaskPlan;
+import com.livingagent.core.autonomy.PerformanceStatsService;
 import com.livingagent.core.autonomy.TaskMetadataKeys;
 import com.livingagent.core.employee.registry.FixedEmployeeRegistry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -18,10 +21,21 @@ import java.util.UUID;
 
 public class RegistryBackedFixedEmployeeDispatcher implements FixedEmployeeDispatcher {
 
+    private static final Logger log = LoggerFactory.getLogger(RegistryBackedFixedEmployeeDispatcher.class);
+
     private final FixedEmployeeRegistry fixedEmployeeRegistry;
+    // NP2-4: 绩效数据注入（可选，为 null 时不影响分派）
+    private final PerformanceStatsService performanceStatsService;
 
     public RegistryBackedFixedEmployeeDispatcher(FixedEmployeeRegistry fixedEmployeeRegistry) {
+        this(fixedEmployeeRegistry, null);
+    }
+
+    /** NP2-4: 支持注入绩效统计服务 */
+    public RegistryBackedFixedEmployeeDispatcher(FixedEmployeeRegistry fixedEmployeeRegistry,
+                                                   PerformanceStatsService performanceStatsService) {
         this.fixedEmployeeRegistry = fixedEmployeeRegistry;
+        this.performanceStatsService = performanceStatsService;
     }
 
     @Override
@@ -46,8 +60,70 @@ public class RegistryBackedFixedEmployeeDispatcher implements FixedEmployeeDispa
                 findByRoleOrCapability(definitions, role).map(FixedEmployeeRegistry.FixedEmployeeDefinition::code).ifPresent(selectedCodes::add);
             }
         }
+        // P0-4 改进：规则版分派增加工具匹配 + 能力排序
         if (selectedCodes.isEmpty()) {
-            definitions.stream().limit(3).map(FixedEmployeeRegistry.FixedEmployeeDefinition::code).forEach(selectedCodes::add);
+            // 1. 从 MainBrainTaskPlan 获取所需工具
+            List<String> requiredTools = mainBrainTaskPlan.requiredTools() != null
+                ? mainBrainTaskPlan.requiredTools()
+                : List.of();
+            List<String> suggestedRoles = departmentTaskPlan.suggestedRoles();
+
+            // 2. 工具匹配（硬性约束）+ 能力匹配（优先级排序）+ NP2-4: 绩效优先
+            List<FixedEmployeeRegistry.FixedEmployeeDefinition> matched = definitions.stream()
+                // 硬性约束：工具匹配（员工必须拥有任务所需的全部工具）
+                .filter(def -> requiredTools.isEmpty()
+                    || def.tools() != null && new java.util.HashSet<>(def.tools()).containsAll(requiredTools))
+                // 优先级排序：能力匹配度 + 绩效评分
+                .sorted((a, b) -> {
+                    long aMatch = a.capabilities() != null
+                        ? a.capabilities().stream()
+                            .filter(c -> suggestedRoles.stream()
+                                .anyMatch(r -> c.toLowerCase().contains(r.toLowerCase())))
+                            .count()
+                        : 0;
+                    long bMatch = b.capabilities() != null
+                        ? b.capabilities().stream()
+                            .filter(c -> suggestedRoles.stream()
+                                .anyMatch(r -> c.toLowerCase().contains(r.toLowerCase())))
+                            .count()
+                        : 0;
+                    // NP2-4: 能力匹配度相同时，绩效高的优先
+                    if (aMatch != bMatch) return Long.compare(bMatch, aMatch);
+                    double aPerf = getPerformanceScore(a.code());
+                    double bPerf = getPerformanceScore(b.code());
+                    return Double.compare(bPerf, aPerf);
+                })
+                .limit(3)
+                .toList();
+
+            // 3. 如果工具匹配无结果，降级：不考虑工具，只按能力匹配
+            if (matched.isEmpty() && !requiredTools.isEmpty()) {
+                log.warn("No employees with required tools {} in department {}, falling back to all employees",
+                    requiredTools, departmentTaskPlan.department());
+                matched = definitions.stream()
+                    .sorted((a, b) -> {
+                        long aMatch = a.capabilities() != null
+                            ? a.capabilities().stream()
+                                .filter(c -> suggestedRoles.stream()
+                                    .anyMatch(r -> c.toLowerCase().contains(r.toLowerCase())))
+                                .count()
+                            : 0;
+                        long bMatch = b.capabilities() != null
+                            ? b.capabilities().stream()
+                                .filter(c -> suggestedRoles.stream()
+                                    .anyMatch(r -> c.toLowerCase().contains(r.toLowerCase())))
+                                .count()
+                            : 0;
+                        if (aMatch != bMatch) return Long.compare(bMatch, aMatch);
+                        double aPerf = getPerformanceScore(a.code());
+                        double bPerf = getPerformanceScore(b.code());
+                        return Double.compare(bPerf, aPerf);
+                    })
+                    .limit(3)
+                    .toList();
+            }
+
+            matched.stream().map(FixedEmployeeRegistry.FixedEmployeeDefinition::code).forEach(selectedCodes::add);
         }
 
         List<EmployeeWorkAssignment> assignments = new ArrayList<>();
@@ -151,6 +227,19 @@ public class RegistryBackedFixedEmployeeDispatcher implements FixedEmployeeDispa
             }
         }
         return reassigned;
+    }
+
+    /**
+     * NP2-4: 获取员工绩效评分。绩效服务不可用时返回 0.0。
+     */
+    private double getPerformanceScore(String employeeCode) {
+        if (performanceStatsService == null) return 0.0;
+        try {
+            PerformanceStatsService.EmployeePerformanceStats stats = performanceStatsService.getStats(employeeCode);
+            return stats != null ? stats.normalizedScore() : 0.0;
+        } catch (Exception e) {
+            return 0.0;
+        }
     }
 
     private Optional<FixedEmployeeRegistry.FixedEmployeeDefinition> findByRoleOrCapability(

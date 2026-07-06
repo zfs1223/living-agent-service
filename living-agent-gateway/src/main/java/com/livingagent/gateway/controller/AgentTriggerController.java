@@ -1,6 +1,7 @@
 package com.livingagent.gateway.controller;
 
 import com.livingagent.core.security.AccessGateService;
+import com.livingagent.gateway.controller.common.ApiResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -27,7 +28,7 @@ public class AgentTriggerController {
             @PathVariable String agentId,
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.debug("Listing triggers for agent: {}", agentId);
 
@@ -41,7 +42,7 @@ public class AgentTriggerController {
                 Instant.now()
         ));
 
-        return ResponseEntity.ok(ApiResponse.success(triggers));
+        return ResponseEntity.ok(ApiResponse.ok(triggers));
     }
 
     @PatchMapping("/{triggerId}")
@@ -52,7 +53,7 @@ public class AgentTriggerController {
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.info("Updating trigger: {} for agent: {}", triggerId, agentId);
 
@@ -65,7 +66,7 @@ public class AgentTriggerController {
                 Instant.now()
         );
 
-        return ResponseEntity.ok(ApiResponse.success(trigger));
+        return ResponseEntity.ok(ApiResponse.ok(trigger));
     }
 
     @DeleteMapping("/{triggerId}")
@@ -75,26 +76,11 @@ public class AgentTriggerController {
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.info("Deleting trigger: {} for agent: {}", triggerId, agentId);
 
-        return ResponseEntity.ok(ApiResponse.success(Map.of("status", "deleted", "id", triggerId)));
-    }
-
-    public record ApiResponse<T>(
-            boolean success,
-            T data,
-            String error,
-            String errorDescription
-    ) {
-        public static <T> ApiResponse<T> success(T data) {
-            return new ApiResponse<>(true, data, null, null);
-        }
-
-        public static <T> ApiResponse<T> error(String error, String description) {
-            return new ApiResponse<>(false, null, error, description);
-        }
+        return ResponseEntity.ok(ApiResponse.ok(Map.of("status", "deleted", "id", triggerId)));
     }
 
     public record TriggerInfo(

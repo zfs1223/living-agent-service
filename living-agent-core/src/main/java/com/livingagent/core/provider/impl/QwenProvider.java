@@ -13,6 +13,7 @@ import org.slf4j.LoggerFactory;
 
 import com.livingagent.core.model.ModelManager;
 import com.livingagent.core.model.ModelResponse;
+import com.livingagent.core.provider.InferenceResultValidator;
 import com.livingagent.core.provider.Provider;
 import com.livingagent.core.tool.ToolSchema;
 
@@ -23,6 +24,7 @@ public class QwenProvider implements Provider {
     private final ModelManager modelManager;
     private final String sessionId;
     private final String modelName;
+    private final InferenceResultValidator resultValidator = new InferenceResultValidator();
     
     public QwenProvider(ModelManager modelManager) {
         this(modelManager, "qwen3-0.6b");
@@ -87,7 +89,13 @@ public class QwenProvider implements Provider {
         return modelManager.generateText(sessionId, fullPrompt.toString(), null)
             .thenApply(response -> {
                 if (response.isSuccess()) {
-                    return response.getText();
+                    String text = response.getText();
+                    InferenceResultValidator.ValidationResult vr = resultValidator.validate(text);
+                    if (!vr.valid()) {
+                        log.warn("P20-D: Qwen inference result invalid: {}", vr.reason());
+                        throw new RuntimeException("Qwen inference validation failed: " + vr.reason());
+                    }
+                    return text;
                 } else {
                     throw new RuntimeException("Qwen generation failed: " + response.getError());
                 }
@@ -135,9 +143,17 @@ public class QwenProvider implements Provider {
                 if (response.isSuccess()) {
                     String text = response.getText();
                     List<ToolCallData> toolCalls = parseToolCalls(text);
-                    
+
+                    // P20-D: 验证非工具调用的推理结果
+                    if (toolCalls.isEmpty()) {
+                        InferenceResultValidator.ValidationResult vr = resultValidator.validate(text);
+                        if (!vr.valid()) {
+                            log.warn("P20-D: Qwen chat result invalid: {}", vr.reason());
+                        }
+                    }
+
                     return new ChatResponse(
-                        text,
+                        resultValidator.sanitize(text),
                         toolCalls,
                         0,
                         0,

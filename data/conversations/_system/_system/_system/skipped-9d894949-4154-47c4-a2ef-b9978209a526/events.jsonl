@@ -1,0 +1,12 @@
+{
+  "data" : {
+    "requestId" : "9d894949-4154-47c4-a2ef-b9978209a526",
+    "department" : "tech",
+    "brain" : "neuron://tech/tech-brain/001",
+    "intent" : "open_notepad_and_write",
+    "readinessStatus" : "BLOCKED",
+    "blockingIssues" : [ "缺少具备系统测试和权限分析能力的技术执行人员", "未分派能够生成替代方案建议的技术专家", "当前员工T06（状态管理员）角色与任务技能要求不匹配" ]
+  },
+  "type" : "execution_blocked",
+  "timestamp" : "2026-06-23T01:15:31.850477887Z"
+}

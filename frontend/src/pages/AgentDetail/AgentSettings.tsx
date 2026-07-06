@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { agentApi, channelApi, enterpriseApi } from '../../services/api';
-import { getToken } from '../../stores';
+import { request as fetchAuth } from '../../services/apiBase';
 import { useToastStore } from '../../stores/toastStore';
 import ChannelConfig from '../../components/ChannelConfig';
 
@@ -14,14 +14,6 @@ const formatTokens = (n: number) => {
     if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
     return String(n);
 };
-
-function fetchAuth<T>(url: string, options?: RequestInit): Promise<T> {
-    const token = getToken();
-    return fetch(`/api${url}`, {
-        ...options,
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    }).then(r => r.json());
-}
 
 interface AgentSettingsProps {
     agent: any;

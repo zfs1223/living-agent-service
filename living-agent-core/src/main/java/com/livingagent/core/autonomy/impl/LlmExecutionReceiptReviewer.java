@@ -31,10 +31,16 @@ public class LlmExecutionReceiptReviewer implements ExecutionReceiptReviewer {
 
     private final BrainRegistry brainRegistry;
     private final DefaultExecutionReceiptReviewer fallbackReviewer;
+    private final PerformanceStatsService performanceStatsService;
 
     public LlmExecutionReceiptReviewer(BrainRegistry brainRegistry) {
+        this(brainRegistry, null);
+    }
+
+    public LlmExecutionReceiptReviewer(BrainRegistry brainRegistry, PerformanceStatsService performanceStatsService) {
         this.brainRegistry = brainRegistry;
         this.fallbackReviewer = new DefaultExecutionReceiptReviewer();
+        this.performanceStatsService = performanceStatsService;
     }
 
     @Override
@@ -48,23 +54,45 @@ public class LlmExecutionReceiptReviewer implements ExecutionReceiptReviewer {
             .map(b -> (MainBrain) b)
             .orElse(null);
 
+        Optional<ReceiptReviewResult> result;
         if (mainBrain == null) {
-            return fallbackReviewer.reviewReceipt(receipt, assignment, acceptanceCriteria);
+            result = fallbackReviewer.reviewReceipt(receipt, assignment, acceptanceCriteria);
+        } else {
+            try {
+                String userPrompt = buildReviewPrompt(receipt, assignment, acceptanceCriteria);
+                String llmResponse = mainBrain.callLlm(REVIEW_SYSTEM_PROMPT, userPrompt);
+
+                if (llmResponse == null || llmResponse.isBlank()) {
+                    result = fallbackReviewer.reviewReceipt(receipt, assignment, acceptanceCriteria);
+                } else {
+                    result = parseReviewResponse(llmResponse, receipt, assignment, acceptanceCriteria);
+                }
+            } catch (Exception e) {
+                log.warn("LLM receipt review failed: {}, using programmatic fallback", e.getMessage());
+                result = fallbackReviewer.reviewReceipt(receipt, assignment, acceptanceCriteria);
+            }
         }
 
-        try {
-            String userPrompt = buildReviewPrompt(receipt, assignment, acceptanceCriteria);
-            String llmResponse = mainBrain.callLlm(REVIEW_SYSTEM_PROMPT, userPrompt);
+        // P28-A: 审核结果→分派权重联动
+        result.ifPresent(r -> adjustWeightFromReview(receipt, r));
 
-            if (llmResponse == null || llmResponse.isBlank()) {
-                return fallbackReviewer.reviewReceipt(receipt, assignment, acceptanceCriteria);
+        return result;
+    }
+
+    private void adjustWeightFromReview(EmployeeExecutionReceipt receipt, ReceiptReviewResult reviewResult) {
+        if (performanceStatsService == null || receipt == null) return;
+        String employeeCode = receipt.employeeCode();
+        if (employeeCode == null) return;
+
+        if (!reviewResult.accepted()) {
+            ReceiptStatus status = receipt.status();
+            if (status == ReceiptStatus.FAILED) {
+                performanceStatsService.adjustWeight(employeeCode, -0.5);
+                log.info("P28-A: Employee {} receipt FAILED, weight -0.5", employeeCode);
+            } else if (status == ReceiptStatus.DEGRADED || status == ReceiptStatus.NEEDS_RETRY) {
+                performanceStatsService.adjustWeight(employeeCode, -0.2);
+                log.info("P28-A: Employee {} receipt needs rework, weight -0.2", employeeCode);
             }
-
-            return parseReviewResponse(llmResponse, receipt, assignment, acceptanceCriteria);
-
-        } catch (Exception e) {
-            log.warn("LLM receipt review failed: {}, using programmatic fallback", e.getMessage());
-            return fallbackReviewer.reviewReceipt(receipt, assignment, acceptanceCriteria);
         }
     }
 

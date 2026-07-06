@@ -1,6 +1,7 @@
 package com.livingagent.gateway.controller;
 
 import com.livingagent.core.security.AccessGateService;
+import com.livingagent.gateway.controller.common.ApiResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -29,7 +30,7 @@ public class SkillsController {
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.debug("Listing skills, brain: {}, department: {}", brain, department);
 
@@ -44,7 +45,7 @@ public class SkillsController {
                 Instant.now()
         ));
 
-        return ResponseEntity.ok(ApiResponse.success(skills));
+        return ResponseEntity.ok(ApiResponse.ok(skills));
     }
 
     @GetMapping("/{id}")
@@ -52,7 +53,7 @@ public class SkillsController {
             @PathVariable String id,
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.debug("Getting skill: {}", id);
 
@@ -66,7 +67,7 @@ public class SkillsController {
                 Instant.now()
         );
 
-        return ResponseEntity.ok(ApiResponse.success(skill));
+        return ResponseEntity.ok(ApiResponse.ok(skill));
     }
 
     @PostMapping
@@ -74,7 +75,7 @@ public class SkillsController {
             @RequestBody CreateSkillRequest request,
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.info("Creating skill: {}", request.name());
 
@@ -88,7 +89,7 @@ public class SkillsController {
                 Instant.now()
         );
 
-        return ResponseEntity.ok(ApiResponse.success(skill));
+        return ResponseEntity.ok(ApiResponse.ok(skill));
     }
 
     @PutMapping("/{id}")
@@ -98,7 +99,7 @@ public class SkillsController {
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.info("Updating skill: {}", id);
 
@@ -112,7 +113,7 @@ public class SkillsController {
                 Instant.now()
         );
 
-        return ResponseEntity.ok(ApiResponse.success(skill));
+        return ResponseEntity.ok(ApiResponse.ok(skill));
     }
 
     @DeleteMapping("/{id}")
@@ -120,11 +121,11 @@ public class SkillsController {
             @PathVariable String id,
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.info("Deleting skill: {}", id);
 
-        return ResponseEntity.ok(ApiResponse.success(Map.of("status", "deleted", "id", id)));
+        return ResponseEntity.ok(ApiResponse.ok(Map.of("status", "deleted", "id", id)));
     }
 
     @GetMapping("/browse/list")
@@ -132,7 +133,7 @@ public class SkillsController {
             @RequestParam String path,
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.debug("Browsing skills path: {}", path);
 
@@ -140,7 +141,7 @@ public class SkillsController {
         files.add(new FileInfo("skill1.yaml", "file", 1024, Instant.now()));
         files.add(new FileInfo("skill2.yaml", "file", 2048, Instant.now()));
 
-        return ResponseEntity.ok(ApiResponse.success(files));
+        return ResponseEntity.ok(ApiResponse.ok(files));
     }
 
     @GetMapping("/browse/read")
@@ -148,12 +149,12 @@ public class SkillsController {
             @RequestParam String path,
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.debug("Reading skill file: {}", path);
 
         FileContent content = new FileContent(path, "yaml content here...");
-        return ResponseEntity.ok(ApiResponse.success(content));
+        return ResponseEntity.ok(ApiResponse.ok(content));
     }
 
     @PutMapping("/browse/write")
@@ -161,12 +162,12 @@ public class SkillsController {
             @RequestBody WriteFileRequest request,
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.info("Writing skill file: {}", request.path());
 
         FileContent content = new FileContent(request.path(), request.content());
-        return ResponseEntity.ok(ApiResponse.success(content));
+        return ResponseEntity.ok(ApiResponse.ok(content));
     }
 
     @DeleteMapping("/browse/delete")
@@ -174,11 +175,11 @@ public class SkillsController {
             @RequestParam String path,
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.info("Deleting skill file: {}", path);
 
-        return ResponseEntity.ok(ApiResponse.success(Map.of("status", "deleted", "path", path)));
+        return ResponseEntity.ok(ApiResponse.ok(Map.of("status", "deleted", "path", path)));
     }
 
     @GetMapping("/clawhub/search")
@@ -186,7 +187,7 @@ public class SkillsController {
             @RequestParam String q,
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.debug("Searching ClawHub: {}", q);
 
@@ -200,7 +201,7 @@ public class SkillsController {
                 4.5
         ));
 
-        return ResponseEntity.ok(ApiResponse.success(skills));
+        return ResponseEntity.ok(ApiResponse.ok(skills));
     }
 
     @GetMapping("/clawhub/detail/{slug}")
@@ -208,7 +209,7 @@ public class SkillsController {
             @PathVariable String slug,
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.debug("Getting ClawHub detail: {}", slug);
 
@@ -223,7 +224,7 @@ public class SkillsController {
                 List.of("v1.0.0", "v1.1.0")
         );
 
-        return ResponseEntity.ok(ApiResponse.success(detail));
+        return ResponseEntity.ok(ApiResponse.ok(detail));
     }
 
     @PostMapping("/clawhub/install")
@@ -231,11 +232,11 @@ public class SkillsController {
             @RequestBody InstallRequest request,
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.info("Installing from ClawHub: {}", request.slug());
 
-        return ResponseEntity.ok(ApiResponse.success(Map.of("status", "installed", "slug", request.slug())));
+        return ResponseEntity.ok(ApiResponse.ok(Map.of("status", "installed", "slug", request.slug())));
     }
 
     @PostMapping("/import-from-url")
@@ -243,11 +244,11 @@ public class SkillsController {
             @RequestBody ImportUrlRequest request,
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.info("Importing skill from URL: {}", request.url());
 
-        return ResponseEntity.ok(ApiResponse.success(Map.of("status", "imported", "url", request.url())));
+        return ResponseEntity.ok(ApiResponse.ok(Map.of("status", "imported", "url", request.url())));
     }
 
     @PostMapping("/import-from-url/preview")
@@ -255,7 +256,7 @@ public class SkillsController {
             @RequestBody ImportUrlRequest request,
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.debug("Previewing import from URL: {}", request.url());
 
@@ -266,19 +267,19 @@ public class SkillsController {
                 List.of("preview")
         );
 
-        return ResponseEntity.ok(ApiResponse.success(preview));
+        return ResponseEntity.ok(ApiResponse.ok(preview));
     }
 
     @GetMapping("/settings/token")
     public ResponseEntity<ApiResponse<TokenSettings>> getTokenSettings(
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.debug("Getting token settings");
 
         TokenSettings settings = new TokenSettings("ghp_xxxxxxxxxxxx", true);
-        return ResponseEntity.ok(ApiResponse.success(settings));
+        return ResponseEntity.ok(ApiResponse.ok(settings));
     }
 
     @PutMapping("/settings/token")
@@ -286,26 +287,11 @@ public class SkillsController {
             @RequestBody TokenSettings settings,
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.info("Updating token settings");
 
-        return ResponseEntity.ok(ApiResponse.success(settings));
-    }
-
-    public record ApiResponse<T>(
-            boolean success,
-            T data,
-            String error,
-            String errorDescription
-    ) {
-        public static <T> ApiResponse<T> success(T data) {
-            return new ApiResponse<>(true, data, null, null);
-        }
-
-        public static <T> ApiResponse<T> error(String error, String description) {
-            return new ApiResponse<>(false, null, error, description);
-        }
+        return ResponseEntity.ok(ApiResponse.ok(settings));
     }
 
     public record SkillInfo(

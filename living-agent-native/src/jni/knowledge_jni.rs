@@ -26,7 +26,7 @@ fn throw_exception(env: &mut Env, class_name: &str, message: &str) {
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_core_knowledge_NativeKnowledge_init(
+pub extern "system" fn Java_com_livingagent_core_knowledge_nativestore_NativeKnowledge_init(
     mut env: Env,
     _class: JClass,
     db_path: JString,
@@ -64,7 +64,7 @@ pub extern "system" fn Java_com_livingagent_core_knowledge_NativeKnowledge_init(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_core_knowledge_NativeKnowledge_store(
+pub extern "system" fn Java_com_livingagent_core_knowledge_nativestore_NativeKnowledge_store(
     mut env: Env,
     _class: JClass,
     key: JString,
@@ -165,7 +165,7 @@ pub extern "system" fn Java_com_livingagent_core_knowledge_NativeKnowledge_store
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_core_knowledge_NativeKnowledge_retrieve(
+pub extern "system" fn Java_com_livingagent_core_knowledge_nativestore_NativeKnowledge_retrieve(
     mut env: Env,
     _class: JClass,
     key: JString,
@@ -203,7 +203,7 @@ pub extern "system" fn Java_com_livingagent_core_knowledge_NativeKnowledge_retri
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_core_knowledge_NativeKnowledge_search(
+pub extern "system" fn Java_com_livingagent_core_knowledge_nativestore_NativeKnowledge_search(
     mut env: Env,
     _class: JClass,
     query: JString,
@@ -241,7 +241,7 @@ pub extern "system" fn Java_com_livingagent_core_knowledge_NativeKnowledge_searc
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_core_knowledge_NativeKnowledge_vectorSearch(
+pub extern "system" fn Java_com_livingagent_core_knowledge_nativestore_NativeKnowledge_vectorSearch(
     mut env: Env,
     _class: JClass,
     query_vector: JByteArray,
@@ -287,7 +287,7 @@ pub extern "system" fn Java_com_livingagent_core_knowledge_NativeKnowledge_vecto
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_core_knowledge_NativeKnowledge_cosineSimilarity(
+pub extern "system" fn Java_com_livingagent_core_knowledge_nativestore_NativeKnowledge_cosineSimilarity(
     mut env: Env,
     _class: JClass,
     vec1: JByteArray,
@@ -327,7 +327,7 @@ pub extern "system" fn Java_com_livingagent_core_knowledge_NativeKnowledge_cosin
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_core_knowledge_NativeKnowledge_delete(
+pub extern "system" fn Java_com_livingagent_core_knowledge_nativestore_NativeKnowledge_delete(
     mut env: Env,
     _class: JClass,
     key: JString,
@@ -356,7 +356,7 @@ pub extern "system" fn Java_com_livingagent_core_knowledge_NativeKnowledge_delet
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_core_knowledge_NativeKnowledge_count(
+pub extern "system" fn Java_com_livingagent_core_knowledge_nativestore_NativeKnowledge_count(
     _env: Env,
     _class: JClass,
 ) -> jlong {
@@ -372,7 +372,7 @@ pub extern "system" fn Java_com_livingagent_core_knowledge_NativeKnowledge_count
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_core_knowledge_NativeKnowledge_cleanupExpired(
+pub extern "system" fn Java_com_livingagent_core_knowledge_nativestore_NativeKnowledge_cleanupExpired(
     _env: Env,
     _class: JClass,
 ) -> jlong {
@@ -388,7 +388,7 @@ pub extern "system" fn Java_com_livingagent_core_knowledge_NativeKnowledge_clean
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_core_knowledge_NativeKnowledge_cacheStats(
+pub extern "system" fn Java_com_livingagent_core_knowledge_nativestore_NativeKnowledge_cacheStats(
     mut env: Env,
     _class: JClass,
 ) -> jni::sys::jobject {

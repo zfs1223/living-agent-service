@@ -131,6 +131,18 @@ public class FileBasedEmployeeExecutionReceiptService implements EmployeeExecuti
     }
 
     @Override
+    public List<EmployeeExecutionReceipt> getReceiptsByDepartment(String department) {
+        return receiptsByExecution.values().stream()
+            .flatMap(List::stream)
+            .filter(r -> {
+                if (r.metadata() == null) return false;
+                Object dept = r.metadata().get("department");
+                return department.equals(dept);
+            })
+            .collect(Collectors.toList());
+    }
+
+    @Override
     public boolean isExecutionComplete(String executionId) {
         Set<String> expected = expectedDispatchIdsByExecution.get(executionId);
         if (expected == null || expected.isEmpty()) {

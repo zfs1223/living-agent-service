@@ -4,27 +4,6 @@ import { modelPoolApi, type ProviderEntry } from '@/services/modelPoolApi';
 import type { ProviderConfig, LlmModel, ProviderRequest, ModelRequest, ProviderTestResult } from '@/types/modelPool';
 import { useToastStore } from '../stores/toastStore';
 
-const FALLBACK_PROVIDERS: ProviderEntry[] = [
-  { id: 'anthropic', displayName: 'Anthropic', protocol: 'ANTHROPIC', defaultBaseUrl: 'https://api.anthropic.com', supportsToolChoice: false, defaultMaxTokens: 8192 },
-  { id: 'openai', displayName: 'OpenAI', protocol: 'OPENAI_COMPATIBLE', defaultBaseUrl: 'https://api.openai.com/v1', supportsToolChoice: true, defaultMaxTokens: 16384 },
-  { id: 'openai-response', displayName: 'OpenAI Responses', protocol: 'OPENAI_RESPONSES', defaultBaseUrl: 'https://api.openai.com/v1', supportsToolChoice: true, defaultMaxTokens: 16384 },
-  { id: 'azure', displayName: 'Azure OpenAI', protocol: 'OPENAI_COMPATIBLE', defaultBaseUrl: '', supportsToolChoice: true, defaultMaxTokens: 16384 },
-  { id: 'deepseek', displayName: 'DeepSeek', protocol: 'OPENAI_COMPATIBLE', defaultBaseUrl: 'https://api.deepseek.com/v1', supportsToolChoice: true, defaultMaxTokens: 8192 },
-  { id: 'qwen', displayName: 'Qwen (DashScope)', protocol: 'OPENAI_COMPATIBLE', defaultBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', supportsToolChoice: true, defaultMaxTokens: 8192 },
-  { id: 'minimax', displayName: 'MiniMax', protocol: 'OPENAI_COMPATIBLE', defaultBaseUrl: 'https://api.minimaxi.com/v1', supportsToolChoice: true, defaultMaxTokens: 16384 },
-  { id: 'openrouter', displayName: 'OpenRouter', protocol: 'OPENAI_COMPATIBLE', defaultBaseUrl: 'https://openrouter.ai/api/v1', supportsToolChoice: true, defaultMaxTokens: 4096 },
-  { id: 'zhipu', displayName: '智谱 (Zhipu)', protocol: 'OPENAI_COMPATIBLE', defaultBaseUrl: 'https://open.bigmodel.cn/api/paas/v4', supportsToolChoice: true, defaultMaxTokens: 8192 },
-  { id: 'baidu', displayName: '百度 (千帆)', protocol: 'OPENAI_COMPATIBLE', defaultBaseUrl: 'https://qianfan.baidubce.com/v2', supportsToolChoice: false, defaultMaxTokens: 4096 },
-  { id: 'gemini', displayName: 'Gemini', protocol: 'GEMINI', defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta', supportsToolChoice: true, defaultMaxTokens: 8192 },
-  { id: 'kimi', displayName: 'Kimi (月之暗面)', protocol: 'OPENAI_COMPATIBLE', defaultBaseUrl: 'https://api.moonshot.cn/v1', supportsToolChoice: true, defaultMaxTokens: 8192 },
-  { id: 'vllm', displayName: 'vLLM', protocol: 'OPENAI_COMPATIBLE', defaultBaseUrl: 'http://localhost:8000/v1', supportsToolChoice: true, defaultMaxTokens: 4096 },
-  { id: 'ollama', displayName: 'Ollama', protocol: 'OPENAI_COMPATIBLE', defaultBaseUrl: 'http://localhost:11434/v1', supportsToolChoice: true, defaultMaxTokens: 4096 },
-  { id: 'sglang', displayName: 'SGLang', protocol: 'OPENAI_COMPATIBLE', defaultBaseUrl: 'http://localhost:30000/v1', supportsToolChoice: true, defaultMaxTokens: 4096 },
-  { id: 'siliconflow', displayName: '硅基流动 (SiliconFlow)', protocol: 'OPENAI_COMPATIBLE', defaultBaseUrl: 'https://api.siliconflow.cn/v1', supportsToolChoice: true, defaultMaxTokens: 8192 },
-  { id: 'modelscope', displayName: 'ModelScope', protocol: 'OPENAI_COMPATIBLE', defaultBaseUrl: 'https://api-inference.modelscope.cn/v1', supportsToolChoice: true, defaultMaxTokens: 8192 },
-  { id: 'custom', displayName: '自定义', protocol: 'OPENAI_COMPATIBLE', defaultBaseUrl: '', supportsToolChoice: true, defaultMaxTokens: 4096 },
-];
-
 export default function ModelPoolProviders() {
   const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
@@ -60,12 +39,12 @@ export default function ModelPoolProviders() {
     queryFn: () => modelPoolApi.models.list(),
   });
 
-  const { data: presetProviders = [] } = useQuery<ProviderEntry[]>({
+  const { data: presetProviders = [], isLoading: manifestLoading, error: manifestError } = useQuery<ProviderEntry[]>({
     queryKey: ['model-pool', 'provider-manifest'],
     queryFn: () => modelPoolApi.providers.manifest(),
   });
 
-  const providerOptions = presetProviders.length > 0 ? presetProviders : FALLBACK_PROVIDERS;
+  const providerOptions = presetProviders;
 
   const getProviderDisplayName = (providerId: string) => {
     const preset = providerOptions.find(p => p.id === providerId);
@@ -294,6 +273,16 @@ export default function ModelPoolProviders() {
 
   return (
     <div>
+      {manifestLoading && (
+        <div style={{ padding: 10, background: '#1e293b', border: '1px solid #334155', borderRadius: 6, marginBottom: 16, color: '#94a3b8', fontSize: 13 }}>
+          正在加载供应商清单...
+        </div>
+      )}
+      {manifestError && (
+        <div style={{ padding: 10, background: '#7f1d1d', border: '1px solid #991b1b', borderRadius: 6, marginBottom: 16, color: '#fca5a5', fontSize: 13 }}>
+          供应商清单加载失败：{(manifestError as Error)?.message || '未知错误'}。请手动填写 Base URL 等参数。
+        </div>
+      )}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <div style={{ display: 'flex', gap: 20, fontSize: 13, color: '#94a3b8', alignItems: 'center' }}>
           <span>模型: <b style={{ color: '#fff' }}>{modelCount}</b></span>
@@ -319,7 +308,8 @@ export default function ModelPoolProviders() {
         </div>
         <button
           onClick={openCreate}
-          style={{ padding: '8px 20px', background: '#10b981', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14 }}
+          disabled={manifestLoading}
+          style={{ padding: '8px 20px', background: manifestLoading ? '#334155' : '#10b981', color: '#fff', border: 'none', borderRadius: 6, cursor: manifestLoading ? 'not-allowed' : 'pointer', fontSize: 14 }}
         >
           + 添加模型
         </button>

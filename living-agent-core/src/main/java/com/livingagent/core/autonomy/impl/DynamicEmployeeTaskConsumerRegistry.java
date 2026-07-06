@@ -6,21 +6,32 @@ import com.livingagent.core.autonomy.EmployeeTaskExecutionOutcome;
 import com.livingagent.core.autonomy.EmployeeTaskExecutor;
 import com.livingagent.core.autonomy.EmployeeWorkAssignment;
 import com.livingagent.core.autonomy.TaskMetadataKeys;
+import com.livingagent.core.autonomy.review.InternalReviewService;
+import com.livingagent.core.autonomy.review.ReviewDecision;
+import com.livingagent.core.autonomy.review.ReviewResult;
+import com.livingagent.core.autonomy.review.ReviewState;
 import com.livingagent.core.channel.ChannelManager;
 import com.livingagent.core.channel.ChannelMessage;
 import com.livingagent.core.channel.ChannelSubscriber;
+import com.livingagent.core.employee.EmployeeService;
+import com.livingagent.core.employee.EmployeeStatus;
 import com.livingagent.core.employee.registry.FixedEmployeeRegistry;
 import com.livingagent.core.model.pool.BrainModelResolver;
 import com.livingagent.core.model.pool.LlmModel;
+import com.livingagent.core.model.pool.ModelHealthRegistry;
 import com.livingagent.core.model.pool.ModelPoolManager;
 import com.livingagent.core.model.pool.ResolvedBrainModel;
 import com.livingagent.core.provider.impl.ResolvedBrainModelProvider;
+import com.livingagent.core.util.IdUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -35,6 +46,8 @@ public class DynamicEmployeeTaskConsumerRegistry {
     private final BrainModelResolver brainModelResolver;
     private final ModelPoolManager modelPoolManager;
     private final EmployeeTaskExecutor employeeTaskExecutor;
+    private final EmployeeService employeeService;
+    private final InternalReviewService internalReviewService;
 
     private final Map<String, String> consumerIds = new ConcurrentHashMap<>();
 
@@ -44,7 +57,7 @@ public class DynamicEmployeeTaskConsumerRegistry {
             EmployeeExecutionReceiptService receiptService,
             BrainModelResolver brainModelResolver,
             ModelPoolManager modelPoolManager) {
-        this(channelManager, fixedEmployeeRegistry, receiptService, brainModelResolver, modelPoolManager, null);
+        this(channelManager, fixedEmployeeRegistry, receiptService, brainModelResolver, modelPoolManager, null, null, null);
     }
 
     public DynamicEmployeeTaskConsumerRegistry(
@@ -54,12 +67,37 @@ public class DynamicEmployeeTaskConsumerRegistry {
             BrainModelResolver brainModelResolver,
             ModelPoolManager modelPoolManager,
             EmployeeTaskExecutor employeeTaskExecutor) {
+        this(channelManager, fixedEmployeeRegistry, receiptService, brainModelResolver, modelPoolManager, employeeTaskExecutor, null, null);
+    }
+
+    public DynamicEmployeeTaskConsumerRegistry(
+            ChannelManager channelManager,
+            FixedEmployeeRegistry fixedEmployeeRegistry,
+            EmployeeExecutionReceiptService receiptService,
+            BrainModelResolver brainModelResolver,
+            ModelPoolManager modelPoolManager,
+            EmployeeTaskExecutor employeeTaskExecutor,
+            EmployeeService employeeService) {
+        this(channelManager, fixedEmployeeRegistry, receiptService, brainModelResolver, modelPoolManager, employeeTaskExecutor, employeeService, null);
+    }
+
+    public DynamicEmployeeTaskConsumerRegistry(
+            ChannelManager channelManager,
+            FixedEmployeeRegistry fixedEmployeeRegistry,
+            EmployeeExecutionReceiptService receiptService,
+            BrainModelResolver brainModelResolver,
+            ModelPoolManager modelPoolManager,
+            EmployeeTaskExecutor employeeTaskExecutor,
+            EmployeeService employeeService,
+            InternalReviewService internalReviewService) {
         this.channelManager = channelManager;
         this.fixedEmployeeRegistry = fixedEmployeeRegistry;
         this.receiptService = receiptService;
         this.brainModelResolver = brainModelResolver;
         this.modelPoolManager = modelPoolManager;
         this.employeeTaskExecutor = employeeTaskExecutor;
+        this.employeeService = employeeService;
+        this.internalReviewService = internalReviewService;
     }
 
     public void registerAll() {
@@ -67,7 +105,63 @@ public class DynamicEmployeeTaskConsumerRegistry {
         for (FixedEmployeeRegistry.FixedEmployeeDefinition def : definitions) {
             registerConsumerFor(def);
         }
+
+        // 注册审查结果监听器：REVISION_NEEDED 时重新触发执行
+        if (internalReviewService != null) {
+            internalReviewService.addReviewListener(this::onReviewResult);
+            log.info("Registered review result listener for revision retry loop");
+        }
+
         log.info("DynamicEmployeeTaskConsumerRegistry registered {} employee task consumers", consumerIds.size());
+    }
+
+    /**
+     * 审查结果回调：当审查结果为 REVISION_NEEDED 时，重新发布任务消息到编写员工的通道触发重试。
+     */
+    private void onReviewResult(String todoItemId, String reviewId, ReviewResult result,
+                                 String authorCode, String executionId) {
+        if (result.decision() != ReviewDecision.REVISION_NEEDED) {
+            return;
+        }
+
+        log.info("Review revision needed, re-triggering execution: todoItem={}, author={}, executionId={}, round={}",
+            todoItemId, authorCode, executionId, result.reviewRound());
+
+        FixedEmployeeRegistry.FixedEmployeeDefinition def = fixedEmployeeRegistry.getDefinitionByCode(authorCode).orElse(null);
+        if (def == null) {
+            log.warn("Cannot re-trigger execution: employee {} not found in registry", authorCode);
+            return;
+        }
+
+        // 重新发布任务消息到员工通道
+        String taskChannelId = "channel://employee/" + sanitize(def.neuronId()) + "/tasks";
+        ChannelMessage retryMessage = ChannelMessage.text(
+            "channel://department/" + def.department() + "/review-retry",
+            "autonomy://internal-review-service",
+            taskChannelId,
+            "review-retry-" + reviewId,
+            "审查意见（第" + result.reviewRound() + "轮）：\n" +
+                (result.issues() != null ? String.join("\n", result.issues()) : "无具体问题") + "\n\n" +
+                "修改建议：\n" +
+                (result.suggestions() != null ? String.join("\n", result.suggestions()) : "无具体建议")
+        );
+        retryMessage.addMetadata("execution_id", executionId != null ? executionId : "unknown");
+        retryMessage.addMetadata("dispatch_id", "retry-" + reviewId);
+        retryMessage.addMetadata("assignment_id", todoItemId);
+        retryMessage.addMetadata("task_type", "revision");
+        retryMessage.addMetadata("goal", "根据审查意见修改并重新提交");
+        retryMessage.addMetadata("execution_environment", "ARTIFACT_ONLY");
+        retryMessage.addMetadata("review_round", String.valueOf(result.reviewRound()));
+        retryMessage.addMetadata("review_id", reviewId);
+        retryMessage.addMetadata("department", def.department());
+
+        try {
+            channelManager.publish(taskChannelId, retryMessage);
+            log.info("Re-triggered execution for employee {} on channel {} (review round={})",
+                authorCode, taskChannelId, result.reviewRound());
+        } catch (Exception e) {
+            log.error("Failed to re-trigger execution for employee {}: {}", authorCode, e.getMessage());
+        }
     }
 
     public void registerConsumerFor(FixedEmployeeRegistry.FixedEmployeeDefinition def) {
@@ -128,22 +222,36 @@ public class DynamicEmployeeTaskConsumerRegistry {
         log.info("Employee {} ({}) received task: executionId={}, taskType={}, goal={}, env={}",
             def.code(), def.name(), executionId, taskType, goal, executionEnvironment);
 
+        // ✅ 任务开始时设置员工状态为 WORKING
+        String employeeId = IdUtils.neuronToEmployeeId(def.neuronId());
+        if (employeeService != null && employeeId != null) {
+            try {
+                employeeService.updateStatus(employeeId, EmployeeStatus.WORKING);
+                log.info("Employee {} status updated to WORKING (executionId={})", def.code(), executionId);
+            } catch (Exception e) {
+                log.warn("Failed to update employee {} status to WORKING: {}", def.code(), e.getMessage());
+            }
+        }
+
         long executionTimeoutMs = 120_000;
+        // DP1-2: LLM 降级调用使用更短的超时时间（60秒）
+        long fallbackTimeoutMs = 60_000;
         try {
             EmployeeTaskExecutionOutcome outcome;
-            
+
             if (employeeTaskExecutor != null) {
                 log.info("Using ToolBackedEmployeeTaskExecutor for employee {}", def.code());
                 outcome = executeWithTimeout(() -> executeWithToolExecutor(def, message, taskType, goal, executionEnvironment, executionId),
                     executionTimeoutMs, def.code(), executionId);
-                
+
                 if (outcome.status() == EmployeeTaskExecutionOutcome.ExecutionStatus.FAILED) {
                     log.warn("ToolBacked execution failed for employee {}, falling back to LLM-based execution. Reason: {}",
                         def.code(), outcome.failureReason());
                     try {
+                        // DP1-2: 降级调用使用 60s 超时
                         EmployeeTaskExecutionOutcome llmOutcome = executeWithTimeout(
                             () -> executeTaskWithOutcome(def, message),
-                            executionTimeoutMs, def.code(), executionId);
+                            fallbackTimeoutMs, def.code(), executionId);
                         if (llmOutcome.status() == EmployeeTaskExecutionOutcome.ExecutionStatus.COMPLETED) {
                             log.info("LLM fallback succeeded for employee {} (degraded: no file artifacts)", def.code());
                             outcome = EmployeeTaskExecutionOutcome.degraded(
@@ -164,25 +272,59 @@ public class DynamicEmployeeTaskConsumerRegistry {
             }
             
             sendOutcomeReceipt(def, executionId, dispatchId, assignmentId, outcome, message);
+
+            // ✅ 审查闭环：执行成功且有下游审查员时，提交到 InternalReviewService
+            if (outcome.status() == EmployeeTaskExecutionOutcome.ExecutionStatus.COMPLETED
+                    && internalReviewService != null
+                    && def.downstreamReviewers() != null
+                    && !def.downstreamReviewers().isEmpty()) {
+                try {
+                    String reviewerCode = def.downstreamReviewers().get(0);
+                    int maxRounds = 3; // 默认最大审查轮次
+                    String reviewId = internalReviewService.submitForReview(
+                        assignmentId, def.code(), reviewerCode, executionId, maxRounds);
+                    log.info("Review submitted for employee {} (assignmentId={}, reviewer={}, reviewId={})",
+                        def.code(), assignmentId, reviewerCode, reviewId);
+                } catch (Exception reviewEx) {
+                    // DP1-3: 审查提交异常标记 needsHumanReview=true
+                    log.warn("Failed to submit review for employee {} assignment {}: {}. Marking needsHumanReview=true",
+                        def.code(), assignmentId, reviewEx.getMessage());
+                    outcome = outcome.withNeedsHumanReview(true);
+                }
+            }
         } catch (Exception e) {
             log.error("Employee {} ({}) task execution failed: {}", def.code(), def.name(), e.getMessage());
             EmployeeTaskExecutionOutcome failedOutcome = EmployeeTaskExecutionOutcome.failed(
                 executionId, def.code(), e.getMessage());
             sendOutcomeReceipt(def, executionId, dispatchId, assignmentId, failedOutcome, message);
+        } finally {
+            // ✅ 任务完成后设置员工状态为 IDLE（休息中）
+            if (employeeService != null && employeeId != null) {
+                try {
+                    employeeService.updateStatus(employeeId, EmployeeStatus.IDLE);
+                    log.info("Employee {} status updated to IDLE (executionId={})", def.code(), executionId);
+                } catch (Exception e) {
+                    log.warn("Failed to update employee {} status to IDLE: {}", def.code(), e.getMessage());
+                }
+            }
         }
     }
 
     /**
      * 使用真实工具执行器执行任务（阶段7）
+     * DP2-2: 超时后取消底层线程
      */
     private EmployeeTaskExecutionOutcome executeWithTimeout(
             java.util.function.Supplier<EmployeeTaskExecutionOutcome> task,
             long timeoutMs, String employeeCode, String executionId) {
+        CompletableFuture<EmployeeTaskExecutionOutcome> future = CompletableFuture.supplyAsync(task);
         try {
-            return CompletableFuture.supplyAsync(task)
-                .get(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+            return future.get(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS);
         } catch (java.util.concurrent.TimeoutException e) {
-            log.error("Employee {} execution timed out after {}ms: executionId={}", employeeCode, timeoutMs, executionId);
+            // DP2-2: 超时后取消底层线程
+            future.cancel(true);
+            log.error("Employee {} execution timed out after {}ms: executionId={}, thread cancelled={}",
+                employeeCode, timeoutMs, executionId, future.isCancelled());
             return EmployeeTaskExecutionOutcome.failed(executionId, employeeCode,
                 "执行超时 (" + timeoutMs / 1000 + "秒)");
         } catch (java.util.concurrent.ExecutionException e) {
@@ -190,6 +332,8 @@ public class DynamicEmployeeTaskConsumerRegistry {
             log.error("Employee {} execution failed: {}", employeeCode, cause.getMessage());
             return EmployeeTaskExecutionOutcome.failed(executionId, employeeCode, cause.getMessage());
         } catch (InterruptedException e) {
+            // DP2-2: 中断时也取消底层线程
+            future.cancel(true);
             Thread.currentThread().interrupt();
             log.warn("Employee {} execution interrupted: executionId={}", employeeCode, executionId);
             return EmployeeTaskExecutionOutcome.failed(executionId, employeeCode, "执行被中断");
@@ -218,7 +362,7 @@ public class DynamicEmployeeTaskConsumerRegistry {
             instruction,
             goal,
             splitMetadataList(message.getMetadata().get("expected_deliverables")),
-            def.capabilities() != null ? def.capabilities() : List.of(),  // allowedTools
+            def.tools() != null ? def.tools() : List.of(),  // allowedTools（工具ID列表，非能力描述）
             Map.of(
                 "executionId", executionId,
                 TaskMetadataKeys.TASK_TYPE, taskType,
@@ -229,9 +373,9 @@ public class DynamicEmployeeTaskConsumerRegistry {
             )
         );
         
-        // 获取员工可用工具
-        List<String> availableTools = def.capabilities() != null 
-            ? def.capabilities()
+        // 获取员工可用工具（工具ID列表，非能力描述）
+        List<String> availableTools = def.tools() != null
+            ? def.tools()
             : List.of();
         
         // 调用真实执行器
@@ -291,6 +435,9 @@ public class DynamicEmployeeTaskConsumerRegistry {
             String taskType, String goal,
             String systemPrompt, String userMessage) {
 
+        // 供应商级别失败跟踪：同一供应商失败后跳过其余模型
+        Set<String> failedProviders = new HashSet<>();
+
         ResolvedBrainModel assignedModel = brainModelResolver.resolve(def.neuronId());
         if (assignedModel != null) {
             try {
@@ -305,25 +452,57 @@ public class DynamicEmployeeTaskConsumerRegistry {
             } catch (Exception e) {
                 log.warn("Employee {} assigned model call failed (provider={}, model={}): {}",
                     def.code(), assignedModel.getProviderId(), assignedModel.getModelName(), e.getMessage());
+                failedProviders.add(assignedModel.getProviderId());
             }
         } else {
             log.warn("Employee {} has no assigned model resolved", def.code());
         }
 
+        // Fallback: 本地优先 → 成功率高优先 → 字典序
+        Set<String> localProviders = Set.of("vllm", "ollama");
+        ModelHealthRegistry healthReg = brainModelResolver.getModelHealthRegistry();
         List<LlmModel> fallbackModels = modelPoolManager.getAllModels().stream()
             .filter(LlmModel::isEnabled)
             .filter(LlmModel::isRecommended)
+            .sorted((a, b) -> {
+                // 1. 本地供应商优先
+                boolean aLocal = localProviders.contains(a.getProviderId());
+                boolean bLocal = localProviders.contains(b.getProviderId());
+                if (aLocal != bLocal) return aLocal ? -1 : 1;
+                // 2. 成功率高的优先（通过 brainModelResolver 获取）
+                double rateA = getModelSuccessRate(healthReg, a);
+                double rateB = getModelSuccessRate(healthReg, b);
+                if (Math.abs(rateA - rateB) > 0.01) return Double.compare(rateB, rateA);
+                // 3. 静态性能分
+                int scoreA = a.getPerformanceScore() != null ? a.getPerformanceScore() : 0;
+                int scoreB = b.getPerformanceScore() != null ? b.getPerformanceScore() : 0;
+                return Integer.compare(scoreB, scoreA);
+            })
             .toList();
 
         if (fallbackModels.isEmpty()) {
             fallbackModels = modelPoolManager.getAllModels().stream()
                 .filter(LlmModel::isEnabled)
+                .sorted((a, b) -> {
+                    boolean aLocal = localProviders.contains(a.getProviderId());
+                    boolean bLocal = localProviders.contains(b.getProviderId());
+                    if (aLocal != bLocal) return aLocal ? -1 : 1;
+                    double rateA = getModelSuccessRate(healthReg, a);
+                    double rateB = getModelSuccessRate(healthReg, b);
+                    if (Math.abs(rateA - rateB) > 0.01) return Double.compare(rateB, rateA);
+                    return a.getProviderId().compareTo(b.getProviderId());
+                })
                 .toList();
         }
 
         log.info("Employee {} attempting fallback models (count={})", def.code(), fallbackModels.size());
 
         for (LlmModel model : fallbackModels) {
+            // 跳过已失败的供应商
+            if (failedProviders.contains(model.getProviderId())) {
+                log.debug("Employee {} skipping provider={} (previously failed)", def.code(), model.getProviderId());
+                continue;
+            }
             log.debug("Employee {} trying fallback model: provider={}, model={}",
                 def.code(), model.getProviderId(), model.getModelName());
             try {
@@ -346,6 +525,8 @@ public class DynamicEmployeeTaskConsumerRegistry {
             } catch (Exception e) {
                 log.warn("Employee {} fallback model {} failed: {}",
                     def.code(), model.getModelName(), e.getMessage());
+                // 标记该供应商为失败，跳过同供应商其余模型
+                failedProviders.add(model.getProviderId());
             }
         }
 
@@ -357,6 +538,16 @@ public class DynamicEmployeeTaskConsumerRegistry {
         
         return EmployeeTaskExecutionOutcome.degraded(
             executionId, def.code(), degradedSummary, "所有模型调用失败");
+    }
+
+    /**
+     * 获取模型运行时成功率（0.0~1.0），无记录返回 1.0
+     */
+    private double getModelSuccessRate(ModelHealthRegistry registry, LlmModel model) {
+        if (registry == null || model.getId() == null) return 1.0;
+        ModelHealthRegistry.ModelHealthRecord health = registry.getHealth(model.getId().toString());
+        if (health.totalCalls() <= 0) return 1.0;
+        return health.totalSuccesses() * 1.0 / health.totalCalls();
     }
 
     private String callLLM(ResolvedBrainModel resolvedModel, String systemPrompt, String userMessage) {
@@ -445,6 +636,21 @@ public class DynamicEmployeeTaskConsumerRegistry {
         }
         if (outcome.failureReason() != null) {
             receiptMessage.addMetadata("failure_reason", outcome.failureReason());
+        }
+        // 审查闭环元数据
+        boolean hasReviewers = def.downstreamReviewers() != null && !def.downstreamReviewers().isEmpty();
+        receiptMessage.addMetadata("review_required", String.valueOf(hasReviewers));
+        if (hasReviewers) {
+            receiptMessage.addMetadata("reviewer_code", def.downstreamReviewers().get(0));
+            // 查询审查状态
+            if (internalReviewService != null) {
+                try {
+                    Optional<ReviewState> reviewState = internalReviewService.getReviewState(assignmentId);
+                    receiptMessage.addMetadata("review_state", reviewState.map(ReviewState::name).orElse("NOT_SUBMITTED"));
+                } catch (Exception e) {
+                    log.debug("Could not get review state for assignmentId={}: {}", assignmentId, e.getMessage());
+                }
+            }
         }
         channelManager.publish(receiptChannel, receiptMessage);
 

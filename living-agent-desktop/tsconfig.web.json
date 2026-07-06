@@ -15,7 +15,6 @@
     "isolatedModules": true,
     "useDefineForClassFields": true,
     "allowImportingTsExtensions": false,
-    "ignoreDeprecations": "6.0",
     "baseUrl": ".",
     "paths": {
       "@shared/*": ["src/shared/*"]

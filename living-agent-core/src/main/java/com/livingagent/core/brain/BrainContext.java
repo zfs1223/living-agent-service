@@ -106,6 +106,11 @@ public class BrainContext {
     public String getEmployeeCode() { return employeeCode; }
     public Map<String, Object> getState() { return state; }
     public List<ChatMessage> getHistory() { return history; }
+
+    public String getClientId() { return (String) state.get("clientId"); }
+    public Integer getAccessLevel() { return (Integer) state.get("accessLevel"); }
+    public void setClientId(String clientId) { state.put("clientId", clientId); }
+    public void setAccessLevel(Integer accessLevel) { state.put("accessLevel", accessLevel); }
     
     public void setHistory(List<ChatMessage> history) { this.history = history; }
     public void addToHistory(ChatMessage message) { this.history.add(message); }

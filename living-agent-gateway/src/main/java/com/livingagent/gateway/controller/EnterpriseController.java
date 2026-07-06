@@ -2,6 +2,7 @@ package com.livingagent.gateway.controller;
 
 import com.livingagent.core.security.AccessGateService;
 import com.livingagent.core.security.AuthContext;
+import com.livingagent.gateway.controller.common.ApiResponse;
 import com.livingagent.core.security.AccessLevel;
 import com.livingagent.core.security.auth.UnifiedAuthService;
 import com.livingagent.core.security.auth.UnifiedAuthService.AuthSession;
@@ -69,7 +70,7 @@ public class EnterpriseController {
         log.debug("Listing LLM models for tenant: {}", tenant_id);
 
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
 
         List<com.livingagent.core.model.pool.LlmModel> poolModels = modelPoolManager.getAllModels();
@@ -96,14 +97,14 @@ public class EnterpriseController {
             ));
         }
 
-        return ResponseEntity.ok(ApiResponse.success(models));
+        return ResponseEntity.ok(ApiResponse.ok(models));
     }
 
     @GetMapping("/llm-providers")
     public ResponseEntity<ApiResponse<List<LlmProviderSpec>>> listLlmProviders(
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.debug("Listing LLM providers");
 
@@ -138,7 +139,7 @@ public class EnterpriseController {
                         "", true, 4096)
         );
 
-        return ResponseEntity.ok(ApiResponse.success(providers));
+        return ResponseEntity.ok(ApiResponse.ok(providers));
     }
 
     @GetMapping("/skills")
@@ -147,7 +148,7 @@ public class EnterpriseController {
         log.debug("Listing all skills");
 
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
 
         List<Skill> skills = skillRegistry.getAllSkills();
@@ -163,7 +164,7 @@ public class EnterpriseController {
             ));
         }
 
-        return ResponseEntity.ok(ApiResponse.success(skillInfos));
+        return ResponseEntity.ok(ApiResponse.ok(skillInfos));
     }
 
     @GetMapping("/skills/by-brain/{brain}")
@@ -171,7 +172,7 @@ public class EnterpriseController {
             @PathVariable String brain,
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.debug("Listing skills for brain: {}", brain);
 
@@ -188,14 +189,14 @@ public class EnterpriseController {
             ));
         }
 
-        return ResponseEntity.ok(ApiResponse.success(skillInfos));
+        return ResponseEntity.ok(ApiResponse.ok(skillInfos));
     }
 
     @GetMapping("/tools")
     public ResponseEntity<ApiResponse<List<ToolInfo>>> listTools(
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.debug("Listing all tools");
 
@@ -211,7 +212,7 @@ public class EnterpriseController {
             ));
         }
 
-        return ResponseEntity.ok(ApiResponse.success(toolInfos));
+        return ResponseEntity.ok(ApiResponse.ok(toolInfos));
     }
 
     @GetMapping("/tools/by-department/{department}")
@@ -219,7 +220,7 @@ public class EnterpriseController {
             @PathVariable String department,
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.debug("Listing tools for department: {}", department);
 
@@ -235,17 +236,17 @@ public class EnterpriseController {
             ));
         }
 
-        return ResponseEntity.ok(ApiResponse.success(toolInfos));
+        return ResponseEntity.ok(ApiResponse.ok(toolInfos));
     }
 
     @GetMapping("/skill-counts")
     public ResponseEntity<ApiResponse<Map<String, Integer>>> getSkillCountsByBrain(
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.debug("Getting skill counts by brain");
-        return ResponseEntity.ok(ApiResponse.success(skillRegistry.getSkillCountsByBrain()));
+        return ResponseEntity.ok(ApiResponse.ok(skillRegistry.getSkillCountsByBrain()));
     }
 
     @PostMapping("/llm-models")
@@ -253,7 +254,7 @@ public class EnterpriseController {
             @RequestBody CreateLlmModelRequest request,
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.info("Creating LLM model: provider={}, model={}", request.provider(), request.model());
 
@@ -305,7 +306,7 @@ public class EnterpriseController {
             Instant.now()
         );
 
-        return ResponseEntity.ok(ApiResponse.success(model));
+        return ResponseEntity.ok(ApiResponse.ok(model));
     }
 
     @PutMapping("/llm-models/{modelId}")
@@ -315,7 +316,7 @@ public class EnterpriseController {
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.info("Updating LLM model: {}", modelId);
 
@@ -323,12 +324,12 @@ public class EnterpriseController {
         try {
             uuid = java.util.UUID.fromString(modelId);
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.ok(ApiResponse.error("not_found", "Invalid model ID: " + modelId));
+            return ResponseEntity.ok(ApiResponse.err("not_found", "Invalid model ID: " + modelId));
         }
 
         com.livingagent.core.model.pool.LlmModel existing = modelPoolManager.getModelById(uuid);
         if (existing == null) {
-            return ResponseEntity.ok(ApiResponse.error("not_found", "Model not found: " + modelId));
+            return ResponseEntity.ok(ApiResponse.err("not_found", "Model not found: " + modelId));
         }
 
         String label = request.containsKey("label") ? (String) request.get("label") : existing.getDisplayName();
@@ -377,7 +378,7 @@ public class EnterpriseController {
             Instant.now()
         );
 
-        return ResponseEntity.ok(ApiResponse.success(model));
+        return ResponseEntity.ok(ApiResponse.ok(model));
     }
 
     @DeleteMapping("/llm-models/{modelId}")
@@ -385,16 +386,16 @@ public class EnterpriseController {
             @PathVariable String modelId,
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.info("Deleting LLM model: {}", modelId);
 
         try {
             java.util.UUID uuid = java.util.UUID.fromString(modelId);
             modelPoolManager.deleteModel(uuid);
-            return ResponseEntity.ok(ApiResponse.success(null));
+            return ResponseEntity.ok(ApiResponse.ok(null));
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.ok(ApiResponse.error("not_found", "Model not found: " + modelId));
+            return ResponseEntity.ok(ApiResponse.err("not_found", "Model not found: " + modelId));
         }
     }
 
@@ -403,7 +404,7 @@ public class EnterpriseController {
             @RequestBody TestLlmModelRequest request,
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.info("Testing LLM model: {}", request.modelId());
 
@@ -415,7 +416,7 @@ public class EnterpriseController {
                 Instant.now()
         );
 
-        return ResponseEntity.ok(ApiResponse.success(result));
+        return ResponseEntity.ok(ApiResponse.ok(result));
     }
 
     // Knowledge Base Endpoints (alias for /enterprise/documents/*)
@@ -427,16 +428,16 @@ public class EnterpriseController {
         AuthContext ctx = requireDocumentAccess(authorization, false);
         String normalized = normalizeDocumentPath(path);
         if (ctx == null) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied"));
         }
         if (!isPathAllowedForContext(ctx, normalized)) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Path not allowed"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Path not allowed"));
         }
         log.debug("Getting knowledge-base files, path: {}, user={}", normalized, ctx.getEmployeeId());
 
         List<KbFileInfo> files = listDocumentFiles(normalized, ctx);
 
-        return ResponseEntity.ok(ApiResponse.success(files));
+        return ResponseEntity.ok(ApiResponse.ok(files));
     }
 
     @PostMapping("/knowledge-base/upload")
@@ -448,7 +449,7 @@ public class EnterpriseController {
         AuthContext ctx = requireDocumentAccess(authorization, true);
         String path = normalizeDocumentPath(subPath);
         if (ctx == null || !isPathWritableForContext(ctx, path)) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Upload denied"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Upload denied"));
         }
         log.info("Uploading knowledge-base file: {}, user={}", path, ctx.getEmployeeId());
 
@@ -459,7 +460,7 @@ public class EnterpriseController {
                 Instant.now()
         );
 
-        return ResponseEntity.ok(ApiResponse.success(info));
+        return ResponseEntity.ok(ApiResponse.ok(info));
     }
 
     @GetMapping("/knowledge-base/content")
@@ -470,12 +471,12 @@ public class EnterpriseController {
         AuthContext ctx = requireDocumentAccess(authorization, false);
         String normalized = normalizeDocumentPath(path);
         if (ctx == null || !isPathAllowedForContext(ctx, normalized)) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied"));
         }
         log.debug("Reading knowledge-base content: {}, user={}", normalized, ctx.getEmployeeId());
 
         KbFileContent content = new KbFileContent(normalized, "Knowledge base content here...");
-        return ResponseEntity.ok(ApiResponse.success(content));
+        return ResponseEntity.ok(ApiResponse.ok(content));
     }
 
     @PutMapping("/knowledge-base/content")
@@ -487,12 +488,12 @@ public class EnterpriseController {
         AuthContext ctx = requireDocumentAccess(authorization, true);
         String normalized = normalizeDocumentPath(path);
         if (ctx == null || !isPathWritableForContext(ctx, normalized)) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Write denied"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Write denied"));
         }
         log.info("Writing knowledge-base content: {}, user={}", normalized, ctx.getEmployeeId());
 
         KbFileContent content = new KbFileContent(normalized, request.content());
-        return ResponseEntity.ok(ApiResponse.success(content));
+        return ResponseEntity.ok(ApiResponse.ok(content));
     }
 
     @DeleteMapping("/knowledge-base/content")
@@ -503,11 +504,11 @@ public class EnterpriseController {
         AuthContext ctx = requireDocumentAccess(authorization, true);
         String normalized = normalizeDocumentPath(path);
         if (ctx == null || !isPathWritableForContext(ctx, normalized)) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Delete denied"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Delete denied"));
         }
         log.info("Deleting knowledge-base content: {}, user={}", normalized, ctx.getEmployeeId());
 
-        return ResponseEntity.ok(ApiResponse.success(Map.of("status", "deleted", "path", normalized)));
+        return ResponseEntity.ok(ApiResponse.ok(Map.of("status", "deleted", "path", normalized)));
     }
 
     @PostMapping("/broadcast")
@@ -517,7 +518,7 @@ public class EnterpriseController {
     ) {
         AuthContext ctx = requireDocumentAccess(authorization, true);
         if (ctx == null || (!ctx.isFounder() && ctx.getAccessLevel() != AccessLevel.FULL)) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Only founder can broadcast"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Only founder can broadcast"));
         }
 
         log.info("Broadcast notification: title={}, user={}", request.title(), ctx.getEmployeeId());
@@ -533,22 +534,7 @@ public class EnterpriseController {
         int agentsNotified = 5;
         int emailsSent = request.send_email() ? usersNotified : 0;
 
-        return ResponseEntity.ok(ApiResponse.success(new BroadcastResult(usersNotified, agentsNotified, emailsSent)));
-    }
-
-    public record ApiResponse<T>(
-            boolean success,
-            T data,
-            String error,
-            String errorDescription
-    ) {
-        public static <T> ApiResponse<T> success(T data) {
-            return new ApiResponse<>(true, data, null, null);
-        }
-
-        public static <T> ApiResponse<T> error(String error, String description) {
-            return new ApiResponse<>(false, null, error, description);
-        }
+        return ResponseEntity.ok(ApiResponse.ok(new BroadcastResult(usersNotified, agentsNotified, emailsSent)));
     }
 
     public record LlmModel(

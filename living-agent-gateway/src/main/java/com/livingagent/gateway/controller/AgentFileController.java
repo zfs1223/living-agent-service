@@ -1,6 +1,7 @@
 package com.livingagent.gateway.controller;
 
 import com.livingagent.core.security.AccessGateService;
+import com.livingagent.gateway.controller.common.ApiResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -38,7 +39,7 @@ public class AgentFileController {
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.debug("Listing files for agent: {}, path: {}", agentId, path);
 
@@ -61,9 +62,9 @@ public class AgentFileController {
                     });
                 }
             }
-            return ResponseEntity.ok(ApiResponse.success(files));
+            return ResponseEntity.ok(ApiResponse.ok(files));
         } catch (IllegalArgumentException | IOException e) {
-            return ResponseEntity.badRequest().body(ApiResponse.error("invalid_path", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.err("invalid_path", e.getMessage()));
         }
     }
 
@@ -74,19 +75,19 @@ public class AgentFileController {
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.debug("Reading file: {} for agent: {}", path, agentId);
 
         try {
             Path target = resolveSafeArtifactPath(path);
             if (!Files.exists(target) || Files.isDirectory(target)) {
-                return ResponseEntity.status(404).body(ApiResponse.error("not_found", "File not found"));
+                return ResponseEntity.status(404).body(ApiResponse.err("not_found", "File not found"));
             }
             FileContent content = new FileContent(path, Files.readString(target, StandardCharsets.UTF_8));
-            return ResponseEntity.ok(ApiResponse.success(content));
+            return ResponseEntity.ok(ApiResponse.ok(content));
         } catch (IllegalArgumentException | IOException e) {
-            return ResponseEntity.badRequest().body(ApiResponse.error("invalid_path", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.err("invalid_path", e.getMessage()));
         }
     }
 
@@ -98,7 +99,7 @@ public class AgentFileController {
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.info("Writing file: {} for agent: {}", path, agentId);
 
@@ -108,9 +109,9 @@ public class AgentFileController {
             String contentValue = request != null && request.content() != null ? request.content() : "";
             Files.writeString(target, contentValue, StandardCharsets.UTF_8);
             FileContent content = new FileContent(ARTIFACT_ROOT.relativize(target).toString().replace("\\\\", "/"), contentValue);
-            return ResponseEntity.ok(ApiResponse.success(content));
+            return ResponseEntity.ok(ApiResponse.ok(content));
         } catch (IllegalArgumentException | IOException e) {
-            return ResponseEntity.badRequest().body(ApiResponse.error("invalid_path", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.err("invalid_path", e.getMessage()));
         }
     }
 
@@ -121,22 +122,22 @@ public class AgentFileController {
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.info("Deleting file: {} for agent: {}", path, agentId);
 
         try {
             Path target = resolveSafeArtifactPath(path);
             if (!Files.exists(target)) {
-                return ResponseEntity.status(404).body(ApiResponse.error("not_found", "File not found"));
+                return ResponseEntity.status(404).body(ApiResponse.err("not_found", "File not found"));
             }
             if (Files.isDirectory(target)) {
-                return ResponseEntity.badRequest().body(ApiResponse.error("invalid_path", "Directory delete is not supported"));
+                return ResponseEntity.badRequest().body(ApiResponse.err("invalid_path", "Directory delete is not supported"));
             }
             Files.delete(target);
-            return ResponseEntity.ok(ApiResponse.success(Map.of("status", "deleted", "path", path)));
+            return ResponseEntity.ok(ApiResponse.ok(Map.of("status", "deleted", "path", path)));
         } catch (IllegalArgumentException | IOException e) {
-            return ResponseEntity.badRequest().body(ApiResponse.error("invalid_path", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.err("invalid_path", e.getMessage()));
         }
     }
 
@@ -148,7 +149,7 @@ public class AgentFileController {
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.info("Uploading file: {} for agent: {}", path, agentId);
 
@@ -169,9 +170,9 @@ public class AgentFileController {
                     Files.size(target),
                     Files.getLastModifiedTime(target).toInstant()
             );
-            return ResponseEntity.ok(ApiResponse.success(info));
+            return ResponseEntity.ok(ApiResponse.ok(info));
         } catch (IllegalArgumentException | IOException e) {
-            return ResponseEntity.badRequest().body(ApiResponse.error("invalid_path", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.err("invalid_path", e.getMessage()));
         }
     }
 
@@ -243,21 +244,6 @@ public class AgentFileController {
         }
         Files.createDirectories(ARTIFACT_ROOT);
         return normalized;
-    }
-
-    public record ApiResponse<T>(
-            boolean success,
-            T data,
-            String error,
-            String errorDescription
-    ) {
-        public static <T> ApiResponse<T> success(T data) {
-            return new ApiResponse<>(true, data, null, null);
-        }
-
-        public static <T> ApiResponse<T> error(String error, String description) {
-            return new ApiResponse<>(false, null, error, description);
-        }
     }
 
     public record FileInfo(

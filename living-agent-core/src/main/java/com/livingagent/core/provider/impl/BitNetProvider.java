@@ -13,6 +13,7 @@ import org.slf4j.LoggerFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.livingagent.core.model.ModelManager;
 import com.livingagent.core.model.ModelResponse;
+import com.livingagent.core.provider.InferenceResultValidator;
 import com.livingagent.core.provider.Provider;
 import com.livingagent.core.tool.ToolSchema;
 
@@ -23,6 +24,7 @@ public class BitNetProvider implements Provider {
     private final ModelManager modelManager;
     private final String sessionId;
     private final ObjectMapper objectMapper;
+    private final InferenceResultValidator resultValidator = new InferenceResultValidator();
     
     public BitNetProvider(ModelManager modelManager) {
         this.modelManager = modelManager;
@@ -70,7 +72,13 @@ public class BitNetProvider implements Provider {
         return modelManager.generateTextBitNet(sessionId, message, 500, temperature)
             .thenApply(response -> {
                 if (response.isSuccess()) {
-                    return response.getText();
+                    String text = response.getText();
+                    InferenceResultValidator.ValidationResult vr = resultValidator.validate(text);
+                    if (!vr.valid()) {
+                        log.warn("P20-D: BitNet inference result invalid: {}", vr.reason());
+                        throw new RuntimeException("BitNet inference validation failed: " + vr.reason());
+                    }
+                    return text;
                 } else {
                     throw new RuntimeException("BitNet generation failed: " + response.getError());
                 }
@@ -108,9 +116,16 @@ public class BitNetProvider implements Provider {
                 if (response.isSuccess()) {
                     String text = response.getText();
                     List<ToolCallData> toolCalls = parseToolCalls(text);
-                    
+
+                    if (toolCalls.isEmpty()) {
+                        InferenceResultValidator.ValidationResult vr = resultValidator.validate(text);
+                        if (!vr.valid()) {
+                            log.warn("P20-D: BitNet chat result invalid: {}", vr.reason());
+                        }
+                    }
+
                     return new ChatResponse(
-                        text,
+                        resultValidator.sanitize(text),
                         toolCalls,
                         0,
                         0,

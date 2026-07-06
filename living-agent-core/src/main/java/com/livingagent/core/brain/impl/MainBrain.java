@@ -98,6 +98,7 @@ public class MainBrain extends AbstractBrain {
         
         switch (requestType) {
             case "cross_department" -> handleCrossDepartmentRequest(message, userId, userDepartment);
+            case "department_response" -> handleDepartmentResponse(message);
             case "permission_check" -> handlePermissionCheck(message, userId);
             case "knowledge_query" -> handleKnowledgeQuery(message, userId);
             case "conflict_resolution" -> handleConflictResolution(message);
@@ -200,6 +201,13 @@ public class MainBrain extends AbstractBrain {
     }
 
     private String determineRequestType(ChannelMessage message) {
+        // NP1-3: 优先检查是否为部门大脑返回的响应消息
+        String coordinationSessionId = message.getMetadata("coordination_session_id");
+        String isResponse = message.getMetadata("is_department_response");
+        if (coordinationSessionId != null && "true".equals(isResponse)) {
+            return "department_response";
+        }
+
         String content = extractText(message);
         if (content == null) {
             return "general";
@@ -240,6 +248,9 @@ public class MainBrain extends AbstractBrain {
             List<String> involvedDepartments = identifyDepartments(message);
             session.involvedDepartments.addAll(involvedDepartments);
 
+            // NP1-3: 设置响应超时（默认120秒）
+            session.responseDeadline = System.currentTimeMillis() + 120_000;
+
             String coordinationPlan = createCoordinationPlan(message, involvedDepartments);
             session.plan = coordinationPlan;
 
@@ -253,15 +264,20 @@ public class MainBrain extends AbstractBrain {
                 }
             }
 
-            String response = formatCoordinationResponse(session);
-            publishResponse(message, response, session);
+            // NP1-3: 先发送中间状态消息，告知用户正在协调
+            // session 保留在 activeSessions 中，等待部门响应
+            String intermediateResponse = formatCoordinationResponse(session);
+            publishIntermediateResponse(message, intermediateResponse, session);
+
+            // NP1-3: 启动超时检查，如果超时则汇总已收到的响应
+            scheduleSessionTimeout(session);
 
         } catch (Exception e) {
             log.error("Failed to handle cross-department request", e);
             publishResponse(message, "跨部门协调失败: " + e.getMessage(), null);
-        } finally {
             activeSessions.remove(session.sessionId);
         }
+        // NP1-3: 不再在 finally 中移除 session，等待部门响应收集完成
     }
 
     private void handlePermissionCheck(ChannelMessage message, String userId) {
@@ -310,6 +326,81 @@ public class MainBrain extends AbstractBrain {
         publishResponse(message, response, null);
     }
 
+    /**
+     * NP1-3: 处理部门大脑返回的响应消息。
+     * 当部门大脑处理完转发任务后，将结果返回给主脑，主脑收集所有部门响应后汇总。
+     */
+    private void handleDepartmentResponse(ChannelMessage message) {
+        String sessionId = message.getMetadata("coordination_session_id");
+        String sourceDepartment = message.getMetadata("source_department");
+        String responseContent = extractText(message);
+
+        log.info("NP1-3: Received department response from {} for session {}", sourceDepartment, sessionId);
+
+        CoordinationSession session = activeSessions.get(sessionId);
+        if (session == null) {
+            log.warn("NP1-3: No active session found for coordination_session_id={}, response from {} will be discarded",
+                sessionId, sourceDepartment);
+            return;
+        }
+
+        // 收集部门响应
+        if (sourceDepartment != null && responseContent != null) {
+            session.departmentResponses.put(sourceDepartment, responseContent);
+            log.info("NP1-3: Collected response from {} for session {}, total responses: {}/{}",
+                sourceDepartment, sessionId, session.departmentResponses.size(), session.forwardedDepartments.size());
+        }
+
+        // 检查是否所有部门都已响应
+        if (session.departmentResponses.size() >= session.forwardedDepartments.size()) {
+            session.allResponsesReceived = true;
+            log.info("NP1-3: All department responses received for session {}, aggregating results", sessionId);
+
+            // 汇总所有部门响应
+            String aggregatedResponse = aggregateDepartmentResponses(session);
+            publishAggregatedResponse(session.originalMessage, aggregatedResponse, session);
+
+            // 清理会话
+            activeSessions.remove(sessionId);
+        }
+    }
+
+    /**
+     * NP1-3: 汇总所有部门大脑的响应，生成最终跨部门协调结果。
+     */
+    private String aggregateDepartmentResponses(CoordinationSession session) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("跨部门协调完成\n\n");
+        sb.append("会话ID: ").append(session.sessionId).append("\n");
+        sb.append("涉及部门: ").append(String.join(", ", session.involvedDepartments)).append("\n\n");
+
+        for (Map.Entry<String, String> entry : session.departmentResponses.entrySet()) {
+            String dept = entry.getKey();
+            String response = entry.getValue();
+            sb.append("【").append(departmentDisplayName(dept)).append("】\n");
+            sb.append(response).append("\n\n");
+        }
+
+        sb.append("---\n");
+        sb.append("以上为各部门处理结果，如需进一步协调请告知。");
+
+        return sb.toString();
+    }
+
+    private String departmentDisplayName(String deptCode) {
+        return switch (deptCode) {
+            case "tech" -> "技术部";
+            case "hr" -> "人力资源部";
+            case "finance" -> "财务部";
+            case "sales" -> "销售部";
+            case "cs" -> "客服部";
+            case "admin" -> "行政部";
+            case "legal" -> "法务部";
+            case "ops" -> "运营部";
+            default -> deptCode;
+        };
+    }
+
     private CoordinationSession createCoordinationSession(ChannelMessage message, String userId) {
         CoordinationSession session = new CoordinationSession();
         session.sessionId = "coord_" + System.currentTimeMillis();
@@ -319,6 +410,10 @@ public class MainBrain extends AbstractBrain {
         return session;
     }
 
+    /**
+     * 识别消息涉及的部门。
+     * DP2-5: 优先使用关键词匹配（快速），如果无匹配则尝试 LLM 语义识别。
+     */
     private List<String> identifyDepartments(ChannelMessage message) {
         String content = extractText(message);
         List<String> departments = new ArrayList<>();
@@ -327,6 +422,7 @@ public class MainBrain extends AbstractBrain {
             return departments;
         }
 
+        // 第一阶段：关键词快速匹配
         String lowerContent = content.toLowerCase();
 
         if (lowerContent.contains("技术") || lowerContent.contains("开发") || lowerContent.contains("代码")) {
@@ -354,7 +450,45 @@ public class MainBrain extends AbstractBrain {
             departments.add("ops");
         }
 
+        // DP2-5: 关键词无匹配时，尝试 LLM 语义识别
+        if (departments.isEmpty() && content.length() > 5) {
+            List<String> llmDepartments = identifyDepartmentsWithLLM(content);
+            if (!llmDepartments.isEmpty()) {
+                departments.addAll(llmDepartments);
+                log.info("DP2-5: LLM identified departments: {} for message: {}",
+                    llmDepartments, content.substring(0, Math.min(content.length(), 50)));
+            }
+        }
+
         return departments;
+    }
+
+    /**
+     * DP2-5: 使用 LLM 语义识别消息涉及的部门。
+     * 当关键词匹配无结果时调用，避免对每条消息都调用 LLM。
+     */
+    private List<String> identifyDepartmentsWithLLM(String content) {
+        try {
+            String prompt = "根据以下用户消息，判断涉及哪些部门。可选部门：tech(技术部)、hr(人力资源部)、finance(财务部)、sales(销售部)、cs(客服部)、admin(行政部)、legal(法务部)、ops(运营部)。只返回部门代码，用逗号分隔，不要其他内容。\n\n用户消息：" + content;
+            // DP2-5: 构建合成 ChannelMessage 用于 LLM 调用
+            ChannelMessage syntheticMessage = ChannelMessage.text(
+                INPUT_CHANNEL, "system", OUTPUT_CHANNEL, "dept_identify", prompt);
+            String llmResponse = executeWithLLM(syntheticMessage, "department_identification");
+            if (llmResponse == null || llmResponse.isBlank()) {
+                return List.of();
+            }
+            List<String> result = new ArrayList<>();
+            for (String part : llmResponse.split("[,，\\s]+")) {
+                String trimmed = part.trim().toLowerCase();
+                if (Set.of("tech", "hr", "finance", "sales", "cs", "admin", "legal", "ops").contains(trimmed)) {
+                    result.add(trimmed);
+                }
+            }
+            return result;
+        } catch (Exception e) {
+            log.debug("DP2-5: LLM department identification failed: {}", e.getMessage());
+            return List.of();
+        }
     }
 
     private String createCoordinationPlan(ChannelMessage message, List<String> departments) {
@@ -390,6 +524,9 @@ public class MainBrain extends AbstractBrain {
                     forwardMessage.addMetadata("forwarded_by", getId());
                     forwardMessage.addMetadata("original_user_id", original.getMetadata("user_id"));
                     forwardMessage.addMetadata("original_department", original.getMetadata("department"));
+                    // NP1-3: 标记需要响应
+                    forwardMessage.addMetadata("requires_response", "true");
+                    forwardMessage.addMetadata("response_channel", OUTPUT_CHANNEL);
 
                     // 发布到目标大脑的输入通道
                     publish(targetBrain.getSubscribedChannels().get(0), forwardMessage);
@@ -434,6 +571,21 @@ public class MainBrain extends AbstractBrain {
     }
 
     /**
+     * 带用户身份的 LLM 调用方法（用于工具执行权限检查）。
+     *
+     * <p>当 MainBrain 执行工具调用时，需要传递 userId 以进行权限检查。
+     * 如果 userId 为 null，工具执行时将使用默认权限级别（CHAT_ONLY=0）。
+     *
+     * @param systemPrompt 系统提示
+     * @param userMessage 用户消息
+     * @param userId 用户ID（用于工具权限检查）
+     * @return LLM 响应内容
+     */
+    public String callLlmWithUser(String systemPrompt, String userMessage, String userId) {
+        return callLlmWithTools(systemPrompt, userMessage, getMaxTokensFromModel(), getTemperatureFromModel(), true, userId);
+    }
+
+    /**
      * 带工具调用的 LLM 调用方法。
      * 
      * @param systemPrompt 系统提示
@@ -444,6 +596,21 @@ public class MainBrain extends AbstractBrain {
      * @return LLM 响应内容
      */
     public String callLlmWithTools(String systemPrompt, String userMessage, int maxTokens, double temperature, boolean enableTools) {
+        return callLlmWithTools(systemPrompt, userMessage, maxTokens, temperature, enableTools, null);
+    }
+
+    /**
+     * 带工具调用和用户身份的 LLM 调用方法。
+     *
+     * @param systemPrompt 系统提示
+     * @param userMessage 用户消息
+     * @param maxTokens 最大 token 数
+     * @param temperature 温度参数
+     * @param enableTools 是否启用工具调用
+     * @param userId 用户ID（用于工具权限检查）
+     * @return LLM 响应内容
+     */
+    public String callLlmWithTools(String systemPrompt, String userMessage, int maxTokens, double temperature, boolean enableTools, String userId) {
         Provider provider = ensureProvider();
         if (provider == null) {
             log.warn("MainBrain.callLlm: Provider not available");
@@ -503,10 +670,10 @@ public class MainBrain extends AbstractBrain {
                 for (Provider.ToolCallData toolCall : toolCalls) {
                     String toolName = toolCall.name();
                     String toolArgs = toolCall.arguments();
-                    
+
                     log.info("MainBrain executing tool: {} (args: {})", toolName, toolArgs);
-                    
-                    String resultContent = executeToolCall(toolName, toolArgs);
+
+                    String resultContent = executeToolCall(toolName, toolArgs, userId);
                     toolResults.add(new Provider.ToolResultData(toolCall.id(), resultContent));
                 }
 
@@ -595,19 +762,23 @@ public class MainBrain extends AbstractBrain {
      * 执行工具调用。
      */
     private String executeToolCall(String toolName, String argumentsJson) {
+        return executeToolCall(toolName, argumentsJson, null);
+    }
+
+    private String executeToolCall(String toolName, String argumentsJson, String userId) {
         try {
             String resolvedToolName = resolveToolName(toolName);
             Optional<Tool> toolOpt = tools.stream()
                 .filter(t -> t.getName().equals(resolvedToolName))
                 .findFirst();
-            
+
             if (toolOpt.isEmpty()) {
                 log.warn("MainBrain: Tool not found: {}", toolName);
                 return "错误：工具 '" + toolName + "' 不存在";
             }
-            
+
             Tool tool = toolOpt.get();
-            
+
             // 解析参数
             Map<String, Object> args = new java.util.HashMap<>();
             if (argumentsJson != null && !argumentsJson.isBlank()) {
@@ -626,20 +797,30 @@ public class MainBrain extends AbstractBrain {
                 log.info("MainBrain: Auto-injected action={} for aliased tool call {} -> {}",
                     toolName, toolName, resolvedToolName);
             }
-            
-            // 执行工具
+
+            // 获取用户权限级别（用于工具权限检查）
+            Integer accessLevel = null;
+            if (userId != null && permissionService != null) {
+                com.livingagent.core.security.AccessLevel level = permissionService.getAccessLevel(userId);
+                if (level != null) {
+                    accessLevel = level.getLevel();
+                    log.debug("MainBrain tool execution: userId={}, accessLevel={}", userId, accessLevel);
+                }
+            }
+
+            // 执行工具（传递 userId 和 accessLevel）
             com.livingagent.core.tool.Tool.ToolParams params = com.livingagent.core.tool.Tool.ToolParams.of(args);
-            com.livingagent.core.tool.ToolContext context = new com.livingagent.core.tool.ToolContext(
+            com.livingagent.core.tool.ToolContext context = com.livingagent.core.tool.ToolContext.withClient(
                 null,  // neuronId
                 null,  // sessionId
                 null,  // securityPolicy
-                java.time.Duration.ofSeconds(60),  // timeout
-                false, // sandboxed
-                null   // workingDirectory
+                userId != null ? userId : "main-brain",  // employeeCode
+                null,  // clientId
+                accessLevel  // accessLevel
             );
-            
+
             com.livingagent.core.tool.ToolResult result = tool.execute(params, context);
-            
+
             if (result.success()) {
                 Object data = result.data();
                 if (data != null) {
@@ -649,7 +830,7 @@ public class MainBrain extends AbstractBrain {
             } else {
                 return "工具执行失败: " + result.error();
             }
-            
+
         } catch (Exception e) {
             log.error("MainBrain tool execution failed: tool={}, error={}", toolName, e.getMessage());
             return "工具执行异常: " + e.getMessage();
@@ -715,6 +896,100 @@ public class MainBrain extends AbstractBrain {
         publish(OUTPUT_CHANNEL, response);
     }
 
+    /**
+     * NP1-3: 发布中间状态消息（正在执行...请稍候），告知用户跨部门协调进行中。
+     */
+    private void publishIntermediateResponse(ChannelMessage original, String content, CoordinationSession session) {
+        ChannelMessage response = ChannelMessage.text(
+            OUTPUT_CHANNEL,
+            getId(),
+            original.getSourceChannelId(),
+            original.getSessionId(),
+            content
+        );
+        response.addMetadata("brain_id", getId());
+        response.addMetadata("brain_name", "MainBrain");
+        response.addMetadata("message_type", "intermediate");
+        if (session != null) {
+            response.addMetadata("coordination_session", session.sessionId);
+        }
+        publish(OUTPUT_CHANNEL, response);
+    }
+
+    /**
+     * NP1-3: 发布最终聚合响应（async_final_response），包含所有部门大脑的处理结果。
+     */
+    private void publishAggregatedResponse(ChannelMessage original, String content, CoordinationSession session) {
+        ChannelMessage response = ChannelMessage.text(
+            OUTPUT_CHANNEL,
+            getId(),
+            original.getSourceChannelId(),
+            original.getSessionId(),
+            content
+        );
+        response.addMetadata("brain_id", getId());
+        response.addMetadata("brain_name", "MainBrain");
+        response.addMetadata("message_type", "async_final_response");
+        if (session != null) {
+            response.addMetadata("coordination_session", session.sessionId);
+        }
+        publish(OUTPUT_CHANNEL, response);
+    }
+
+    /**
+     * NP1-3: 调度会话超时检查。如果超时后仍有部门未响应，则汇总已收到的响应并发布。
+     */
+    private void scheduleSessionTimeout(CoordinationSession session) {
+        Thread.ofVirtual().start(() -> {
+            try {
+                long waitMs = session.responseDeadline - System.currentTimeMillis();
+                if (waitMs > 0) {
+                    Thread.sleep(waitMs);
+                }
+
+                // 再次检查是否所有响应已收到
+                if (session.allResponsesReceived) {
+                    return;
+                }
+
+                log.warn("NP1-3: Session {} timed out, received {}/{} responses",
+                    session.sessionId, session.departmentResponses.size(), session.forwardedDepartments.size());
+
+                // 汇总已收到的响应（可能不完整）
+                String aggregatedResponse;
+                if (session.departmentResponses.isEmpty()) {
+                    aggregatedResponse = "跨部门协调超时：所有部门均未在规定时间内返回结果，请稍后重试。";
+                } else {
+                    StringBuilder sb = new StringBuilder();
+                    sb.append("跨部门协调完成（部分超时）\n\n");
+                    sb.append("会话ID: ").append(session.sessionId).append("\n");
+                    sb.append("已响应部门: ").append(session.departmentResponses.size())
+                      .append("/").append(session.forwardedDepartments.size()).append("\n\n");
+
+                    for (Map.Entry<String, String> entry : session.departmentResponses.entrySet()) {
+                        sb.append("【").append(departmentDisplayName(entry.getKey())).append("】\n");
+                        sb.append(entry.getValue()).append("\n\n");
+                    }
+
+                    List<String> missingDepts = session.forwardedDepartments.stream()
+                        .filter(d -> !session.departmentResponses.containsKey(d))
+                        .map(this::departmentDisplayName)
+                        .toList();
+                    if (!missingDepts.isEmpty()) {
+                        sb.append("未响应部门: ").append(String.join("、", missingDepts)).append("\n");
+                    }
+                    aggregatedResponse = sb.toString();
+                }
+
+                publishAggregatedResponse(session.originalMessage, aggregatedResponse, session);
+                activeSessions.remove(session.sessionId);
+
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+    }
+
     protected String extractText(ChannelMessage message) {
         Object payload = message.getPayload();
         return payload != null ? payload.toString() : null;
@@ -753,5 +1028,9 @@ public class MainBrain extends AbstractBrain {
         List<String> forwardedDepartments = new ArrayList<>();
         String plan;
         Map<String, Object> results = new HashMap<>();
+        // NP1-3: 跨部门响应收集
+        Map<String, String> departmentResponses = new HashMap<>();
+        long responseDeadline;
+        volatile boolean allResponsesReceived = false;
     }
 }

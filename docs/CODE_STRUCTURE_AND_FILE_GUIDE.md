@@ -2,7 +2,7 @@
 
 > 目的：把 `docker/living-agent-service` 的代码结构、关键文件职责和修改入口整理成一份索引，避免后续改代码时重复实现、重复落点、重复造服务。
 >
-> 更新时间：2026-06-06
+> 更新时间：2026-07-03
 >
 > 适用范围：后端 Java/Spring Boot、前端 React/Vite、Rust Native、Python model daemon、Windows 自动化（pywinauto）、Docker 编排、数据库脚本、项目文档。
 
@@ -45,7 +45,7 @@ docker/living-agent-service/
 | `frontend`                 | 用户界面                     | 页面、路由、接口调用、WebSocket、前端状态                             |
 | `scripts/python`           | 本地模型守护进程                 | NamedPipe 模型调用、ASR/TTS/LLM Python 进程                  |
 | `scripts/windows_automation` | Windows 桌面应用自动化客户端       | pywinauto HTTP 服务、金蝶 KIS 等桌面应用远程控制                    |
-| `init-db` / `db/migration` | 初始化和迁移                   | 表结构、初始数据、Flyway 迁移                                    |
+| `init-db` / `db/schema.sql` | 初始化和 schema               | 表结构（schema.sql 权威源 + 01_init.sql Docker 初始化），不再使用 Flyway 迁移                      |
 | `documents`                | 企业知识和制度源文件               | 数字员工职责卡、部门制度、治理规则                                     |
 | `docs`                     | 设计、排查和计划                 | 方案补充、问题记录、架构说明                                        |
 
@@ -81,7 +81,11 @@ living-agent-app/
 ├── entrypoint.sh
 └── src/main/
     ├── java/com/livingagent/LivingAgentApplication.java
-    └── resources/application.yml
+    └── resources/
+        ├── application.yml
+        └── claude/
+            ├── mcp.json                    # Claude Code MCP Server 配置（filesystem/memory/sequential-thinking）
+            └── plugins/                    # Claude Code 插件（commit-commands/code-review/feature-dev/security-guidance）
 ```
 
 | 文件                            | 功能说明                                                      | 常见修改场景                                    |
@@ -89,7 +93,7 @@ living-agent-app/
 | `LivingAgentApplication.java` | Spring Boot 主启动类，通常负责 `@SpringBootApplication`、调度、异步等全局开关 | 启动类扫描范围、启动开关、定时任务启用问题                     |
 | `application.yml`             | 后端主配置，包含端口、数据库、Redis、Kafka、模型、Native、认证、日志等配置             | 容器环境变量、模型服务地址、数据库地址、日志级别                  |
 | `Dockerfile`                  | 生产/容器构建后端镜像                                               | 打包 jar、复制 native 库、安装运行依赖                 |
-| `Dockerfile.local`            | 本地开发镜像构建                                                  | 本地调试、挂载源码或快速构建                            |
+| `Dockerfile.local`            | 本地开发镜像构建；安装 Claude Code CLI + MCP Server npm 包；COPY 插件到 /home/livingagent/.claude/plugins | 本地调试、挂载源码或快速构建、MCP/插件安装         |
 | `entrypoint.sh`               | 容器启动脚本，常用于等待依赖、启动 Java、启动 Python daemon                   | 容器启动顺序、环境变量注入、native path、model daemon 启动 |
 
 避免重复建议：
@@ -143,19 +147,27 @@ living-agent-gateway/src/main/java/com/livingagent/gateway/
 | `websocket/AgentWebSocketHandler.java`      | 通用 Agent/语音/神经元会话 WebSocket，通常会进入 `AgentService`、模型会话、Qwen3/BitNet 等链路；Token 认证三级优先级：Sec-WebSocket-Protocol 头 > Authorization 头 > URL 查询参数（兼容降级）                           | 不要把部门文本聊天直接塞进这里                                      |
 | `websocket/DepartmentWebSocketHandler.java` | 部门聊天 WebSocket，处理 `/ws/dept/{dept}` 的部门消息、权限、在线连接、推送；已新增 `pushExecutionProgress()` 方法支持长任务异步进度推送 | 部门文本聊天应走部门大脑/自治编排，不应无条件启动 `AgentService/Qwen3Neuron` |
 | `websocket/PersistentConnectionRegistry.java` | WebSocket 持久连接注册表 | 管理长连接生命周期、断线重连、连接状态追踪 |
+| `websocket/ConnectionRegistry.java`         | **【新增】** WebSocket 连接注册接口，定义 bindSession/unbindSession/getSession/bindConversation/unbindConversation/getSessionIdByConversationId 方法 | WebSocket 连接管理抽象 |
+| `websocket/InMemoryConnectionRegistry.java` | **【新增】** 内存版 WebSocket 连接注册实现，维护 userId → WebSocketSession 映射，支持 conversationId/taskKey/executionId/projectKey 绑定 | WebSocket 连接查询和绑定 |
+| `websocket/AuthHandshakeInterceptor.java`   | **【新增】** WebSocket 认证握手拦截器，从 HTTP 请求中提取 token 并验证，将用户信息注入 WebSocket session | WebSocket 认证逻辑修改 |
+| `websocket/WebSocketRateLimiter.java`       | **【新增】** WebSocket 速率限制器，限制单用户消息频率，防止滥用 | WebSocket 流控调整 |
+| `websocket/WindowsAutomationClientGatewayImpl.java` | **【新增】** Windows 自动化 WebSocket 客户端网关实现，维护 clientId → WebSocketSession 映射，转发 WIN_AUTOMATION_CALL/WIN_AUTOMATION_RESPONSE 消息 | Windows 自动化 WebSocket 通信 |
 
 ### 5.3 关键 Service
 
 | 文件                                            | 功能说明                                                                  | 修改建议                                                 |
 | --------------------------------------------- | --------------------------------------------------------------------- | ---------------------------------------------------- |
 | `service/AgentService.java`                   | Agent 会话服务，创建模型 session、绑定神经元、处理语音/通用 Agent 链路                        | 语音、Qwen3Neuron、NamedPipe 模型会话相关改这里；部门文本不要复用它         |
-| `service/DepartmentChatService.java`          | 部门聊天服务，保存部门消息、调用部门大脑、承接自治编排结果、透传部门计划/员工任务单/准备批次到部门大脑，并汇总执行派发与回执 Trace；已添加 triggeredFinalResponses 原子集合防止轮询/监听双路径重复触发；executionResultCache 缓存解决监听路径 executionResult=null；activeSessionPlans 追踪活跃计划实现需求冻结/防漂移 | 部门聊天落库、部门大脑调用、自治编排入口、固定员工分派建议、任务单准备、执行回执 Trace 优先改这里 |
+| `service/WorkItemContextService.java`         | **【新增】** 工作项上下文服务                        | 维护工作项上下文，支持 ExecutionSnapshotRecorder                              |
+| `service/PublicTaskEventPublisher.java`       | **【新增】** 公开任务事件发布器                        | 向前端 WebSocket 推送任务事件                              |
+| `service/ExecutionProgressBroadcaster.java`   | **【新增】** 执行进度广播器                        | 向 WebSocket 客户端广播执行进度                              |
+| `service/DepartmentChatService.java`          | 部门聊天服务，保存部门消息、调用部门大脑、承接自治编排结果、透传部门计划/员工任务单/准备批次到部门大脑，并汇总执行派发与回执 Trace；已添加 triggeredFinalResponses 原子集合防止轮询/监听双路径重复触发；executionResultCache 缓存解决监听路径 executionResult=null；activeSessionPlans 追踪活跃计划实现需求冻结/防漂移；NP1-4: processBrainResponseWithContract 构建合成 ChannelMessage 委托到 processBrainResponse，消除双通道重复逻辑；findByExecutionId 调用已改为 .isEmpty()/.stream().findFirst() | 部门聊天落库、部门大脑调用、自治编排入口、固定员工分派建议、任务单准备、执行回执 Trace 优先改这里 |
 | `service/TaskWorkflowService.java`            | 网关任务流转服务                                                              | 任务状态、任务事件、部门任务流转                                     |
 | `service/TaskEventBridgeService.java`         | 将任务事件桥接到其他模块                                                          | 任务与绩效/消息/通知联动                                        |
 | `service/TaskPerformanceBridgeService.java`   | 任务绩效桥接                                                                | 任务完成后记绩效                                             |
 | `service/EvolutionFeedbackBridgeService.java` | 进化反馈桥接                                                                | 用户反馈、任务结果进入进化系统                                      |
 | `service/DashboardDataService.java`           | Dashboard 数据聚合                                                        | 首页/管理看板数据来源                                          |
-| `service/PerformanceDashboardService.java`    | 绩效看板服务                                                                | 绩效统计、趋势图                                             |
+| `service/PerformanceDashboardService.java`    | 绩效看板服务，已移除 instanceof 耦合，直接调用接口方法                                                                | 绩效统计、趋势图                                             |
 | `service/OrganizationQueryService.java`       | 组织/员工查询服务                                                             | 部门、员工、组织结构查询                                         |
 | `service/DepartmentNotificationService.java`  | 部门通知服务                                                                | 部门内消息、提醒、广播                                          |
 | `service/KnowledgeGovernanceService.java`     | 知识治理应用服务                                                              | 知识晋升、审核、治理流程                                         |
@@ -179,6 +191,7 @@ living-agent-gateway/src/main/java/com/livingagent/gateway/
 | `EnterpriseController.java` / `EnterpriseApiController.java`        | 企业设置、企业信息             | 企业设置页                                                                                              |
 | `TenantController.java`                                             | 租户管理                  | 多租户/企业初始化                                                                                          |
 | `SystemController.java` / `SystemSettingsController.java`           | 系统状态和系统设置             | 设置、状态页                                                                                             |
+| `HealthController.java`                                             | **P12-B** K8s 健康检查端点（`/api/health`, `/api/health/live`, `/api/health/ready`） | Kubernetes liveness/readiness 探针、桌面端状态检查                                                          |
 | `DashboardController.java`                                          | Dashboard API         | `Dashboard.tsx`、`PlatformDashboard.tsx`                                                            |
 | `AgentController.java` / `AgentApiController.java`                  | Agent 列表、详情、创建、操作     | Agent 管理页                                                                                          |
 | `AgentChannelController.java`                                       | Agent 通道管理接口          | Agent 通道配置、通道状态                                                                                   |
@@ -196,9 +209,10 @@ living-agent-gateway/src/main/java/com/livingagent/gateway/
 | `InterventionController.java`                                       | 人工干预接口                | 干预操作、风险评估、影响分析                                                                                     |
 | `AgentFileController.java`                                          | 文件浏览/产物接口             | 文件浏览组件                                                                                             |
 | `WindowsAutomationController.java`                                   | Windows 自动化节点管理        | 节点注册、心跳、启用/禁用、删除；供 server.py 和前端调用                                                                                |
-| `ApprovalController.java`                                           | 审批接口                  | 审批页                                                                                                |
-| `PerformanceController.java`                                        | 绩效接口                  | 绩效看板                                                                                               |
+| `ApprovalController.java`                                           | 审批接口                  | 审批页；findByExecutionId 调用已改为 .stream().findFirst()                                                                                                |
+| `PerformanceController.java`                                        | 绩效接口                  | 绩效看板；已移除 instanceof 耦合，直接调用接口方法                                                                                               |
 | `CreditController.java`                                             | 积分/收益接口               | 激励/积分页                                                                                             |
+| `AutonomousController.java`                                         | 经济自治接口               | 赏金猎取/收款管理/账本/进化追踪/总览；对接 `core/autonomous` 模块                                                              |
 | `ModelPoolController.java`                                          | 模型池 Provider/Model 管理 | 模型池页面                                                                                              |
 | `BrainModelResolver.java`                                           | 大脑模型解析器               | 按 brainId 解析模型分配，已集成 `ModelHealthRegistry` 支持熔断过滤                                                  |
 | `ModelHealthRegistry.java`                                          | 模型健康注册表               | 记录模型成功/失败/超时/熔断状态，支持 AVAILABLE/DEGRADED/COOLDOWN/UNAVAILABLE/UNKNOWN 五种状态，冷却到期自动恢复                 |
@@ -217,6 +231,9 @@ living-agent-gateway/src/main/java/com/livingagent/gateway/
 | `client/OpenAiCompatibleClient.java`                                | OpenAI 兼容客户端          | 兼容 OpenAI API 的模型调用                                                                                |
 | `BrainModelConfigController.java`                                   | 大脑模型分配配置              | 大脑模型配置页                                                                                            |
 | `MonitoringController.java`                                         | 监控接口                  | 监控页                                                                                                |
+| `ErrorReportController.java`                                        | 前端错误上报接收端点            | `/api/error-reports` 接收前端批量错误上报并记录日志                                                               |
+| `VitalSignsController.java`                                         | P32-A: 生命体征仪表盘           | GET `/api/vitals` 当前快照 + GET `/api/vitals/history` 历史趋势                                                      |
+| `SatisfactionController.java`                                       | P29-A: 满意度采集             | POST `/api/satisfaction` + GET `/api/satisfaction/{brainDomain}`                                                |
 | `NeuronController.java`                                             | 神经元接口                 | 神经元调试/状态                                                                                           |
 | `SkillsController.java`                                             | 技能接口                  | 技能管理                                                                                               |
 | `VoicePrintController.java`                                         | 声纹接口                  | 声纹认证/语音身份                                                                                          |
@@ -435,13 +452,13 @@ com.livingagent.core/
 | `Brain.java`                                   | 大脑统一接口                                                                                                          | 新增大脑能力先看接口方法是否够用                                 |
 | `BrainContext.java`                            | 大脑处理上下文，承载用户、部门、会话、权限、元数据                                                                                       | 新增上下文参数优先扩展这里，避免散落 Map                           |
 | `BrainRegistry.java`                           | 大脑注册表接口                                                                                                         | 路由到部门大脑时走这里                                      |
-| `impl/AbstractBrain.java`                      | 部门大脑公共基类，封装模型调用、工具/上下文/日志等共性；计数器已改 AtomicInteger/AtomicLong；会话历史已拆分到 BrainSessionManager（ConcurrentHashMap 手动 TTL 30分钟 + 最大 500 会话驱逐），ReAct 循环已拆分到 BrainReActEngine，模型降级已拆分到 BrainModelFallback                                                                                    | 修改所有部门大脑共同逻辑时改这里                                 |
+| `impl/AbstractBrain.java`                      | 部门大脑公共基类，封装模型调用、工具/上下文/日志等共性；计数器已改 AtomicInteger/AtomicLong；会话历史已拆分到 BrainSessionManager（ConcurrentHashMap 手动 TTL 30分钟 + 最大 500 会话驱逐），ReAct 循环已拆分到 BrainReActEngine，模型降级已拆分到 BrainModelFallback；NP1-3: `publishResponse()` 检查 requires_response 元数据，自动回传部门响应到主脑；新增 getReActEngine() getter                                                                                    | 修改所有部门大脑共同逻辑时改这里                                 |
 | `impl/BrainSessionManager.java`                | 大脑会话历史管理器（从 AbstractBrain 拆分）                                                                                   | 会话缓存策略、TTL、驱逐策略                                  |
-| `impl/BrainReActEngine.java`                   | 大脑 ReAct 循环引擎（从 AbstractBrain 拆分）                                                                               | ReAct 循环逻辑、工具调用循环                                |
+| `impl/BrainReActEngine.java`                   | 大脑 ReAct 循环引擎（从 AbstractBrain 拆分）                                                                               | ReAct 循环逻辑、工具调用循环、executeCompileFixLoop()编译-修复自闭环 |
 | `impl/BrainModelFallback.java`                 | 大脑模型降级管理器（从 AbstractBrain 拆分）                                                                                   | 模型降级策略、备选 Provider 选择                            |
 | `impl/BrainRegistryImpl.java`                  | 大脑注册实现，维护 MainBrain、TechBrain、HrBrain 等映射                                                                       | 新增部门大脑或改路由映射时改这里                                 |
-| `impl/MainBrain.java`                          | 主脑/总控大脑，负责战略、跨部门、复杂协调；`forwardToDepartment()` 已实现通过 ChannelManager 实际转发消息到目标部门大脑输入通道                                                                                           | 跨部门协调、企业级判断入口                                    |
-| `impl/TechBrain.java`                          | 技术部大脑                                                                                                           | 技术任务、代码、开发流程                                     |
+| `impl/MainBrain.java`                          | 主脑/总控大脑，负责战略、跨部门、复杂协调；`forwardToDepartment()` 已实现通过 ChannelManager 实际转发消息到目标部门大脑输入通道；NP1-3: `handleDepartmentResponse()` 收集部门响应、`aggregateDepartmentResponses()` 汇总结果、`scheduleSessionTimeout()` 超时检查                                                                                           | 跨部门协调、企业级判断入口                                    |
+| `impl/TechBrain.java`                          | 技术部大脑                                                                                                           | 技术任务、代码、开发流程、shouldUseCompileFixLoop()判断BUG_FIX/TEST_GENERATE/CODE_CHANGE任务是否走编译-修复闭环(ClaudeCliTool不可用时自动启用) |
 | `impl/HrBrain.java`                            | 人力资源大脑                                                                                                          | 招聘、绩效、组织、人事流程                                    |
 | `impl/FinanceBrain.java`                       | 财务大脑                                                                                                            | 报销、预算、发票、成本                                      |
 | `impl/SalesBrain.java`                         | 销售大脑                                                                                                            | 销售、客户、市场线索                                       |
@@ -472,9 +489,11 @@ com.livingagent.core/
 
 ### 6.2 `autonomy` 自治编排包
 
+**闭环归属**: 闭环35（动态员工创建闭环）+ 闭环37（员工智能调度闭环）
+
 | 文件                 | 功能说明                    | 修改建议                     |
 
-| `ConversationOrchestrator.java`                         | 对话自治总入口，负责把用户输入转为入口分类、需求就绪评估、主脑规划、部门路由、部门计划和 Trace；OrchestrationResult 新增 needsClarification/clarificationMessage 字段                                                                                           | 部门对话要形成“生命力”时优先改这里                                                                                                                                            |
+| `ConversationOrchestrator.java`                         | 对话自治总入口，负责把用户输入转为入口分类、需求就绪评估、主脑规划、部门路由、部门计划和 Trace；OrchestrationResult 新增 needsClarification/clarificationMessage 字段；P2-3: resumeAfterClarificationAsync 异步链式调用；P2-5: InterventionNeuron 统一降级策略                                                                                           | 部门对话要形成“生命力”时优先改这里                                                                                                                                            |
 | `DialogueAnalyzer.java`                                 | 对话意图分析接口                                                                                                                              | 判断闲聊/任务/跨部门/审批等                                                                                                                                               |
 | `impl/RuleBasedDialogueAnalyzer.java`                   | 规则式意图分析实现                                                                                                                             | 先用关键词/规则兜底，现作为 `LlmBasedDialogueAnalyzer` 的降级兜底                                                                                                               |
 | `impl/LlmBasedDialogueAnalyzer.java`                    | LLM 驱动的入口消息分析器                                                                                                                        | 通过 `MainBrain.callLlm()` 获得结构化 JSON 分析结果；LLM 不可用时自动降级到 `RuleBasedDialogueAnalyzer`                                                                            |
@@ -488,7 +507,7 @@ com.livingagent.core/
 | `FixedEmployeeDispatcher.java`                          | 固定员工分派接口                                                                                                                              | 将部门计划转为固定员工任务单                                                                                                                                                |
 | `EmployeeWorkAssignment.java`                           | 固定员工任务单                                                                                                                               | 员工编码、神经元、角色、指令、产物和工具上下文、worktreePath、diffPath（代码任务专用字段）                                                                                                  |
 | `impl/RegistryBackedFixedEmployeeDispatcher.java`       | 基于 `FixedEmployeeRegistry` 的规则式员工分派实现                                                                                                 | 作为 `LlmBasedFixedEmployeeDispatcher` 的降级兜底                                                                                                                    |
-| `impl/LlmBasedFixedEmployeeDispatcher.java`             | LLM 驱动的智能员工分派实现                                                                                                                       | 通过 `MainBrain.callLlm()` 根据员工能力、负载、历史绩效动态选人；LLM 不可用时自动降级到 `RegistryBackedFixedEmployeeDispatcher`                                                             |
+| `impl/LlmBasedFixedEmployeeDispatcher.java`             | **【闭环37-A】** LLM 驱动的智能员工分派实现                                                                                                                       | 通过 `MainBrain.callLlm()` 根据员工能力、负载、历史绩效动态选人；LLM 不可用时自动降级到 `RegistryBackedFixedEmployeeDispatcher`；**包含Fallback降级机制**                                                             |
 | `PreparedAssignmentBatch.java`                          | 部门级任务单准备批次                                                                                                                            | 聚合一次部门任务的员工任务单、目标、批次 ID 和准备状态                                                                                                                                 |
 | `AssignmentPreparationService.java`                     | 任务单准备服务接口                                                                                                                             | 将主脑计划、部门计划和员工任务单整理为可交给部门大脑/后续执行器的准备批次                                                                                                                         |
 | `impl/DefaultAssignmentPreparationService.java`         | 默认任务单准备实现                                                                                                                             | P0-5 新增 ExecutionCapabilityResolver 集成，将 executionCapability/artifactType/executionMode 写入每个 assignment 的 context                                                                          |
@@ -496,7 +515,8 @@ com.livingagent.core/
 | `impl/LlmAssignmentReadinessEvaluator.java`             | LLM 任务分派准备度评估                                                                                                                         | LLM 评估任务目标清晰度、员工合适度、交付物明确度                                                                                                                                    |
 | `DepartmentExecutionCoordinator.java`                   | 部门执行协调接口                                                                                                                              | 将准备批次推进到员工执行通道                                                                                                                                                |
 | `DepartmentExecutionResult.java`                        | 部门执行派发结果                                                                                                                              | 记录 executionId、batchId、派发状态和员工派发列表                                                                                                                            |
-| `CrossDepartmentCoordinator.java`                       | 跨部门任务协调器                                                                                                                              | 聚合多部门执行结果，判断跨部门任务整体完成状态；`needsCrossDepartmentCoordination()` 判断是否需要跨部门协调；`coordinate()` 接收 requestId、MainBrainTaskPlan、Map<部门, 执行结果> |
+| `CrossDepartmentCoordinator.java`                       | 跨部门任务协调器接口                                                                                                                              | 聚合多部门执行结果，判断跨部门任务整体完成状态；`needsCrossDepartmentCoordination()` 判断是否需要跨部门协调；`coordinate()` 接收 requestId、MainBrainTaskPlan、Map<部门, 执行结果>；P2 重构为接口 |
+| `impl/DefaultCrossDepartmentCoordinator.java`           | 默认跨部门协调器实现                                                                                                                             | 从原 CrossDepartmentCoordinator 提取的逻辑；收集各部门结果、标记失败部门、聚合整体状态                                                                                              |
 | `EmployeeExecutionDispatch.java`                        | 单个员工执行派发记录                                                                                                                            | 记录 dispatchId、assignmentId、目标 channel、派发状态                                                                                                                    |
 | `impl/ChannelBackedDepartmentExecutionCoordinator.java` | 基于 `ChannelManager` 的第一版执行协调器                                                                                                         | 发布到 `channel://employee/{neuron-or-code}/tasks`，并写入回执 channel 元数据                                                                                             |
 | `EmployeeExecutionReceipt.java`                         | 员工执行回执结构                                                                                                                              | 记录执行完成/失败状态、摘要和回执元数据、worktreePath、diffPath（代码任务专用字段）                                                                                                        |
@@ -504,12 +524,12 @@ com.livingagent.core/
 | `impl/InMemoryEmployeeExecutionReceiptService.java`     | 内存版员工执行回执服务                                                                                                                           | 第一版闭环缓存，保留作为测试/回退使用；生产使用 `FileBasedEmployeeExecutionReceiptService`                                                                                           |
 | `impl/FileBasedEmployeeExecutionReceiptService.java`    | JSON 文件持久化回执服务                                                                                                                        | 回执写入 `data/receipts/` 目录，启动时自动加载历史数据，支持 getStats/clearAll                                                                                                     |
 | `DialogueDecision.java`                                 | 意图分析和路由决策结果                                                                                                                           | 新增决策字段时改这里                                                                                                                                                    |
-| `AutonomyTraceService.java`                             | 自治流程追踪日志服务                                                                                                                            | 日志要看到分析、路由、分工、执行阶段时改这里                                                                                                                                        |
+| `AutonomyTraceService.java`                             | 自治流程追踪日志服务，recordEvent() 已添加 @Transactional                                                                                          | 日志要看到分析、路由、分工、执行阶段时改这里                                                                                                                                        |
 | `AutonomyTraceEvent.java`                               | 自治 Trace 事件数据结构                                                                                                                       | Trace 字段扩展                                                                                                                                                    |
 | `ArtifactRecord.java`                                   | 任务产物记录结构                                                                                                                              | 记录执行ID、部门、员工、产物类型/路径/名称/大小/sha256，新增 `taskId`/`projectId` 关联字段                                                                                                |
 | `ArtifactRecordService.java`                            | 产物记录服务接口                                                                                                                              | 按执行ID/部门/员工/类型查询产物，支持分页和目录扫描索引；新增 `getByTaskId`/`getByProjectId`/`associateTaskAndProject`                                                                    |
 | `impl/InMemoryArtifactRecordService.java`               | 内存版产物记录服务                                                                                                                             | 第一版闭环缓存，保留作为测试/回退使用；生产使用 `JpaArtifactRecordService`                                                                                                           |
-| `impl/JpaArtifactRecordService.java`                    | JPA 数据库产物记录服务                                                                                                                         | 生产持久化实现，支持 artifact\_records 表的 CRUD、分页查询、统计、目录扫描索引                                                                                                           |
+| `impl/JpaArtifactRecordService.java`                    | JPA 数据库产物记录服务，recordArtifact()/associateTaskAndProject()/scanAndIndexDirectory() 已添加 @Transactional                              | 生产持久化实现，支持 artifact\_records 表的 CRUD、分页查询、统计、目录扫描索引                                                                                                           |
 | `MainBrainFinalSummaryService.java`                     | 主脑最终总结服务接口                                                                                                                            | 执行类任务最终回复由主脑基于完整上下文进行组织级收口，定义 `FinalSummaryResult` 结构                                                                                                         |
 | `impl/LlmMainBrainFinalSummaryService.java`             | LLM 驱动的主脑最终总结                                                                                                                         | 调用 MainBrain LLM 生成结构化总结，LLM 不可用时自动降级到 `DefaultMainBrainFinalSummaryService`                                                                                  |
 | `impl/DefaultMainBrainFinalSummaryService.java`         | 默认主脑最终总结实现                                                                                                                            | LLM 不可用时使用模板方式生成总结，支持状态判定、产物列表、风险和建议                                                                                                                          |
@@ -522,7 +542,7 @@ com.livingagent.core/
 | `impl/DefaultExecutionCapabilityResolver.java`          | 默认执行能力解析器实现                                                                                                                           | 规则兜底优先 → 枚举校验 → 置信度检查 → 无法归一则 NEEDS\_CLARIFICATION / HUMAN\_HANDOFF；包含中英文 taskType 映射和关键词评分                                                              |
 | `impl/LlmBasedExecutionCapabilityResolver.java`         | LLM 驱动的执行能力解析器                                                                                                                       | 规则置信度不足时调用 LLM 语义判断；支持 LlmDecisionClient 和 MainBrain.callLlm 双通道；LLM 不可用时自动降级到 DefaultExecutionCapabilityResolver                                                      |
 | `RequirementReadinessEvaluator.java`                    | 需求就绪评估器接口                                                                                                                             | 在主脑规划和员工分派之前判断需求是否明确；SUFFICIENT/PARTIALLY\_SUFFICIENT/INSUFFICIENT                                                                                          |
-| `impl/DefaultRequirementReadinessEvaluator.java`        | 默认需求就绪评估器实现                                                                                                                           | 基于规则：消息长度 + 动作关键词 + 目标关键词 + 上下文关键词 → 置信度评分                                                                                                                    |
+| `impl/DefaultRequirementReadinessEvaluator.java`        | 默认需求就绪评估器实现（规则版）                                                                                                                       | 7条确定性规则：空消息→INSUFFICIENT、过短→INSUFFICIENT、动作词→SUFFICIENT、疑问词→SUFFICIENT、请求词→SUFFICIENT、≥10字符→SUFFICIENT、短消息无关键词→PARTIALLY\_SUFFICIENT；不依赖LLM，作为降级方案 |
 | `MainBrainRequirementClarifier.java`                    | 主脑需求澄清器接口                                                                                                                             | 需求不明确时由主脑统一生成澄清消息返回用户，不直接派给员工                                                                                                                                |
 | `impl/DefaultMainBrainRequirementClarifier.java`        | 默认主脑需求澄清器实现                                                                                                                           | 基于规则生成结构化澄清消息，列出缺失信息和引导问题                                                                                                                                    |
 | `EmployeeTaskExecutor.java`                             | 员工任务执行器接口                                                                                                                             | 定义 `ExecutionResult` 和 `ArtifactFile` 结构，支持按任务类型分发执行（web/document/analysis/review等）                                                                           |
@@ -533,9 +553,13 @@ com.livingagent.core/
 | `PerformanceCaptureResult.java`                         | 绩效记录结果                                                                                                                                | 记录员工编码、执行ID、贡献类型                                                                                                                                              |
 | `PerformanceCaptureService.java`                        | 绩效记录服务接口                                                                                                                              | 从执行结果中记录员工贡献                                                                                                                                                  |
 | `impl/DefaultPerformanceCaptureService.java`            | 基于 LedgerService 的绩效记录实现                                                                                                              | 完成任务后自动发放积分奖励                                                                                                                                                 |
+| `KnowledgeQualityEvaluator.java`                        | NP2-1: 知识质量评估接口，assess/calculatePromotionReadiness                                                                                       | 评估知识条目质量和晋升就绪度                                                                                                                                             |
+| `impl/DefaultKnowledgeQualityEvaluator.java`            | NP2-1: 默认知识质量评估实现，基于 confidence/accessCount/verified/relevanceScore 计算质量评分                                                         | 知识晋升前的质量评估                                                                                                                                                    |
+| `PerformanceStatsService.java`                           | NP2-3: 员工绩效统计接口，getStats/getStatsBatch/getDepartmentRanking                                                                               | 聚合 LedgerService 数据生成结构化绩效指标                                                                                                                                   |
+| `impl/DefaultPerformanceStatsService.java`               | NP2-3: 默认绩效统计实现，从 LedgerService 聚合经济数据                                                                                              | 员工分派时的绩效参考                                                                                                                                                    |
 | `impl/DynamicEmployeeTaskConsumerRegistry.java`         | 基于 FixedEmployeeRegistry 的动态员工消费者注册                                                                                                   | 启动时自动注册所有真实员工消费者，替代模拟回执；已接入 `EmployeeTaskExecutor` 支持真实工具执行                                                                                                   |
-| `LLMEmployeeCreationService.java`                       | LLM 驱动的动态员工创建接口                                                                                                                       | 评估是否需要新员工、从提案创建员工                                                                                                                                             |
-| `impl/LLMEmployeeCreationServiceImpl.java`              | LLM 动态员工创建实现                                                                                                                          | 通过 `MainBrain.callLlm()` 自主判断是否需要新员工，确保新员工有专属名字/编号/能力/职责                                                                                                      |
+| `LLMEmployeeCreationService.java`                       | **【闭环35】** LLM 驱动的动态员工创建接口（evaluateCreationNeed、createFromProposal）                                                                                                                       | 评估是否需要新员工、从提案创建员工；**人员不足时自动创建员工**                                                                                                                                             |
+| `impl/LLMEmployeeCreationServiceImpl.java`              | **【闭环35-B】** LLM 动态员工创建实现                                                                                                                          | 通过 `MainBrain.callLlm()` 自主判断是否需要新员工，确保新员工有专属名字/编号/能力/职责；**新员工命名以"真"字开头（如"真测"），自动设计能力/技能/工具列表**                                                                                                      |
 | `MainBrainResponseComposer.java`                        | 主脑响应编排器接口                                                                                                                             | 组合大脑响应+执行团队+执行状态为用户可见回复                                                                                                                                       |
 | `impl/DefaultMainBrainResponseComposer.java`            | 默认主脑响应编排器实现                                                                                                                           | 作为 `LlmBasedMainBrainResponseComposer` 的降级兜底                                                                                                                  |
 | `impl/LlmBasedMainBrainResponseComposer.java`           | LLM 驱动的主脑响应编排器                                                                                                                        | 通过 `MainBrain.callLlm()` 根据执行结果动态生成自然语言回复；LLM 不可用时降级到模板拼接                                                                                                     |
@@ -554,13 +578,31 @@ com.livingagent.core/
 | `ToolCallRecord.java`                                   | 工具调用记录                                                                                                                                | 记录工具名称、参数、结果、成功状态、耗时                                                                                                                                          |
 | `CodeReviewWorkflowService.java`                        | 代码审查工作流接口                                                                                                                            | 定义13阶段审查状态机（PLAN\_CREATED→ESCALATED）、requestChanges/approve/escalate操作、4种代码产物注册（worktree/diff/review\_report/final\_summary）                                      |
 | `impl/InMemoryCodeReviewWorkflowService.java`           | 内存版审查工作流实现                                                                                                                           | 审查状态CRUD、阶段推进、变更请求、审批、升级；依赖 `ArtifactRecordService` 注册产物（已弃用，生产使用 JpaCodeReviewWorkflowService）                                                          |
-| `impl/JpaCodeReviewWorkflowService.java`               | JPA 持久化审查工作流实现                                                                                                                        | 审查状态持久化到 PostgreSQL，重启不丢失；含 canTransition 校验 + MAX\_REVIEW\_ROUNDS 限制                                                                                         |
+| `impl/JpaCodeReviewWorkflowService.java`               | JPA 持久化审查工作流实现，全部写方法已添加 @Transactional                                                                                                 | 审查状态持久化到 PostgreSQL，重启不丢失；含 canTransition 校验 + MAX\_REVIEW\_ROUNDS 限制                                                                                         |
 | `impl/CodeArtifactMetadataBinder.java`                  | 代码产物元数据绑定器                                                                                                                          | 注册worktree/diff/review\_report/final\_summary四种代码产物，合并元数据并关联 `CodeReviewWorkflowService`                                                                      |
 | `RequirementStatus.java`                                | 需求状态枚举与状态机                                                                                                                          | DRAFT→COMPLETED/FAILED 9阶段流转，canTransition/allowsAssignment/allowsExecution/needsClarification 状态判定方法                                                              |
 | `TaskMetadataKeys.java`                                  | 元数据键常量                                                                                                                              | 统一 taskId/worktreePath/diffPath 等 Map key 常量                                                                                                                           |
 | `impl/MinimalEmployeeTaskExecutor.java`                  | 最小任务执行器                                                                                                                             | 简单的任务执行实现，已被 `DynamicEmployeeTaskConsumerRegistry` 替代，类文件保留用作参考                                                                                                        |
 | `ReceiptStatus.java`                                      | 回执状态枚举                                                                                                                              | PENDING/COMPLETED/FAILED/TIMEOUT/RETRYING，回执生命周期状态                                                                                                  |
-| `impl/JpaEmployeeExecutionReceiptService.java`            | JPA 持久化回执服务                                                                                                                         | 生产级回执持久化实现，替代 `FileBasedEmployeeExecutionReceiptService`；基于 `EmployeeExecutionReceiptEntity` 存储，支持按 executionId/employeeCode 查询和统计                                       |
+| `impl/JpaEmployeeExecutionReceiptService.java`            | JPA 持久化回执服务                                                                                                                         | 生产级回执持久化实现，替代 `FileBasedEmployeeExecutionReceiptService`；基于 `EmployeeExecutionReceiptEntity` 存储，支持按 executionId/employeeCode/department 查询和统计                                  |
+| `TaskRouteClassifier.java`                                | 轻量路由分类器接口（P0）                                                                                                                         | 在意图分析后、主脑规划前判断：单部门直达 / 跨部门主脑拆解 / 需要澄清                                                                                                               |
+| `TaskRouteResult.java`                                    | 路由结果 record（P0）                                                                                                                      | SINGLE\_DEPARTMENT / CROSS\_DEPARTMENT / CLARIFICATION\_NEEDED                                                                                               |
+| `impl/DefaultTaskRouteClassifier.java`                   | 默认路由分类实现（P0）                                                                                                                         | 7条路由规则：CROSS\_DEPARTMENT kind→主脑、非TASK/PROJECT→单部门、requiresClarification→澄清、有supportingDepts→主脑、部门一致且无协作→单部门、部门不一致→主脑、兜底→主脑                              |
+| `DepartmentTodoItem.java`                                 | 部门待办项数据模型（P1）                                                                                                                        | 含 Status/Priority 枚举、AtomicInteger claimVersion 乐观锁、claim()/assign() 方法                                                                                   |
+| `TodoClaimResult.java`                                    | 待办领取结果 record（P1）                                                                                                                   | ClaimFailureReason 枚举：SUCCESS/ALREADY\_CLAIMED/NOT\_QUALIFIED/NOT\_FOUND/NOT\_PENDING                                                                       |
+| `DepartmentTodoPool.java`                                 | 部门待办池接口（P1）                                                                                                                         | publish/claim/assign/get/getPendingByDepartment/getAllByDepartment/getClaimedByEmployee                                                                      |
+| `impl/InMemoryDepartmentTodoPool.java`                   | 内存版部门待办池实现（P1）                                                                                                                      | ConcurrentHashMap 实现，后续可替换 Redis                                                                                                                          |
+| `impl/JpaDepartmentAggregationService.java`             | **【新增】** JPA 持久化版部门聚合服务                                                                                                            | 部门交付物持久化实现，替代内存版为生产默认实现                              |
+| `impl/JpaInternalReviewService.java`                    | **【新增】** JPA 持久化版部门内审查服务                                                                                                            | 部门内审查持久化实现                              |
+| `EmployeeSelfClaimService.java`                           | 员工自行领取服务接口（P1）                                                                                                                      | tryClaim/tryClaimBestMatch/assignUnclaimed/isQualified/getCurrentLoad/getMaxLoad                                                                             |
+| `impl/DefaultEmployeeSelfClaimService.java`              | 默认员工自行领取实现（P1）                                                                                                                     | 校验资格（部门归属+职责匹配+工具白名单+负载检查）+ 乐观锁领取 + 兜底指派                                                                                                              |
+| `EmployeeEquipmentService.java`                           | **【新增】** 员工设备服务接口                                                                                                                | 员工工具/技能/权限配置                              |
+| `impl/DefaultEmployeeEquipmentService.java`              | **【新增】** 默认员工设备服务实现                                                                                                            | 员工设备配置和状态管理                              |
+| `DepartmentDeliverable.java`                              | 部门交付物 record（P1）                                                                                                                    | 含 AggregationStatus 枚举和 DeliverableItem 内部 record                                                                                                        |
+| `AggregationResult.java`                                  | 聚合结果 record（P1）                                                                                                                     | success/partial/qualityIssues 静态工厂方法                                                                                                                     |
+| `DepartmentAggregationService.java`                       | 部门级聚合服务接口（P1）                                                                                                                      | aggregate/getDeliverable/getDeliverablesByDepartment/getDeliverablesByPlan                                                                                    |
+| `impl/DefaultDepartmentAggregationService.java`          | 默认部门级聚合实现（P1）                                                                                                                     | 收集回执→检查审查状态→构建交付项→计算质量分→确定聚合状态                                                                                                                  |
+| `impl/LlmDepartmentAggregationService.java`              | LLM 增强版部门级聚合实现（#7）                                                                                                              | 规则版聚合→LLM 语义分析→一致性检查→质量评估→问题发现→修复建议；LLM 失败时自动降级到规则版                                                                                              |
 
 #### 6.2.1 `autonomy/context` 决策上下文包
 
@@ -577,12 +619,25 @@ com.livingagent.core/
 | `LlmDecisionClient.java`             | 统一 LLM 决策客户端接口 | 定义 `decide()` 和 `decideWithRetry()` 方法，支持 JSON Schema 校验、修复重试、降级兜底             |
 | `impl/DefaultLlmDecisionClient.java` | 默认 LLM 决策客户端实现 | 通过 `MainBrain.callLlm()` 调用 LLM，支持 Prompt 版本管理、JSON 提取、Schema 校验、修复重试、Trace 记录 |
 
+#### 6.2.3 `autonomy/review` 部门内审查闭环包（P0）
+
+| 文件 | 功能说明 | 修改建议 |
+| --- | --- | --- |
+| `ReviewState.java` | 审查状态枚举 | SUBMITTED\_FOR\_REVIEW/UNDER\_REVIEW/REVISION\_NEEDED/COMPLETED/REJECTED/ESCALATED |
+| `ReviewDecision.java` | 审查决定枚举 | APPROVED/REVISION\_NEEDED/REJECTED/ESCALATE\_TO\_BRAIN |
+| `ReviewResult.java` | 审查结果 record | reviewerCode/decision/qualityScore/issues/suggestions/completionTag/reviewRound |
+| `ReviewHistory.java` | 审查历史 record | reviewId/todoItemId/authorCode/reviewerCode/reviewRound/state/result/revisionNotes |
+| `InternalReviewService.java` | 部门内审查服务接口 | submitForReview/review/getReview/getReviewHistoryByTodoItem/getReviewState/isCompleted/getCurrentRound |
+| `impl/DefaultInternalReviewService.java` | 默认审查服务实现 | 内存版，管理审查状态机、轮次计数、超轮次自动 escalate |
+
 避免重复建议：
 
 - 不要在 `DepartmentWebSocketHandler` 里直接写复杂意图判断。
 - 部门聊天要先进入 `ConversationOrchestrator`，再由它调用 `BrainRegistry`、规划、分工。
 
 ### 6.3 `neuron` 神经元包
+
+**闭环归属**: 闭环36（神经元会话协调闭环）
 
 | 文件/目录                                                  | 功能说明                                | 修改建议                                                                       |
 | ------------------------------------------------------ | ----------------------------------- | -------------------------------------------------------------------------- |
@@ -592,12 +647,13 @@ com.livingagent.core/
 | `NeuronRegistry.java` / `impl/NeuronRegistryImpl.java` | 神经元注册表                              | 新增神经元注册/查询                                                                 |
 | `NeuronExecutor.java`                                  | 神经元执行器                              | 并发执行、调度策略                                                                  |
 | `impl/AbstractNeuron.java`                             | 神经元公共基类                             | 公共状态、订阅、发布逻辑                                                               |
-| `impl/NeuronCoordinator.java`                          | 神经元会话协调器，创建 session、绑定通道、协调感知/派发/响应 | 通用 Agent 链路核心，不要滥用于部门文本                                                    |
+| `impl/NeuronCoordinator.java`                          | **【闭环36】** 神经元会话协调器，创建 session、绑定通道、协调感知/派发/响应；**四通道架构**（感知通道BROADCAST/分发通道ROUND_ROBIN/工具意图通道UNICAST/响应通道BROADCAST） | 通用 Agent 链路核心，不要滥用于部门文本                                                                 |
 | `impl/Qwen3Neuron.java`                                | 前台轻量聊天神经元                           | 闲聊、轻量对话、兜底，不等同部门大脑                                                         |
 | `impl/BitNetNeuron.java`                               | BitNet 工具/低资源神经元                    | 低资源模型、工具判断                                                                 |
 | `impl/RouterNeuron.java`                               | 路由神经元                               | 消息路由、意图转发                                                                  |
 | `impl/EyeNeuronImpl.java`                              | 视觉神经元                               | 图像识别、视觉问答                                                                  |
 | `impl/SensorNeuron.java`                               | 传感器神经元                              | 感知输入扩展                                                                     |
+| `impl/ToolNeuron.java`                                 | **【新增】** 工具神经元                        | 工具检测和执行专用神经元，固定模型，负责工具意图识别和兜底处理                              |
 | `impl/ProjectDevelopmentNeuron.java`                   | 项目开发神经元                             | 项目开发型任务执行                                                                  |
 | `chat/ChatNeuronRouter.java`                           | 聊天神经元路由                             | 普通聊天路由                                                                     |
 | `chat/ChatIntentClassifier.java`                       | 聊天意图分类                              | 支持 LLM-first / Rule-fallback：优先使用 `DialogueAnalyzer` 语义分类，LLM 不可用时降级到关键词规则 |
@@ -623,7 +679,7 @@ com.livingagent.core/
 | 文件                                                         | 功能说明               | 修改建议                     |
 | ---------------------------------------------------------- | ------------------ | ------------------------ |
 | `Channel.java`                                             | 通道接口               | 新通道类型先扩接口                |
-| `ChannelManager.java` / `impl/ChannelManagerImpl.java`     | 通道创建、订阅、发布、外部订阅者管理 | WebSocket/神经元消息推送问题优先查这里 |
+| `ChannelManager.java` / `impl/ChannelManagerImpl.java`     | 通道创建、订阅、发布、外部订阅者管理；`getHealthSummary()` 通道级健康摘要 | WebSocket/神经元消息推送问题优先查这里 |
 | `ChannelMessage.java`                                      | 通道消息对象             | 消息字段扩展                   |
 | `ChannelMessageQueue.java`                                 | 消息队列抽象             | 队列策略                     |
 | `ChannelPublisher.java` / `impl/ChannelPublisherImpl.java` | 发布器接口和实现           | 业务层统一发布消息                |
@@ -655,7 +711,7 @@ com.livingagent.core/
 | `employee/registry/FixedEmployeeRegistry.java`                                      | 固定数字员工注册表   | 32 个固定数字员工定义、部门员工映射 |
 | `employee/EmployeeLifecycleService.java` / `impl/EmployeeLifecycleServiceImpl.java` | 员工生命周期管理    | 入职、离职、状态流转          |
 | `employee/EmployeeCompensationService.java`                                         | 员工薪酬/激励服务接口 | 数字员工奖励、补偿           |
-| `employee/impl/JpaEmployeeCompensationService.java`                                 | 薪酬 JPA 实现   | 持久化薪酬记录             |
+| `employee/impl/JpaEmployeeCompensationService.java`                                 | 薪酬 JPA 实现，record()/definePlan()/assignPlan() 已添加 @Transactional   | 持久化薪酬记录             |
 | `employee/impl/InMemoryEmployeeCompensationService.java`                            | 内存薪酬实现      | 本地或测试               |
 | `employee/neuron/EmployeeNeuron.java`                                               | 员工和神经元适配    | 让数字员工以神经元形式执行       |
 | `employee/claim/TaskClaimService.java`                                              | 任务认领服务      | 公开任务/抢单任务           |
@@ -666,9 +722,9 @@ com.livingagent.core/
 | `worker/WorkerMetrics.java`                                                         | 工人指标度量      | 任务完成/成功/失败计数、响应时间、成功率、token消耗、能力评分、快照 |
 | `worker/factory/DigitalWorkerFactory.java` / `impl/DigitalWorkerFactoryImpl.java`   | 数字工人工厂      | 创建数字员工/工人           |
 | `worker/lifecycle/LifecycleManager.java` / `impl/LifecycleManagerImpl.java`         | 工人生命周期管理    | 工人健康检查、启动/停止        |
-| `worker/collaboration/CollaborationService.java`                                    | 工人协作服务接口      | 多员工协作会话管理、任务分配、协作推荐 |
-| `worker/collaboration/CollaborationSession.java`                                   | 协作会话接口      | 定义7种协作类型（TASK\_CHAIN/PARALLEL/ROUND\_ROBIN/DEBATE/CONSENSUS/HIERARCHICAL/PEER\_REVIEW）、会话状态、任务结构和结果 |
-| `worker/collaboration/impl/CollaborationServiceImpl.java`                          | 协作服务内存实现    | 协作会话创建/查询/加入/离开、任务分配与完成、依赖推进、等待完成、协作推荐 |
+| `worker/collaboration/CollaborationService.java`                                    | **【闭环34】** 工人协作服务接口      | 多员工协作会话管理（createSession/startSession/completeSession）、任务分配、协作推荐、绩效评估 |
+| `worker/collaboration/CollaborationSession.java`                                   | **【闭环34】** 协作会话接口      | 定义7种协作类型（TASK\_CHAIN/PARALLEL/ROUND\_ROBIN/DEBATE/CONSENSUS/HIERARCHICAL/PEER\_REVIEW）、会话状态、任务结构和结果；**PEER\_REVIEW自动状态推进**（开发→提交→审查→反馈→通过） |
+| `worker/collaboration/impl/CollaborationServiceImpl.java`                          | **【闭环34-C】** 协作服务内存实现    | 协作会话创建/查询/加入/离开、任务分配与完成、依赖推进、等待完成、协作推荐；**支持TaskChain依赖解析和PEER_REVIEW状态机** |
 | `worker/template/WorkerTemplate.java`                                               | 工人模板        | 新员工模板化创建            |
 | `worker/template/impl/BaseWorkerTemplate.java`                                      | 基础工人模板实现    | Builder模式，含WorkerType/部门/角色/能力/技能/通道/个性/经验等级等配置 |
 
@@ -695,6 +751,7 @@ com.livingagent.core/
 | `provider/impl/AsrProvider.java` / `TtsProvider.java`                  | ASR/TTS Provider                       | 语音输入输出                                                                             |
 | `provider/impl/ProviderFactory.java`                                   | Provider 工厂                            | 根据配置创建 Provider                                                                    |
 | `provider/impl/ResolvedBrainModelProvider.java`                        | 根据模型池解析后的大脑 Provider                   | 大脑模型选择后的调用链路                                                                       |
+| `provider/impl/InferenceResultValidator.java`                         | P20-D: 推理结果校验器，null/空/过短检查+10种错误模式匹配+CUDA OOM/timeout等检测+sanitize清洗 | 推理结果质量保障 |
 | `model/pool/Protocol.java`                                             | 模型协议枚举                                 | HTTP/HTTPS/NamedPipe 等协议类型                                                         |
 | `model/pool/LlmModel.java`                                             | LLM 模型实体                               | 模型名称、Provider、类型、版本、启用状态                                                           |
 | `model/pool/LlmModelRepository.java`                                   | LLM 模型 Repository                      | 按 Provider/启用状态查询模型                                                                |
@@ -759,18 +816,25 @@ com.livingagent.core/
 | `hook/ToolHookManager.java`                                                                                       | 工具调用前后 Hook     | 审计、审批、安全检查       |
 | `impl/DockerTool.java`                                                                                            | Docker 操作工具     | 容器操作             |
 | `impl/ClaudeCliTool.java`                                                                                         | Claude CLI 工具   | 外部 CLI 执行        |
+| `impl/FileEditTool.java`                                                                                         | 文件编辑工具 v1.2.0   | 支持5种操作(read_file/write_file/edit_file/list_dir/search_code)，edit_file为行级精确编辑(old_string→new_string)，search_code支持正则(regex参数) |
 | `impl/TraeTool.java`                                                                                              | Trae 工具         | Trae 执行集成        |
 | `impl/WindowsAppTool.java`                                                                                        | Windows 应用自动化工具（pywinauto 桥接） | 通过 HTTP API 控制局域网客户端电脑的 Win32 桌面应用；需配合 `scripts/windows_automation/server.py` 使用 |
+| `impl/WindowsAutomationTool.java`                                                                                 | 通用 Windows 系统控制工具（WebSocket 桥接） | 通过 WebSocket 转发到桌面端内嵌 Python 服务，支持 UIA/PowerShell/注册表/文件系统/进程管理等通用操作；需配合 `living-agent-desktop/resources/win-automation/service.py` 使用；高风险操作需审批 |
 | `impl/GitHubTool.java`                                                                                            | GitHub 工具       | GitHub API       |
 | `impl/BrowserAutomationTool.java` / `PlaywrightCrawlerTool.java`                                                  | 浏览器/爬虫工具；BrowserAutomationTool 已改为真实 Playwright API 实现（navigate/click/type/screenshot/getText/wait），懒初始化 Browser 实例，会话隔离 BrowserContext，优雅降级        | 页面自动化和采集         |
 | `impl/PdfTool.java` / `OfficeTool.java`                                                                           | 文档处理工具          | PDF/Office 文档    |
 | `impl/WebCrawlerTool.java` / `TavilySearchTool.java` / `SearXNGTool.java`                                         | 搜索/爬虫工具         | 外部信息检索           |
-| `impl/enterprise/FeishuTool.java` / `EnterpriseFeishuTool.java` / `EmployeeFeishuTool.java` / `HrFeishuTool.java` | 飞书企业工具；EnterpriseFeishuTool 已 @Deprecated 并拆分为 FeishuMessageTool/FeishuContactTool/FeishuApprovalTool/FeishuCalendarTool 四个子工具（27 个 action），公共逻辑提取到 AbstractFeishuTool 基类 | 企业通讯录、通知、HR 场景   |
+| `impl/enterprise/FeishuTool.java` / `EnterpriseFeishuTool.java` / `EmployeeFeishuTool.java` / `HrFeishuTool.java` | 飞书企业工具；EnterpriseFeishuTool 已 @Deprecated 并拆分为四个子工具（27 个 action），公共逻辑提取到 AbstractFeishuTool 基类 | 企业通讯录、通知、HR 场景   |
+| `impl/enterprise/AbstractFeishuTool.java`                            | **【新增】** 飞书工具基类，提取公共逻辑（getAccessToken/buildClient/handleError） | 飞书工具公共逻辑修改时改这里 |
+| `impl/enterprise/FeishuMessageTool.java`                             | **【新增】** 飞书消息工具（sendMessage/sendCard/updateCard/deleteMessage/replyMessage 等） | 飞书消息相关操作 |
+| `impl/enterprise/FeishuContactTool.java`                             | **【新增】** 飞书通讯录工具（getUser/getDepartment/getDepartmentUsers/searchUser 等） | 飞书通讯录相关操作 |
+| `impl/enterprise/FeishuApprovalTool.java`                            | **【新增】** 飞书审批工具（createApproval/getApproval/listApprovals/cancelApproval 等） | 飞书审批流程相关操作 |
+| `impl/enterprise/FeishuCalendarTool.java`                            | **【新增】** 飞书日历工具（createEvent/getEvent/listEvents/deleteEvent 等） | 飞书日历相关操作 |
 | `impl/enterprise/DingTalkTool.java`                                                                               | 钉钉企业工具          | 钉钉 API 集成        |
-| `impl/enterprise/GitLabTool.java`                                                                                 | GitLab 工具       | 代码仓库             |
-| `impl/enterprise/JenkinsTool.java`                                                                                | Jenkins 工具      | CI/CD            |
+| `impl/enterprise/GitLabTool.java`                                                                                 | GitLab API操作工具，8个操作(list_projects/get_project/list_mrs/get_mr/create_mr_comment/list_commits/get_file/search)，支持员工级token隔离(resolveAccessToken)；配置：tool.gitlab.base-url/tool.gitlab.access-token/tool.gitlab.employee-accounts | 代码仓库             |
+| `impl/enterprise/JenkinsTool.java`                                                                                | Jenkins CI/CD工具，6个操作(list_jobs/get_job/build/build_status/console_output/cancel_build)，Basic认证；配置：tool.jenkins.base-url/tool.jenkins.username/tool.jenkins.api-token | CI/CD            |
 | `impl/enterprise/JiraTool.java`                                                                                   | Jira 工具         | 任务/缺陷管理          |
-| `impl/enterprise/OpenProjectTool.java`                                                                            | OpenProject 工具  | 项目管理             |
+| `impl/enterprise/OpenProjectTool.java`                                                                            | OpenProject项目管理工具，6个操作(search_issue/get_issue/create_issue/update_issue/add_comment/search_user)，映射为jira工具名；配置：tool.openproject.base-url/tool.openproject.api-token | 项目管理             |
 | `impl/BudgetManagementTool.java`                                                                                  | 预算管理工具          | 部门预算分配和跟踪        |
 | `impl/HttpTool.java`                                                                                              | HTTP 请求工具       | 通用 HTTP/REST 调用  |
 | `impl/HuggingFaceTool.java`                                                                                       | HuggingFace 工具  | HuggingFace 模型调用 |
@@ -841,12 +905,15 @@ com.livingagent.core/
 | ---------------------------------------------------------------------------- | -------------- | -------------------- |
 | `knowledge/KnowledgeEntry.java`                                              | 知识条目领域对象       | 知识字段扩展               |
 | `knowledge/KnowledgeManager.java` / `impl/KnowledgeManagerImpl.java`         | 知识管理接口和实现      | 知识增删改查、检索            |
+| `knowledge/impl/KnowledgePromotionScheduler.java`                            | NP2-2: 知识晋升自动化调度器，@Scheduled 每10分钟检查晋升条件 | PRIVATE→DOMAIN/SHARED 自动晋升 |
 | `knowledge/KnowledgeBase.java`                                               | 知识库接口          | 新知识库后端实现             |
 | `knowledge/LayeredKnowledgeBase.java` / `impl/LayeredKnowledgeBaseImpl.java` | 分层知识库 L1/L2/L3；3 个 ConcurrentHashMap 手动缓存（最大 1000 条 + TTL 30分钟 + 定期清理） | 神经元/部门/企业知识晋升        |
 | `knowledge/impl/KnowledgePersistenceService.java`                            | 知识持久化服务        | PostgreSQL/Qdrant 存储 |
 | `knowledge/impl/SQLiteKnowledgeBase.java`                                    | SQLite 知识库；连接缓存复用（volatile Connection + JDK 动态代理包装防误关闭）；⚠️ 缺少 @PreDestroy，shutdown() 需手动调用     | 本地轻量知识               |
 | `knowledge/impl/NativeKnowledgeBase.java`                                    | Native 知识库     | Rust native 知识能力     |
 | `knowledge/professional/ProfessionalKnowledgeSeeder.java`                    | 专业知识初始化        | 预置知识导入               |
+| `knowledge/professional/ArchitectureKnowledgeSeeder.java`                   | 架构文档知识播种器      | docs/documents → 知识库，让大脑"看到"代码结构 |
+| `knowledge/professional/SourceTreeIndexer.java`                             | 源码结构索引生成器      | 生成 source-tree.json  |
 | `knowledge/KnowledgeScope.java`                                              | 知识范围枚举         | L1_PRIVATE/L2_DEPARTMENT/L3_SHARED |
 | `knowledge/KnowledgeType.java`                                               | 知识类型枚举         | RULE/BEST_PRACTICE/EXPERIENCE/PROCEDURE |
 | `knowledge/KnowledgeStatus.java`                                             | 知识状态枚举         | DRAFT/ACTIVE/DEPRECATED/ARCHIVED |
@@ -863,8 +930,9 @@ com.livingagent.core/
 | `memory/impl/MemoryServiceImpl.java`                                         | 记忆服务实现         | 对话/任务记忆读写            |
 | `memory/impl/SQLiteMemoryBackend.java`                                       | SQLite 记忆后端    | 本地记忆                 |
 | `memory/impl/MemosMemoryBackend.java`                                        | Memos 记忆后端     | 外部 Memos 记忆服务        |
-| `memory/impl/MemPalaceBackend.java`                                          | MemPalace 记忆后端；⚠️ 缺少 @PreDestroy，MCP 子进程可能无法优雅关闭 | MemPalace 集成         |
+| `memory/impl/MemPalaceBackend.java`                                          | MemPalace 记忆后端；已有 @jakarta.annotation.PreDestroy + destroy() 优雅关闭 MCP 子进程 | MemPalace 集成         |
 | `memory/MemoryCategory.java`                                                 | 记忆分类枚举         | EPISODIC/SEMANTIC/PROCEDURAL |
+| `knowledge/KnowledgeConsumptionFeedback.java`                                | P26-A: 知识消费反馈        | recordFeedback(key,helpful,context,consumerId)，helpfulRate≥80%提升confidence(+0.15)，≤30%降低(-0.2) |
 
 避免重复建议：
 
@@ -881,7 +949,7 @@ com.livingagent.core/
 | `evolution/engine/EvolutionOrchestrator.java`                                           | 进化总编排            | 定时进化、自动调整     |
 | `evolution/executor/EvolutionExecutor.java`                                             | 进化执行器接口          | 执行修复或优化       |
 | `evolution/executor/EvolutionResult.java`                                               | 进化结果对象           | 结果字段          |
-| `evolution/executor/EvolutionFeedbackService.java`                                      | 进化反馈服务           | 用户/系统反馈入库     |
+| `evolution/executor/EvolutionFeedbackService.java`                                      | 进化反馈服务，JPA实现 record() 已添加 @Transactional     | 用户/系统反馈入库     |
 | `evolution/scheduler/EvolutionScheduler.java` / `EvolutionSchedulerImpl.java`           | 进化调度             | 定时进化和失败重试     |
 | `evolution/circuitbreaker/*`                                                            | 进化熔断             | 防止错误进化或高风险操作  |
 | `evolution/memory/*`                                                                    | 进化记忆图            | 进化历史和经验       |
@@ -905,6 +973,38 @@ com.livingagent.core/
 | `evolution/executor/EvolutionResultRepository.java`                                     | 进化结果仓库           | 进化结果持久化       |
 | `evolution/EvolutionManager.java`                                                       | 进化管理器（从 `autonomous/evolution` 迁移至 `core/evolution`） | 进化流程统一管理      |
 | `evolution/HardwareUpgradeService.java`                                                 | 硬件升级服务（从 `autonomous/evolution` 迁移至 `core/evolution`） | 硬件升级决策和执行     |
+| `evolution/escalation/EscalationLevel.java`                                             | 升级级别枚举（WARNING/CRITICAL/EMERGENCY） | 统一升级通知级别      |
+| `evolution/escalation/EscalationRecord.java`                                            | 升级记录实体         | 升级通知完整信息       |
+| `evolution/escalation/EscalationNotificationService.java`                               | 统一升级通知服务       | 所有升级的唯一出口      |
+| `evolution/codemapper/CodeLocation.java`                                                | 代码位置注解         | 在关键类上标注代码位置    |
+| `evolution/codemapper/CodeContext.java`                                                 | 代码上下文实体        | 异常→代码→文档的映射结果  |
+| `evolution/codemapper/ErrorCodeMapper.java`                                             | 错误到代码映射器       | 异常类/错误码→代码文件→文档 |
+| `evolution/codebase/CodebaseAccessConfig.java`                                          | 代码库访问配置        | 挂载点/敏感文件过滤/速率限制 |
+| `evolution/codebase/CodebaseAccessService.java`                                         | 代码库受控访问服务      | 大脑自由读写代码库镜像    |
+| `evolution/patch/PatchProposal.java`                                                    | 补丁提案实体         | 含 confidence/rollbackAvailable |
+| `evolution/patch/PatchProposalService.java`                                             | 补丁提案服务         | 创建/保存/查询补丁提案   |
+| `evolution/patch/PatchApplicationService.java`                                          | 补丁应用服务         | applyPatch()真正应用diff(JSON格式+unified diff格式)+rollbackPatch()恢复原始内容+saveRollbackBaseline()保存.orig副本 |
+| `evolution/orchestrator/impl/SelfHealingOrchestratorImpl.java`                          | 自愈编排器实现        | P24-A: 异常→根因→决策→执行→验证；`determineAction()` null安全处理 |
+| `evolution/orchestrator/impl/SelfGovernanceOrchestratorImpl.java`                       | 自治编排器实现，已修复 createIssue()/setMode() 方法不存在错误        | P31-A: 优先级仲裁→事件分发→协同执行 |
+
+**evolution 子包结构：**
+
+| 子包 | 说明 |
+|------|------|
+| `evolution/orchestrator/` | 自愈与治理编排器 |
+| `evolution/orchestrator/impl/` | 编排器实现 |
+| `evolution/circuitbreaker/` | 进化熔断器 |
+| `evolution/personality/` | 大脑个性与满意度 |
+| `evolution/codemapper/` | 错误码映射 |
+
+**evolution 新增类：**
+
+| 文件/目录                                                                                   | 功能说明             | 修改建议          |
+| --------------------------------------------------------------------------------------- | ---------------- | ------------- |
+| `evolution/HardwareUpgradeRoiValidator.java`                                            | P25-A: 硬件升级ROI验证        | 7天跟踪，PerformanceBaseline vs PerformanceSnapshot，ROI<-20%触发CircuitBreaker，<-50%标记ROLLBACK_RECOMMENDED |
+| `evolution/orchestrator/impl/SelfHealingOrchestratorImpl.java`                          | P24-A: 自愈编排器实现        | 六步闭环(异常检测→根因分析→补丁→执行→验证→经验沉淀)，RESTART_PROCESS/CLEAR_DEGRADED/RECONNECT_PIPE/ESCALATE四种动作 |
+| `evolution/orchestrator/impl/SelfGovernanceOrchestratorImpl.java`                       | P31-A: 跨闭环协同编排器，已修复 createIssue()/setMode() 方法不存在错误        | 7级优先级(安全>自愈>降级>回执>经济>知识>个性)+CrossLoopEventBus+冷却期去重 |
+| `evolution/personality/SatisfactionCollector.java`                                      | P29-A: 满意度采集        | recordSatisfaction+平均分+低满意度降riskTolerance+高满意度增riskTolerance |
 
 ### 6.10 `security` 权限认证安全包
 
@@ -944,7 +1044,7 @@ com.livingagent.core/
 | `DetectedChange.java`                                        | 检测到的变更        | 变更类型和内容                             |
 | `ChangeStatus.java`                                          | 变更状态           | PENDING/APPROVED/REJECTED            |
 | `AccessAuditLog.java`                                        | 访问审计日志         | 操作审计记录                              |
-| `ApprovalManager.java`                                       | 审批管理器          | 安全相关审批                              |
+| `ApprovalManager.java`                                       | ~~已删除~~ 审批管理器          | ~~安全相关审批~~ 已移除，工具审批由 BrainBoundaryEnforcer 四重校验等价替代                              |
 | `SandboxExecutor.java`                                       | 沙箱执行器接口       | 沙箱执行抽象                              |
 | `bash/BashValidationResult.java`                             | Bash 验证结果       | 命令安全性检查结果                           |
 | `importer/EmployeeImporter.java`                             | 员工导入器          | 批量导入员工数据                            |
@@ -952,6 +1052,7 @@ com.livingagent.core/
 | `profile/UserProfileRepository.java`                         | 用户画像 Repository | JPA 查询                              |
 | `profile/UserProfileService.java`                            | 用户画像服务         | 画像数据管理                              |
 | `DepartmentAccessService.java`                               | 部门访问服务         | 部门权限控制                              |
+| `SandboxViolationTracker.java`                              | P30-A: 沙箱违规追踪        | 3次违规/1h→自动黑名单，BlacklistEntry含expiresAt(TTL 1h)，isBlacklisted()检查TTL自动恢复 |
 
 避免重复建议：
 
@@ -986,11 +1087,32 @@ com.livingagent.core/
 | `database/entity/CompensationRecordEntity.java`                       | 薪酬记录实体                 | 薪酬发放记录                                                                                                                                                                          |
 | `database/entity/EvolutionFeedbackEntity.java`                        | 进化反馈实体                 | 进化反馈数据                                                                                                                                                                          |
 | `database/entity/EvolutionAuditLogEntity.java`                        | 进化审计日志实体               | 进化操作审计                                                                                                                                                                          |
-| `database/entity/EvolutionResultEntity.java`                          | 进化结果实体                 | 进化结果记录                                                                                                                                                                          |
+| `database/entity/EvolutionResultEntity.java`                          | 进化结果实体                 | 进化结果记录                                          |
 | `database/entity/PendingEventEntity.java`                             | 待处理事件实体                | JPA 实体                                                                                                          |
 | `database/entity/SessionContextEntity.java`                            | 会话上下文实体                | JPA 实体                                                                                                          |
 | `database/entity/TraceEventEntity.java`                                | Trace 事件实体               | 自治编排 Trace 事件持久化，记录 traceId/stage/eventType/timestamp/metadata 等字段                                    |
 | `database/entity/EmployeeExecutionReceiptEntity.java`                  | 员工执行回执实体              | 员工执行回执持久化，记录 executionId/employeeCode/status/summary/artifacts/worktreePath/diffPath 等字段                      |
+| `database/entity/ApprovalInstanceEntity.java`                          | **【新增】** 审批实例实体              | 审批流程实例持久化                              |
+| `database/entity/ApprovalWorkflowEntity.java`                          | **【新增】** 审批工作流实体            | 审批流程定义持久化                              |
+| `database/entity/BrainBoundaryAuditEntity.java`                        | **【新增】** 大脑边界审计实体          | 大脑边界决策审计记录                              |
+| `database/entity/ClientDeviceEntity.java`                              | **【新增】** 客户端设备实体            | 客户端设备注册信息                              |
+| `database/entity/ClientOperationAuditLogEntity.java`                   | **【新增】** 客户端操作审计日志实体      | 客户端操作审计记录                              |
+| `database/entity/ClientUserBindingEntity.java`                         | **【新增】** 客户端用户绑定实体        | 客户端设备与用户绑定关系（复合主键 ClientUserBindingId）                              |
+| `database/entity/ComplianceViolationEntity.java`                       | **【新增】** 合规违规实体            | 合规违规记录                              |
+| `database/entity/DagTaskEntity.java`                                   | **【新增】** DAG 任务实体          | DAG 任务依赖关系                              |
+| `database/entity/DepartmentDeliverableEntity.java`                     | **【新增】** 部门交付物实体          | 部门级交付物记录                              |
+| `database/entity/DepartmentExecutionResultEntity.java`                 | **【新增】** 部门执行结果实体        | 部门执行派发结果                              |
+| `database/entity/EmployeeExternalAccountEntity.java`                   | **【新增】** 员工外部账号实体        | 员工外部平台账号映射（GitLab/Jira/OpenProject 等）                              |
+| `database/entity/InternalReviewEntity.java`                            | **【新增】** 部门内审查实体          | 部门内审查记录                              |
+| `database/entity/InterventionDecisionEntity.java`                      | **【新增】** 人工干预决策实体        | 人工干预决策记录                              |
+| `database/entity/LedgerTransactionEntity.java`                         | **【新增】** 账本交易实体          | 经济自治账本交易记录                              |
+| `database/entity/MessageEntity.java`                                   | **【新增】** 消息实体              | 消息持久化                              |
+| `database/entity/NotificationEntity.java`                              | **【新增】** 通知实体              | 通知消息持久化                              |
+| `database/entity/PlanApprovalRequestEntity.java`                       | **【新增】** 计划审批请求实体        | 计划审批请求                              |
+| `database/entity/RuntimeEventEntity.java`                              | **【新增】** 运行时事件实体          | 运行时事件存储                              |
+| `database/entity/ServiceAdminBootstrapStateEntity.java`                | **【新增】** 服务管理启动状态实体    | 服务初始化状态幂等记录                              |
+| `database/entity/VisitorEntity.java`                                   | **【新增】** 访客实体              | 访客信息                              |
+| `database/entity/WindowsAutomationNodeEntity.java`                     | **【新增】** Windows 自动化节点实体  | Windows 自动化节点注册、心跳                              |
 | `database/repository/*Repository.java`                                | Spring Data Repository | 数据访问                                                                                                                                                                            |
 | `database/repository/ArtifactRecordRepository.java`                   | Artifact 记录 Repository | 支持按 executionId/department/employee/type 查询，分页和统计；新增 `findByTaskId`/`findByProjectId`                                                                                           |
 | `database/repository/CodeReviewStateRepository.java`                 | 代码审查状态 Repository     | 按 taskId/executionId/stage/developer/reviewer 查询审查状态                                                                                                                               |
@@ -1000,7 +1122,7 @@ com.livingagent.core/
 | `database/repository/DepartmentChatMessageRepository.java`            | 部门聊天消息 Repository      | 聊天会话记录查询，新增按 conversationId 查询方法                                                                                                                                                |
 | `database/repository/DepartmentConversationRepository.java`           | 部门对话 Repository        | 按 conversationId/ownerUserId+departmentCode+status/tenantId+status 查询长期会话                                                                                                       |
 | `database/repository/KnowledgeEntryRepository.java`                   | 知识条目 Repository        | 知识库内容查询                                                                                                                                                                         |
-| `database/repository/TaskRepository.java`                             | 任务 Repository          | 支持 findByAssignedToAndStatus/findByUserId/findByTaskKey/findByExecutionId/findByProjectId 等多维度查询                                                                                |
+| `database/repository/TaskRepository.java`                             | 任务 Repository          | 支持 findByAssignedToAndStatus/findByUserId/findByTaskKey/findByExecutionId/findByProjectId 等多维度查询；findByExecutionId 返回类型已从 Optional 改为 List                                                                                |
 | `database/repository/ProjectRepository.java`                          | 项目 Repository          | 支持 findByTenantId/findByCreatorUserId/findByProjectKey/findByOwnerDepartment 等多维度查询                                                                                             |
 | `database/repository/FixedEmployeeDefinitionRepository.java`          | 固定员工定义 Repository      | 按部门/激活状态查询固定员工                                                                                                                                                                  |
 | `database/repository/FixedEmployeeProfileRepository.java`             | 固定员工画像 Repository      | 员工画像查询                                                                                                                                                                          |
@@ -1019,21 +1141,31 @@ com.livingagent.core/
 | `database/repository/SessionContextRepository.java`                    | 会话上下文 Repository       | JPA 查询                                                                                                                                                                         |
 | `database/repository/TraceEventRepository.java`                       | Trace 事件 Repository      | 按 traceId/stage/eventType/timestamp 查询 Trace 事件；支持按 executionId 关联查询                                                                                                            |
 | `database/repository/EmployeeExecutionReceiptRepository.java`          | 员工执行回执 Repository       | 按 executionId/employeeCode/status 查询回执记录；支持统计和分页                                                                                                                               |
+| `database/repository/ApprovalInstanceRepository.java`                  | **【新增】** 审批实例 Repository       | 审批实例查询                              |
+| `database/repository/ApprovalWorkflowRepository.java`                  | **【新增】** 审批工作流 Repository     | 审批工作流定义查询                              |
+| `database/repository/BrainBoundaryAuditRepository.java`                | **【新增】** 大脑边界审计 Repository    | 大脑边界审计查询                              |
+| `database/repository/ClientDeviceRepository.java`                      | **【新增】** 客户端设备 Repository      | 客户端设备查询                              |
+| `database/repository/ClientOperationAuditLogRepository.java`           | **【新增】** 客户端操作审计 Repository  | 客户端操作审计查询                              |
+| `database/repository/ClientUserBindingRepository.java`                 | **【新增】** 客户端用户绑定 Repository  | 客户端用户绑定查询                              |
+| `database/repository/ComplianceViolationRepository.java`               | **【新增】** 合规违规 Repository      | 合规违规查询                              |
+| `database/repository/DagTaskRepository.java`                           | **【新增】** DAG 任务 Repository    | DAG 任务依赖查询                              |
+| `database/repository/DepartmentDeliverableRepository.java`             | **【新增】** 部门交付物 Repository    | 部门交付物查询                              |
+| `database/repository/DepartmentExecutionResultRepository.java`         | **【新增】** 部门执行结果 Repository  | 部门执行结果查询                              |
+| `database/repository/EmployeeExternalAccountRepository.java`           | **【新增】** 员工外部账号 Repository  | 员工外部账号查询                              |
+| `database/repository/InternalReviewRepository.java`                    | **【新增】** 部门内审查 Repository    | 部门内审查查询                              |
+| `database/repository/InterventionDecisionRepository.java`              | **【新增】** 人工干预决策 Repository  | 人工干预决策查询                              |
+| `database/repository/LedgerTransactionRepository.java`                 | **【新增】** 账本交易 Repository    | 经济自治账本交易查询                              |
+| `database/repository/MessageRepository.java`                           | **【新增】** 消息 Repository        | 消息查询                              |
+| `database/repository/NotificationRepository.java`                      | **【新增】** 通知 Repository      | 通知消息查询                              |
+| `database/repository/PlanApprovalRequestRepository.java`               | **【新增】** 计划审批请求 Repository  | 计划审批请求查询                              |
+| `database/repository/RuntimeEventRepository.java`                      | **【新增】** 运行时事件 Repository    | 运行时事件查询                              |
+| `database/repository/ServiceAdminBootstrapStateRepository.java`        | **【新增】** 服务管理启动状态 Repository | 服务初始化状态查询                              |
+| `database/repository/VisitorRepository.java`                          | **【新增】** 访客 Repository      | 访客信息查询                              |
+| `database/repository/SpeakerProfileRepository.java`                    | **【新增】** 声纹档案 Repository    | 声纹档案查询                              |
 | `database/service/TenantService.java`                                 | 租户服务                   | 多租户数据                                                                                                                                                                           |
 | `database/vector/QdrantVectorService.java` / `QdrantVectorStore.java` | Qdrant 向量服务            | 知识检索、向量写入                                                                                                                                                                       |
-| `src/main/resources/db/schema.sql`                                    | 初始 schema              | 初始化数据库                                                                                                                                                                          |
-| `src/main/resources/db/migration/V*.sql`                              | Flyway 迁移              | 生产表结构变更必须新增 migration                                                                                                                                                           |
-| `src/main/resources/db/migration/V14__windows_automation_nodes.sql`   | Windows 自动化节点表        | 节点注册、心跳、状态管理                                                                                                                                                                  |
-| `src/main/resources/db/migration/V15__skill_scope_separation.sql`     | 技能作用域分离             | scope/owner_id/department_id 字段                                                                                                                                                     |
-| `src/main/resources/db/migration/V16__code_review_states.sql`       | 代码审查状态持久化表         | code\_review\_states 表，taskId/stage/reviewRound/developer/reviewer/worktreePath/diffPath/findings/metadata，含索引                                                                       |
-| `src/main/resources/db/migration/V1__init_base_tables.sql`         | 初始化基础表迁移           | 系统基础表结构初始化（core 模块 resources）                                                                                                                                     |
-| `src/main/resources/db/migration/V17__create_skills_table.sql`     | skills 表迁移            | 技能表结构创建（core 模块 resources）                                                                                                                                        |
-| `src/main/resources/db/migration/V18__autonomy_trace_events.sql`  | 自治 Trace 事件表迁移        | trace\_events 表，记录自治编排全链路事件（traceId/stage/eventType/timestamp/metadata）                                                                                             |
-| `src/main/resources/db/migration/V19__missing_entity_tables.sql`  | 缺失实体表迁移              | 创建 9 个缺失表：trace\_events、employee\_execution\_receipts、feedback\_events、responsibility\_cards、task\_checkout\_sync 等                                                                   |
-| `src/main/resources/db/migration/V20__fix_session_context_field_lengths.sql` | 会话上下文字段长度修复     | 修复 session\_context 表字段长度不足问题                                                                                                                                      |
-| `src/main/resources/db/migration/V21__unify_employee_and_add_receipts.sql` | 统一员工表和回执表       | 统一 EmployeeEntity/EnterpriseEmployeeEntity 数据结构，新增 employee\_execution\_receipts 表和索引                                                                            |
-| `src/main/resources/db/migration/V22__add_trace_correlation_keys.sql` | Trace 关联键迁移        | 为 trace\_events 表添加 executionId/employeeCode/departmentCode 关联键和索引                                                                                                  |
-| `src/main/resources/db/migration/V23__add_responsibility_and_foreign_keys.sql` | 职责卡和外键迁移        | 新增 responsibility\_cards 表，添加 employee/receipt/trace 表之间的外键约束                                                                                                    |
+| `src/main/resources/db/schema.sql`                                    | 核心 schema（权威源）              | 核心模块表结构定义，所有表结构变更直接修改此文件                                                                                                                          |
+| `init-db/01_init.sql`                                                 | Docker 初始化 schema              | Docker 容器启动时初始化数据库，与 schema.sql 保持同步                                                                                                                      |
 
 主要实体分类：
 
@@ -1071,6 +1203,14 @@ com.livingagent.core/
 | `workflow/WorkflowOrchestrator.java`                              | 工作流总编排                        | 阶段式项目/任务流程                          |
 | `workflow/WorkflowExecution.java` / `WorkflowContext.java`        | 工作流执行和上下文                     | 状态追踪                                |
 | `workflow/handlers/*Handler.java`                                 | 市场、需求、设计、开发、测试、部署、运维、售后各阶段处理器 | 增加阶段逻辑                              |
+| `workflow/handlers/MarketAnalysisHandler.java`                     | **【新增】** 市场分析阶段处理器            | 市场调研、竞品分析                              |
+| `workflow/handlers/RequirementAnalysisHandler.java`                | **【新增】** 需求分析阶段处理器          | 需求梳理、可行性评估                              |
+| `workflow/handlers/DesignHandler.java`                             | **【新增】** 设计阶段处理器              | 架构设计、UI设计                              |
+| `workflow/handlers/DevelopmentHandler.java`                        | **【新增】** 开发阶段处理器            | 代码开发、单元测试                              |
+| `workflow/handlers/TestingHandler.java`                            | **【新增】** 测试阶段处理器              | 集成测试、验收测试                              |
+| `workflow/handlers/DeploymentHandler.java`                         | **【新增】** 部署阶段处理器            | 环境部署、配置发布                              |
+| `workflow/handlers/OperationHandler.java`                          | **【新增】** 运维阶段处理器            | 监控运维、故障处理                              |
+| `workflow/handlers/AfterSalesHandler.java`                         | **【新增】** 售后阶段处理器            | 客户支持、问题反馈                              |
 | `workflow/WorkflowMonitor.java`                                   | 工作流监控和超时检查                    | 超时、失败、健康检查                          |
 | `workflow/HeartbeatProvider.java`                                 | 心跳提供者                          | 工作流心跳                              |
 | `workflow/PhaseHandler.java`                                      | 阶段处理器                          | 工作流阶段处理                            |
@@ -1100,8 +1240,9 @@ com.livingagent.core/
 | `impl/HybridSandboxService.java`                       | 混合沙箱实现         | 本地/容器/远程混合                                          |
 | `SandboxSession.java` / `impl/SandboxSessionImpl.java` | 沙箱会话           | 会话生命周期，支持带 env 参数的 executeCommand 重载                |
 | `ExecutionResult.java`                                 | 执行结果           | stdout/stderr/exitCode                              |
-| `ClaudeExecutionGateway.java`                          | Claude 执行网关    | 外部 Coding Agent 集成，支持 `executeWithProxy()` 注入代理环境变量 |
-| `ClaudeCliProperties.java`                             | Claude CLI 配置类 | 配置代理地址、超时、审计开关等                                     |
+| `ClaudeExecutionGateway.java`                          | Claude 执行网关    | 外部 Coding Agent 集成；支持 `executeWithProxy()` 注入代理环境变量；`--mcp-config` MCP Server 注入；动态技能目录注入；服务发现系统提示词；GITLAB_URL/JENKINS_URL/OPENPROJECT_URL 环境变量 |
+| `ClaudeCliProperties.java`                             | Claude CLI 配置类 | 配置代理地址、超时、审计开关、MCP 配置路径/开关(mcpConfigPath/mcpEnabled)等                 |
+| `ClaudeCliHealthChecker.java`                          | Claude CLI 健康检查 | 检查 CLI 二进制是否安装/可执行/版本兼容；注册到 StartupDependencyChecker |
 | `TraeExecutionGateway.java`                            | Trae 执行网关      | Trae 集成                                             |
 
 ### 6.13a `proxy/anthropic` Claude CLI 代理
@@ -1184,11 +1325,16 @@ com.livingagent.core.proxy.anthropic/
 | 文件/目录                                          | 功能说明           | 修改建议                |
 | ---------------------------------------------- | -------------- | ------------------- |
 | `diagnosis/HealthMonitor.java`                  | 健康监控接口         | 系统健康检查              |
-| `diagnosis/impl/HealthMonitorImpl.java`         | 健康监控实现         | 定时检查各组件状态           |
+| `diagnosis/impl/HealthMonitorImpl.java`         | 健康监控实现         | 定时检查各组件状态；`createIssue()` 根据 componentName 推断 IssueType + `fillSuggestedAction()`；`checkChannels()` 增强为通道级健康检查           |
 | `diagnosis/HealthCheck.java`                    | 健康检查项          | 单项检查定义              |
 | `diagnosis/HealthStatus.java`                   | 健康状态           | UP/DOWN/DEGRADED     |
 | `diagnosis/HealthIssue.java`                    | 健康问题           | 问题描述和修复建议           |
 | `diagnosis/HealthAlert.java`                    | 健康告警           | 告警通知                |
+| `diagnosis/DegradedTrafficCanary.java`          | 降级小流量回归        | P27-A: 10%探测→成功5次提升/失败3次回滚/300s超时回滚 |
+| `diagnosis/impl/StartupRecoveryService.java`    | 启动失败自动恢复       | P12-D: canary探测→recordProbeSuccess→shouldPromote阈值→条件全量恢复 |
+| `diagnosis/StartupRecoveryService.java`         | P12-D: 启动恢复服务       | 降级模式下@Scheduled(fixedRate=60000)重试HealthMonitor.checkHealth()，集成DegradedTrafficCanary |
+| `diagnosis/DegradedTrafficCanary.java`          | P27-A: 降级小流量回归      | 10%流量探测+5次成功promoteToFull+3次失败rollback+5min超时 |
+| `diagnosis/VitalSignsService.java`              | P32-A: 生命体征服务       | 聚合HealthMonitor+连接数+降级模式+JVM内存，支持历史趋势快照 |
 
 #### `compliance` 合规管理包
 
@@ -1224,7 +1370,7 @@ com.livingagent.core.proxy.anthropic/
 | `operation/dashboard/CEODashboardService.java`          | CEO 仪表盘服务                | 数据聚合和展示             |
 | `operation/dashboard/DashboardDTOs.java`                | 仪表盘 DTO                  | 数据传输对象              |
 | `operation/performance`                                 | 绩效评估、指标、趋势、JPA/内存实现       |                     |
-| `operation/performance/PerformanceAssessmentServiceImpl.java` | 绩效评估实现                   | 绩效计算和排名             |
+| `operation/performance/PerformanceAssessmentServiceImpl.java` | 绩效评估实现                   | 绩效计算和排名；接口已新增 getCompanyTopPerformers/getCompanyBottomPerformers 方法             |
 | `operation/performance/PerformanceIndicator.java`        | 绩效指标                     | KPI 定义和计算           |
 | `operation/metrics`                                     | 运行指标采集                   |                     |
 
@@ -1333,6 +1479,7 @@ com.livingagent.core.proxy.anthropic/
 | 文件/目录                                          | 功能说明           | 修改建议                |
 | ---------------------------------------------- | -------------- | ------------------- |
 | `runtime/DataNamespaceService.java`             | 数据命名空间服务       | 多租户数据隔离             |
+| `runtime/EvolutionNamespaceService.java`        | 进化空间命名空间服务     | .living/ 进化空间路径管理，大脑自由权限 |
 | `runtime/RuntimeEventStore.java`                | 运行时事件存储        | 事件溯源                |
 | `runtime/StandardComplianceTraceService.java`   | 合规追踪服务         | 操作审计追踪              |
 
@@ -1341,7 +1488,7 @@ com.livingagent.core.proxy.anthropic/
 | 文件/目录                                          | 功能说明           | 修改建议                |
 | ---------------------------------------------- | -------------- | ------------------- |
 | `migration/DataMigrationService.java`           | 数据迁移接口         | 版本升级数据迁移            |
-| `migration/impl/DataMigrationServiceImpl.java`  | 数据迁移实现         | Flyway 迁移后数据修复      |
+| `migration/impl/DataMigrationServiceImpl.java`  | 数据迁移实现         | schema.sql 变更后数据修复      |
 
 #### `task` 任务状态包
 
@@ -1389,9 +1536,17 @@ com.livingagent.core.proxy.anthropic/
 
 #### `config` 核心配置包
 
+> **2026-06-23 拆分说明**：原 `LivingAgentCoreConfig` 上帝类（54个Bean）已按功能域拆分为5个子配置类。
+
 | 文件/目录                                          | 功能说明           | 修改建议                |
 | ---------------------------------------------- | -------------- | ------------------- |
-| `config/LivingAgentCoreConfig.java`             | 核心配置类（已拆分），仅保留 Employee/Security/Autonomy 等 10 个 Bean，其余已拆分到 BrainConfig/ToolConfig/ProviderConfig/MemoryConfig/ChannelConfig | Spring Bean 注册和配置   |
+| `config/LivingAgentCoreConfig.java`             | 核心配置类（已拆分），仅保留 Employee/Security/Autonomy 等 10 个 Bean | Spring Bean 注册和配置   |
+| `config/BrainConfig.java`                       | **【新增】** 大脑配置类，注册 BrainRegistry/BrainSessionManager/BrainReActEngine/BrainModelFallback/BrainBoundaryEnforcer 等 Brain 相关 Bean | 大脑相关 Bean 新增或修改时改这里 |
+| `config/ToolConfig.java`                        | **【新增】** 工具配置类，注册 ToolRegistry/ToolExecutor/ToolHookManager 及所有 Tool 实现类（含 AdminTool） | 工具注册、新增 Tool 时改这里 |
+| `config/ProviderConfig.java`                    | **【新增】** Provider 配置类，注册 ProviderRegistry/ModelManager/NamedPipeModelClient 等模型相关 Bean | 模型/Provider 新增时改这里 |
+| `config/MemoryConfig.java`                      | **【新增】** 记忆配置类，注册 MemoryService/MemoryBackend/MemosMemoryBackend/MemPalaceBackend 等 | 记忆后端新增或切换时改这里 |
+| `config/ChannelConfig.java`                     | **【新增】** 通道配置类，注册 ChannelManager/ChannelPublisher/BroadcastChannel/UnicastChannel 等 | 通道类型新增或策略调整时改这里 |
+| `config/AdminConfig.java`                       | **【新增】** 服务管理配置，通过 `service-admin.enabled=true` 启用，注册 ServiceAdminBootstrap | GitLab/OpenProject/Jenkins 管理类操作启用时改这里 |
 | `config/ConfigVersionControl.java`              | 配置版本控制接口       | 配置变更追踪              |
 | `config/impl/ConfigVersionControlImpl.java`     | 配置版本控制实现       | Git 风格配置版本管理        |
 | `config/ConfigVersionEntity.java`               | 配置版本实体         | JPA 实体              |
@@ -1441,6 +1596,9 @@ com.livingagent.core.proxy.anthropic/
 | `nativelib/CompactNative.java`                  | 压缩 JNI 声明      | 上下文压缩               |
 | `nativelib/MemoryNative.java`                   | 记忆 JNI 声明      | 记忆后端                |
 | `nativelib/SecurityNative.java`                 | 安全 JNI 声明      | Bash 验证             |
+| `nativelib/NativeCallMetrics.java`             | P19-B: Native调用原子计数器（LongAdder），记录totalCalls/successCalls/failureCalls/totalDurationMs，提供getSuccessRate/getAvgDurationMs | Native调用性能度量 |
+| `nativelib/NativePerformanceMonitor.java`       | P19-B: Native性能监控，慢调用告警(>500ms)、高失败率告警(>30%)，getSlowOperations/getUnhealthyOperations/getOverallSuccessRate | Native性能告警 |
+| `nativelib/NativeLibraryHealthCheck.java`       | P19-C: Native库健康检查，检查NativeLibrary.isAvailable()+各操作成功率+慢调用，注册到HealthMonitor周期检查 | Native健康监控 |
 
 #### `scenario` 场景处理包
 
@@ -1474,6 +1632,51 @@ com.livingagent.core.proxy.anthropic/
 | 文件/目录                                          | 功能说明           | 修改建议                |
 | ---------------------------------------------- | -------------- | ------------------- |
 | `util/IdUtils.java`                             | ID 工具类         | 生成 employee:// / neuron:// / channel:// 格式 ID |
+
+### 6.19 `admin` 服务管理包（2026-06-25 新增）
+
+> **关联文档**：`docs/core/MAINBRAIN_ADMIN_BRIDGE_PLAN.md`、`docs/core/MAINBRAIN_SERVICE_MANAGEMENT.md`
+>
+> **核心职责**：主脑（MainBrain）以管理员身份完成外部服务（GitLab/OpenProject/Jenkins）的一次性初始配置。
+> **架构简化**（2026-06-25）：管理员凭据从环境变量读取，不存储在数据库中；管理类操作作为独立的管理工具（GitLabAdminTool/OpenProjectAdminTool/JenkinsAdminTool），实现 Tool 接口，注册到 ToolRegistry。
+
+| 文件/目录                                          | 功能说明                                                                                                            | 修改建议                                             |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| `admin/ServiceAdminBootstrap.java`              | 服务初始化入口接口，定义 `bootstrapAll()`/`bootstrapService(serviceType)`/`isServiceInitialized(serviceType)`；返回 `BootstrapResult` | 新增服务初始化入口时改这里                                    |
+| `admin/EmployeeExternalAccount.java`            | 员工外部账号映射值对象（employeeCode/serviceType/externalUserId/externalUsername/externalToken）                              | 员工外部账号信息传递                                       |
+| `admin/AdminOperationResult.java`               | 管理操作结果值对象（success/operation/entityId/message/detail）                                                             | AdminService 统一返回格式                              |
+| `admin/impl/DefaultServiceAdminBootstrap.java`  | 默认服务初始化实现，编排 GitLab/OpenProject/Jenkins 的初始化步骤；幂等设计，通过 `service_admin_bootstrap_state` 表记录状态                          | 新增初始化步骤或调整顺序时改这里                                 |
+| `admin/impl/AdminJsonUtils.java`                | JSON 工具类（基于 Jackson），供 AdminService 使用                                                                            | Admin 包内 JSON 处理                                 |
+| `config/AdminConfig.java`                       | 服务管理 Spring 配置，通过 `service-admin.enabled=true` 启用；默认不启用；管理员凭据从环境变量读取                                        | 启用/禁用服务管理                                        |
+| `tool/impl/admin/GitLabAdminTool.java`          | GitLab 管理工具：createGroup/createProject/createUser/createToken/addGroupMember；实现 Tool 接口，部门 "admin_management"        | GitLab 管理类操作                                     |
+| `tool/impl/admin/OpenProjectAdminTool.java`     | OpenProject 管理工具：createRole/createProject/createUser/addMember；实现 Tool 接口，部门 "admin_management"                  | OpenProject 管理类操作                                |
+| `tool/impl/admin/JenkinsAdminTool.java`         | Jenkins 管理工具：createJob/createCredential/installPlugin；实现 Tool 接口，部门 "admin_management"                           | Jenkins 管理类操作                                    |
+
+
+**管理员凭据配置**（环境变量）：
+
+```yaml
+# .env 文件
+GITLAB_ACCESS_TOKEN=your-gitlab-root-token-here
+OPENPROJECT_API_TOKEN=your-openproject-admin-api-key-here
+JENKINS_API_TOKEN=your-jenkins-api-token-here
+
+# application.yml
+tool:
+  gitlab:
+    access-token: ${GITLAB_ACCESS_TOKEN:}
+  openproject:
+    api-token: ${OPENPROJECT_API_TOKEN:}
+  jenkins:
+    api-token: ${JENKINS_API_TOKEN:}
+```
+
+**启用方式**：
+```yaml
+# application.yml
+service-admin:
+  enabled: true  # 默认 false，需要时手动启用
+```
 
 ***
 
@@ -1594,6 +1797,7 @@ frontend/
 | `src/index.css`                | 全局样式   | 全局主题、布局基础样式     |
 | `src/stores/index.ts`          | 全局状态   | 当前用户、认证状态、UI 状态；新增 `getToken()` 辅助函数统一 token 访问 |
 | `src/stores/toastStore.ts`     | Toast 状态 | Toast 消息队列管理，`showToast(message, type)` |
+| `src/stores/connectionStore.ts` | 连接状态   | WebSocket 连接状态管理（isConnected/quality/heartbeat/reconnectAttempts） |
 | `src/hooks/useIdleTimeout.ts`  | 空闲超时   | 自动登出、会话超时       |
 | `src/hooks/usePolling.ts`      | 轮询 Hook | 页面可见时启动 setInterval，不可见时暂停；替代固定 30s 轮询 |
 | `src/i18n/zh.json` / `en.json` | 国际化文案  | 文案统一维护          |
@@ -1604,13 +1808,15 @@ frontend/
 
 | 文件                                  | 功能说明                      | 对应后端                         |
 | ----------------------------------- | ------------------------- | ---------------------------- |
-| `src/services/apiBase.ts`           | API 基础封装，baseUrl、认证头、错误处理 | 所有后端 API                     |
+| `src/services/apiBase.ts`           | API 基础封装，baseUrl、认证头、错误处理；自动重试（5xx/429/网络错误最多2次） | 所有后端 API                     |
 | `src/services/api.ts`               | 通用业务 API，提供统一 `fetchJson` 入口（`apiBase.request` 别名）                  | 多个 Controller                |
+| `src/services/errorReporter.ts`     | 前端错误上报，批量发送到 `/api/error-reports`；全局 unhandled error/rejection 捕获 | `ErrorReportController`       |
 | `src/services/fixedEmployeeApi.ts`  | 固定员工 API                  | `FixedEmployeeController`    |
 | `src/services/dashboardApi.ts`      | Dashboard API             | `DashboardController`        |
 | `src/services/modelPoolApi.ts`      | 模型池 API                   | `ModelPoolController`        |
 | `src/services/brainModelApi.ts`     | 大脑模型配置 API                | `BrainModelConfigController` |
 | `src/services/officeExtendedApi.ts` | 虚拟办公室扩展 API               | `OfficeController`           |
+| `src/services/autonomousApi.ts`     | 经济自治 API                  | `AutonomousController`       |
 
 避免重复建议：
 
@@ -1637,8 +1843,8 @@ frontend/
 | `pages/Projects.tsx`                             | 项目管理                   | `ProjectController`                                                 |
 | `pages/Approvals.tsx`                            | 审批                     | `ApprovalController`                                                |
 | `pages/Plaza.tsx`                                | 广场/公开任务                | `PlazaController`                                                   |
-| `pages/UserManagement.tsx`                       | 用户/员工管理                | `EmployeeController`、`OrgController`                                |
-| `pages/EnterpriseSettings.tsx`                   | 企业设置                   | `EnterpriseController`、`SystemSettingsController`                   |
+| `pages/UserManagement.tsx`                       | 用户/员工管理（详情弹窗+权限级别+激活/停用） | `EmployeeController`、`OrgController`                                |
+| `pages/EnterpriseSettings.tsx`                   | 公司设置页面（12 Tab: info/llm/brain/knowledge/tools/skills/users/org/invites/quotas/approvals/audit），含CompanyLogoUploader(Logo上传+本地预览fallback)、KnowledgeTab(知识CRUD+搜索+分类+统计+收藏+文件+治理+状态流转+晋升审核+有效性标记+搜索高亮)、ApprovalsTab(分Tab+筛选+详情+步骤+评论+取消)、AuditLogTab(搜索+分页+导出+详情+时间范围)、SkillsTab(文件+绑定+统计+热更新+自动生成)、CreditOverview(积分+排行榜)、DeptTree(部门CRUD)、OrgTab、工具搜索+部门筛选 | `EnterpriseController`、`SystemSettingsController`、`KnowledgeController`、`ApprovalController`、`DepartmentController` |
 | `pages/OpenClawSettings.tsx`                     | OpenClaw 设置            | 系统设置/模型设置                                                           |
 | `pages/BrainConfig.tsx`                          | 大脑模型配置                 | `BrainModelConfigController`                                        |
 | `pages/ModelPoolProviders.tsx`                   | 模型供应商管理                | `ModelPoolController`                                               |
@@ -1739,10 +1945,32 @@ AI 大脑 → ToolNeuron → WindowsAppTool (Java, 服务器端)
                     Windows 桌面应用 (金蝶 KIS 等)
 ```
 
+**WindowsAutomationTool（通用系统控制，WebSocket 桥接）**：
+
+```
+AI 大脑 → ToolNeuron → WindowsAutomationTool (Java, 服务器端)
+                              ↓ WebSocket (WIN_AUTOMATION_CALL)
+                    living-agent-desktop (Electron, 客户端电脑)
+                              ↓ stdin/stdout (JSON 行协议)
+                    service.py (Python, 内嵌子进程)
+                              ↓ UIA/PowerShell/psutil/win32api
+                    Windows 系统 (控件/进程/注册表/文件系统)
+                              ↑ WIN_AUTOMATION_RESPONSE (原路返回)
+```
+
+- 与 `WindowsAppTool` 区别：`WindowsAppTool` 走 HTTP 调用远程 pywinauto 服务（业务化封装）；`WindowsAutomationTool` 走 WebSocket 调用桌面端内嵌 Python 服务（通用系统控制）
+- 核心接口：`core/websocket/WindowsAutomationClientGateway`（core 定义接口，gateway 实现）
+- gateway 实现：`gateway/websocket/WindowsAutomationClientGatewayImpl`（维护 clientId → WebSocketSession 映射）
+- 桌面端服务：`living-agent-desktop/src/main/win-automation-service.ts`（管理 Python 子进程）
+- Python 服务：`living-agent-desktop/resources/win-automation/service.py`（UIA/PowerShell/注册表/文件系统等）
+- 权限分级：CHAT_ONLY/LIMITED/FULL，高风险操作（shell/process_kill/registry_set/delete/filesystem_write/delete）需 BrainBoundaryEnforcer 边界检查（ApprovalManager 已移除）
+- 详细设计：`docs/WINDOWS_MCP_INTEGRATION_PLAN.md`
+
 **部署步骤**：
 
 1. **客户端电脑**：复制 `windows_automation/` 目录 → 修改 `config.json` 中的应用路径 → `pip install -r requirements.txt` → `python server.py` → 开放防火墙端口 8765
 2. **服务器端**：修改 `WindowsAppTool.java` 中 `initializeDefaultNodes()` 的节点 IP 地址
+3. **WindowsAutomationTool**：桌面端安装 `living-agent-desktop` 后自动启动内嵌 Python 服务，无需额外部署（需安装 Python 依赖：`pip install -r resources/win-automation/requirements.txt`）
 
 **与 `docker/pywinauto/` 项目的关系**：
 
@@ -1770,6 +1998,7 @@ AI 大脑 → ToolNeuron → WindowsAppTool (Java, 服务器端)
 | `image/Dockerfile.system-deps` | 系统依赖镜像                                                         | 离线/基础依赖                        |
 | `image/download_images.py`     | 镜像下载辅助                                                         | 离线镜像准备                         |
 | `image/load_images.ps1`        | Windows 加载镜像脚本                                                 | 本地导入镜像                         |
+| `image/codegraph/codegraph-linux-x64.tar.gz` | CodeGraph v1.2.0 Linux x64 预编译二进制；Dockerfile.local 中 COPY 并解压到 /opt/codegraph，链接到 /usr/local/bin/codegraph | 离线部署 CodeGraph 代码索引工具         |
 | `init-db/01_init.sql`          | 初始化数据库                                                         | 初次启动基础表/数据                     |
 | `init-db/02_openproject.sh`    | OpenProject 初始化                                                | OpenProject 数据库初始化             |
 
@@ -1932,7 +2161,7 @@ ConversationOrchestrator 判断 TASK/PROJECT
 5. **外部系统调用统一做成 Tool，不要散落 HTTP 客户端**。
 6. **权限统一走** **`security`** **包，不要只在前端隐藏入口**。
 7. **员工模型优先使用** **`core.employee`，不要和** **`core.security.SecurityIdentity`（原 Employee）** **重复扩展**。
-8. **新增表必须有 Flyway migration，不要只改实体或 schema.sql**。
+8. **新增表必须修改 schema.sql（核心模块）+ 01_init.sql（Docker 初始化），不再创建 Flyway V 版本迁移文件**。
 9. **前端请求统一放** **`src/services`，不要页面里到处写** **`fetch`**。
 10. **`dist/`、`target/`、`node_modules/`、Rust** **`target/`** **都是构建产物，不手改**。
 11. **文档型知识放** **`documents/`，技术方案放** **`docs/`，不要混在代码里**。
@@ -1990,10 +2219,11 @@ ConversationOrchestrator 判断 TASK/PROJECT
 | `DataNamespaceService` / `RuntimeEventStore`                                              | 标准 data 路径生成和运行时事件存储（`core/runtime/`），注册为 Spring Bean                                                                                                               |
 | `StandardComplianceTraceService`                                                          | 规范合规追踪服务（`core/runtime/`），记录边界检查/标准加载/澄清/升级/回执合规/权限检查事件                                                                                                             |
 | `ConnectionRegistry` / `InMemoryConnectionRegistry`                                       | WebSocket 连接注册，映射 userId/taskKey/executionId/projectKey（`gateway/websocket/`）                                                                                       |
+| `ConnectionHealthCheck`                                                                    | P24-C+P3-A: WebSocket连接健康检查，检测5分钟DEGRADED/30分钟UNHEALTHY，发布HealthIssue触发自愈（`gateway/websocket/`）                                                                 |
 | `WorkItemPermissionService`                                                               | 统一判断项目/任务访问权限，接受 `AuthContext` 参数（`gateway/security/`）                                                                                                              |
 | `RequireAccess` / `RequireAccessAspect`                                                  | 统一权限检查注解 + AOP 切面（`gateway/security/`），替代 Controller 中零散的 `accessGateService.canRoute()` 调用                                                                                     |
 | `WorkItemContextService`                                                                  | 从 AuthContext/WebSocket session 构造 WorkItemContext（`gateway/service/`）                                                                                              |
-| `ExecutionReceiptTaskProjectBridge`                                                       | receipt 到达时反写 Task/Project 状态（`gateway/service/`）                                                                                                                   |
+| `ExecutionReceiptTaskProjectBridge`                                                       | receipt 到达时反写 Task/Project 状态（`gateway/service/`）；findByExecutionId 调用已改为 .stream().findFirst()                                                                                                                   |
 | `ArtifactRecord` 新增 taskId/projectId                                                      | artifact 记录关联任务和项目，支持 `withTaskId`/`withProjectId`/`associateTaskAndProject`                                                                                        |
 | `ArtifactRecordEntity` 新增 task\_id/project\_id 列                                          | 数据库持久化 artifact 与任务/项目的关联                                                                                                                                           |
 | 身份认证强化                                                                                    | `claim`/`submit`/`/tasks/my` 从 token 提取身份，不再信任请求体中的 employeeId                                                                                                      |
@@ -2075,14 +2305,88 @@ ConversationOrchestrator 判断 TASK/PROJECT
 | OAuth state 参数验证                                                                         | AuthController 添加 state 存储、5 分钟过期、一次性消费验证                                                                                                                          |
 | Token 刷新令牌轮换                                                                             | refreshToken 时旧 session 立即失效，颁发新 session                                                                                                                           |
 | ExecutorService @PreDestroy                                                                | 10 个类添加 @PreDestroy 优雅关闭：SandboxExecutorImpl、HealthMonitorImpl、HardwareResourceMonitor、EvolutionExecutor、EventHookManager、RunQueue、ParallelModelService、AgentService、DepartmentWebSocketHandler、AutonomyTraceService |
-| MemPalaceBackend @PreDestroy（待补充）                                                        | ⚠️ 实际验证发现缺少 @PreDestroy，MCP 子进程可能无法优雅关闭；之前的记录有误，需补充 destroyForcibly() + 守护线程 interrupt + @PreDestroy                                                                                     |
+| MemPalaceBackend @PreDestroy（已补充）                                                        | ✅ 已有 @jakarta.annotation.PreDestroy + destroy()（调用 close().join()），内含 mcpProcess.destroyForcibly() + 守护线程 interrupt                                                                                      |
 | ApiResponse 统一                                                                           | AuthController/TaskController 内部 ApiResponse 已删除，统一使用 common/ApiResponse.java；公共类新增 success()/error() 别名方法                                                                 |
 | 国际化统一（渐进式）                                                                               | 部分 isChinese ? '中文' : 'English' 替换为 t('key')；zh.json/en.json 新增 layout/userMgmt/agentDetail/openclaw/phoneLogin/approvals/projects 等翻译 key                          |
 | `LivingAgentCoreConfig` 上帝类拆分                                                            | 原 54 个 @Bean 已按功能域拆分到 BrainConfig/ToolConfig/ProviderConfig/MemoryConfig/ChannelConfig 五个子配置类，本类仅保留 10 个 Bean |
 | `EnterpriseFeishuTool` 上帝类拆分                                                            | 原 1571 行 27 个 action 已拆分为 FeishuMessageTool/FeishuContactTool/FeishuApprovalTool/FeishuCalendarTool 四个子工具，公共逻辑提取到 AbstractFeishuTool 基类；原类标记 @Deprecated |
 | `AbstractBrain` 上帝类拆分                                                                   | 会话历史管理拆分到 BrainSessionManager，ReAct 循环拆分到 BrainReActEngine，模型降级拆分到 BrainModelFallback；AbstractBrain 注入这些组件委托调用 |
-| `MemPalaceBackend` 缺少 @PreDestroy                                                        | ⚠️ MCP 子进程可能无法优雅关闭，建议补充生命周期管理                                                                                   |
+| `MemPalaceBackend` @PreDestroy                                                            | ✅ 已有 @jakarta.annotation.PreDestroy + destroy()，MCP 子进程可优雅关闭                                                                                 |
 | `SQLiteKnowledgeBase` 缺少 @PreDestroy                                                     | ⚠️ 连接缓存 shutdown() 需手动调用，建议补充 @PreDestroy 自动关闭                                                                   |
+| P0 轻量路由层（TaskRouteClassifier）                                                          | 新增 TaskRouteClassifier 接口 + DefaultTaskRouteClassifier 实现（7条路由规则），集成到 ConversationOrchestrator，在意图分析后判断单部门直达/跨部门主脑拆解/需要澄清                          |
+| P0 部门内审查闭环（Internal Review Loop）                                                      | 新增 autonomy/review 子包（ReviewState/ReviewDecision/ReviewResult/ReviewHistory/InternalReviewService/DefaultInternalReviewService）；DynamicEmployeeTaskConsumerRegistry 集成审查流程；FixedEmployeeDefinition 增加 downstreamReviewers 字段；EmployeeWorkAssignment 增加 reviewRequired/reviewerCode/maxReviewRounds 字段 |
+| P1 员工自行领取机制（Self-Claiming）                                                           | 新增 DepartmentTodoPool/DepartmentTodoItem/TodoClaimResult/InMemoryDepartmentTodoPool/EmployeeSelfClaimService/DefaultEmployeeSelfClaimService；乐观锁领取 + 资格校验 + 兜底指派                          |
+| P1 部门级聚合交付（Department Aggregation）                                                    | 新增 DepartmentAggregationService/DepartmentDeliverable/AggregationResult/DefaultDepartmentAggregationService；EmployeeExecutionReceiptService 新增 getReceiptsByDepartment()；Entity/Repository 增加 department 字段；Flyway V26 迁移 |
+| P2 CrossDepartmentCoordinator 接口化                                                        | 将 CrossDepartmentCoordinator 从具体类重构为接口，新增 DefaultCrossDepartmentCoordinator 实现；GatewayConfig Bean 更新                                                                              |
+| P2 DefaultRequirementReadinessEvaluator                                                    | 新增规则版需求就绪评估器，7条确定性规则替代 LLM 调用，作为降级方案                                                                                                                  |
+| 审查闭环增强（ReviewListener）                                                              | InternalReviewService 新增 ReviewListener 回调机制；DefaultInternalReviewService 在 review() 末尾通知监听器；DynamicEmployeeTaskConsumerRegistry 注册监听器，REVISION_NEEDED 时重新发布任务消息触发重试 |
+| 审查关系数据填充                                                                            | FixedEmployeeDefinition 新增 withDownstreamReviewers() 方法；技术部 T09↔T10 交叉审查关系已配置                                                                                      |
+| **2026-06-23 MAINBRAIN_EXECUTION_RULES.md P0阶段改进** | |
+| DP0-2: TechBrain publishFallbackResponse 设置 Contract | TechBrain.publishFallbackResponse() 添加 BrainOutputContract 构建，确保 fallback 响应也有 Contract |
+| P0-3: 删除 thenCompose 重复澄清检查 | DepartmentChatService 删除 thenCompose 中重复的澄清检查，澄清已在 ConversationOrchestrator.orchestrate() 中统一处理 |
+| P0-4: 规则版分派增加工具匹配 + 能力排序 | RegistryBackedFixedEmployeeDispatcher.planAssignments() 增加 requiredTools 过滤（硬性约束）+ suggestedRoles 能力匹配排序；无工具匹配时降级到能力匹配 |
+| P0-5: parseRequirementStatus 默认值改为 NEEDS_CLARIFICATION | LlmBasedMainBrainTaskDirector.parseRequirementStatus() 默认值从 REQUIREMENT_CONFIRMED 改为 NEEDS_CLARIFICATION（更安全） |
+| DP0-1: TechBrain 员工任务响应改进 | TechBrain.doProcess() 将"已派发并执行 N 个员工任务"改为"正在执行 N 个员工任务，请稍候..."（中间状态）；triggerAsyncFinalResponse 发送最终结果；前端 DepartmentChatInline.tsx 已处理 async_final_response 事件将 summary 添加为聊天消息；**桌面端 OfficeChatPage.tsx 同步添加处理逻辑** |
+| 等待过程进度提示 | DepartmentChatService.collectExecutionReceipts() 每 15 秒推送 waiting_progress 事件（"⏳ 任务执行中... 已完成 X/Y，正在执行 Z 个"）；前端替换上一条等待消息避免堆积 |
+| **2026-06-23 MAINBRAIN_EXECUTION_RULES.md P1阶段改进** | |
+| P1-2: LLM 分派重试机制 | LlmBasedFixedEmployeeDispatcher.planAssignments() 添加 MIN_VALID_RESPONSE_LENGTH=20；异常短响应（<20字符）自动重试1次 |
+| P1-3: clarificationQuestion 改为 List | DialogueDecision.clarificationQuestion 改为 clarificationQuestions (List<String>)；LlmBasedDialogueAnalyzer 兼容旧格式 |
+| P1-4: mapDepartmentToBrain 统一 | LlmBasedDialogueAnalyzer.mapDepartmentToBrain() 使用 Department.mapDepartmentToBrain() 统一映射逻辑 |
+| P1-5: 路由规则6增加 complexity 判断 | DefaultTaskRouteClassifier.classify() 规则6：complexity<=2 单部门直达，complexity>2 走主脑拆解 |
+| DP1-2: LLM 降级超时调整 | DynamicEmployeeTaskConsumerRegistry 添加 fallbackTimeoutMs=60_000；LLM 降级调用使用 60s 超时 |
+| DP1-3: 审查提交异常标记 | EmployeeTaskExecutionOutcome 添加 withNeedsHumanReview() 方法；审查提交失败时标记 needsHumanReview=true |
+| **2026-06-23 MAINBRAIN_EXECUTION_RULES.md PR系列改进（主动汇报机制）** | |
+| PR-1: 登录时触发汇报 | DepartmentWebSocketHandler.afterConnectionEstablished() 调用 ProactiveOrchestrator.runForUser(userId)；发送 proactive_report 消息 |
+| PR-7: 前端汇报展示 | DepartmentChatInline.tsx 处理 proactive_report 消息类型；显示建议和警告列表 |
+| PR-9: 登录汇报状态标记 | DepartmentWebSocketHandler 添加 sessionProactiveReported Map；标记本次会话已汇报避免重复 |
+| PR-2: 身份驱动汇报内容 | ProactiveSuggestionService 注入 TaskCheckout/BountyHunterService/TaskClaimService/Memory/AccessLevel；generateTaskBasedSuggestions() 根据身份（董事长/部门经理/普通员工）生成不同建议 |
+| PR-3: 职责卡内容解析 | DutyCardParser 解析 documents/shared/company/duty-cards/*.md；提供 getChairmanReportSummary()、getDutyCardByDepartment()；ProactiveSuggestionService 使用职责卡生成专属汇报 |
+| PR-4~PR-6: 专属汇报 | ProactiveSuggestionService.generateTaskBasedSuggestions() 根据身份（董事长/部门经理/普通员工）生成专属汇报内容；董事长：数字员工体系概览；部门经理：部门职责提醒；员工：收益待结算 |
+| PR-8: 汇报内容缓存 | ProactiveReportCache 全局缓存（董事长视角）+ 用户缓存；每5分钟自动刷新；forceRefresh() 强制刷新；CachedReport.formatForUser() 格式化输出 |
+| **2026-06-23 MAINBRAIN_EXECUTION_RULES.md NP1系列改进（知识沉淀/绩效记录闭环）** | |
+| NP1-2: SkillFinderTool 更新员工技能 | SkillFinderTool.handleInstall 添加 employee_code 参数；FixedEmployeeDefinition 添加 withAdditionalSkill()/withAdditionalCapability() 方法 |
+| NP1-5: 知识沉淀闭环 | DefaultKnowledgeCaptureService.captureFromExecution() 存储到 KnowledgeManager；已集成到 DepartmentChatService.processBrainResponse() |
+| NP1-6: 知识沉淀集成 | DepartmentChatService 已注入 KnowledgeCaptureService；processBrainResponse 调用 captureFromExecution() |
+| NP1-7: 绩效记录闭环 | DefaultPerformanceCaptureService.captureFromExecution() 通过 LedgerService 记录绩效积分；已集成到 DepartmentChatService |
+| NP1-8: 绩效数据存储 | 通过 LedgerService.IncomeRecord 存储绩效数据（替代独立 PerformanceRecordEntity） |
+
+| **2026-06-25 MAINBRAIN_ADMIN_BRIDGE_PLAN 服务管理衔接方案** | |
+| 目的 | 解决 EXECUTION_RULES 与 SERVICE_MANAGEMENT 单独使用时的冲突，管理类操作独立成服务 |
+| 新增 admin 包 | `core/admin/` 包独立于 `core/tool/`，AdminService 不实现 Tool 接口 |
+| ServiceAdminBootstrap | 服务初始化入口接口，编排 GitLab/OpenProject/Jenkins 初始化 |
+| GitLabAdminService | GitLab 管理操作：createGroup/createProject/createUser/createToken/addGroupMember |
+| OpenProjectAdminService | OpenProject 管理操作：createRole/createProject/createUser/addMember |
+| JenkinsAdminService | Jenkins 管理操作：createJob/createCredential/installPlugin |
+| AdminConfig | Spring 配置，通过 `service-admin.enabled=true` 启用，默认不启用 |
+| V27 迁移脚本 | 新增 employee_external_account/service_admin_bootstrap_state 两张表（service_admin_credential 已删除） |
+| 权限隔离 | AdminService 不注册到 ToolRegistry，不走 ReAct 循环，与员工工具完全隔离 |
+| 幂等设计 | 通过 service_admin_bootstrap_state 表记录每步状态，已成功的跳过，失败的重试 |
+
+### 2026-07-03 第三轮闭环改进
+- 新增 NativeCallMetrics/NativePerformanceMonitor/NativeLibraryHealthCheck（P19-B/C）
+- 新增 InferenceResultValidator（P20-D）
+- 新增 StartupRecoveryService/DegradedTrafficCanary（P12-D/P27-A）
+- 新增 SandboxViolationTracker（P30-A）
+- 新增 KnowledgeConsumptionFeedback（P26-A）
+- 新增 HardwareUpgradeRoiValidator/SelfHealingOrchestratorImpl/SelfGovernanceOrchestratorImpl（P24-A/P25-A/P31-A）
+- 新增 SatisfactionCollector（P29-A）
+- 新增 ErrorReportFeedbackService（P17-C）
+- 修复 Canary空转：NamedPipeModelClient集成DegradedTrafficCanary路由判断
+- 修复 ModelDaemonRecoveryService逻辑顺序：clearDegraded改为canary.startProbing
+- 修复 HealthIssue.type未设置：3处new HealthIssue改为createIssue工厂方法
+- ClaudeExecutionGateway新增失败/超时EvolutionSignal发布
+- SelfHealingOrchestratorImpl新增RECONNECT_PIPE动作分支
+- HealthMonitorImpl.fillSuggestedAction新增管道丢失场景→RECONNECT_PIPE
+
+### 2026-07-03 第五轮闭环改进
+- 新增 VitalSignsService（P32-A: 生命体征服务，聚合健康+连接+降级+内存）
+- 新增 VitalSignsController（P32-A: GET /api/vitals + /api/vitals/history）
+- 新增 ConnectionHealthCheck（P24-C+P3-A: WebSocket连接健康检查）
+- 新增 SatisfactionController（P29-A: 满意度采集API）
+- BrainRegistry接口新增 getPersonality/updatePersonality 方法
+- BrainBoundaryEnforcer新增 riskTolerance→边界联动（P29-B）
+- SelfHealingOrchestratorImpl新增 NOTIFY_CLIENT 动作分支（P24-C）
+- ConnectionRegistry接口新增 getAllSessionIds 方法
 
 ***
 
@@ -2137,7 +2441,7 @@ ConversationOrchestrator 判断 TASK/PROJECT
 | 持久化回执、JSON receipt     | `core/autonomy/impl/FileBasedEmployeeExecutionReceiptService`、`data/receipts/`                  |
 | LLM 任务规划、主脑 JSON 解析    | `core/autonomy/impl/LlmBasedMainBrainTaskDirector`、`MainBrain.callLlm()`                        |
 | Native                 | `core/nativelib`、`living-agent-native/src/jni`                                                  |
-| Windows 自动化           | `core/tool/impl/WindowsAppTool`、`scripts/windows_automation/server.py`、`scripts/windows_automation/config.json` |
+| Windows 自动化           | `core/tool/impl/WindowsAppTool`（HTTP+pywinauto 业务化封装）、`core/tool/impl/WindowsAutomationTool`（WebSocket 通用系统控制）、`core/websocket/WindowsAutomationClientGateway`、`gateway/websocket/WindowsAutomationClientGatewayImpl`、`living-agent-desktop/src/main/win-automation-service.ts`、`living-agent-desktop/resources/win-automation/service.py`、`scripts/windows_automation/server.py`、`scripts/windows_automation/config.json` |
 | Docker                 | `docker-compose.yml`、Dockerfile、`entrypoint.sh`                                                 |
 | 前端 Toast、alert 替换      | `frontend/src/components/Toast.tsx`、`frontend/src/stores/toastStore.ts`                          |
 | 前端 token 获取           | `frontend/src/stores/index.ts` → `getToken()`                                                    |
@@ -2149,4 +2453,52 @@ ConversationOrchestrator 判断 TASK/PROJECT
 | 大脑模型降级                | `core/brain/impl/BrainModelFallback`（从 AbstractBrain 拆分）                                       |
 | 执行能力解析                | `core/autonomy/impl/LlmBasedExecutionCapabilityResolver`（LLM 优先 + Default 降级）                  |
 | 核心配置拆分                | `core/config/BrainConfig`、`ToolConfig`、`ProviderConfig`、`MemoryConfig`、`ChannelConfig`          |
+| canary/金丝雀            | `diagnosis/DegradedTrafficCanary.java`                                                          |
+| 熔断/断路器                | `evolution/circuitbreaker/EvolutionCircuitBreaker.java`、`model/impl/NamedPipeModelClient.java`  |
+| 自愈                     | `evolution/orchestrator/impl/SelfHealingOrchestratorImpl.java`                                  |
+| 协同编排                  | `evolution/orchestrator/impl/SelfGovernanceOrchestratorImpl.java`                               |
+| ROI                    | `evolution/HardwareUpgradeRoiValidator.java`                                                    |
+| 满意度                   | `evolution/personality/SatisfactionCollector.java`                                              |
+| 错误反馈                  | `diagnosis/ErrorReportFeedbackService.java`                                                     |
+| 违规追踪                  | `security/SandboxViolationTracker.java`                                                         |
+| 知识反馈                  | `knowledge/KnowledgeConsumptionFeedback.java`                                                   |
+| 推理验证                  | `provider/InferenceResultValidator.java`                                                        |
+| riskTolerance联动        | `brain/BrainBoundaryEnforcer.java`（P29-B: 低风险升级mustEscalate，高风险降级needsEscalation）            |
+| 连接自愈                 | `gateway/websocket/ConnectionHealthCheck.java`（P24-C: 僵死连接检测+NOTIFY_CLIENT）                    |
+| 生命体征                 | `diagnosis/VitalSignsService.java`（P32-A: 健康快照+历史趋势）                                      |
+| @Transactional         | `core/evolution/executor/impl/JpaEvolutionFeedbackService`、`core/employee/impl/JpaEmployeeCompensationService`、`core/autonomy/AutonomyTraceService`、`core/autonomy/impl/JpaCodeReviewWorkflowService`、`core/autonomy/impl/JpaArtifactRecordService` |
+| findByExecutionId      | `TaskRepository`（返回类型 Optional→List）；`ApprovalController`、`ExecutionReceiptTaskProjectBridge`、`DepartmentChatService`（调用改为 .stream().findFirst()/.isEmpty()） |
+| instanceof移除          | `PerformanceDashboardService`、`PerformanceController`（改用接口方法） |
+| 绩效Top/Bottom         | `PerformanceAssessmentService`（接口新增 getCompanyTopPerformers/getCompanyBottomPerformers）、`InMemoryPerformanceAssessmentService`、`JpaPerformanceAssessmentService`（实现+@Override） |
+| createIssue/setMode修复 | `SelfGovernanceOrchestratorImpl`（修复方法不存在错误） |
+
+***
+
+## 19. 变更日志
+
+### 2026-07-03
+
+**修改文件：**
+
+| 文件 | 变更内容 |
+|------|----------|
+| `living-agent-core/.../evolution/executor/impl/JpaEvolutionFeedbackService.java` | record() 添加 @Transactional |
+| `living-agent-core/.../employee/impl/JpaEmployeeCompensationService.java` | record()/definePlan()/assignPlan() 添加 @Transactional |
+| `living-agent-core/.../autonomy/AutonomyTraceService.java` | recordEvent() 添加 @Transactional |
+| `living-agent-core/.../autonomy/impl/JpaCodeReviewWorkflowService.java` | 全部写方法添加 @Transactional |
+| `living-agent-core/.../autonomy/impl/JpaArtifactRecordService.java` | recordArtifact()/associateTaskAndProject()/scanAndIndexDirectory() 添加 @Transactional |
+| `living-agent-core/.../database/repository/TaskRepository.java` | findByExecutionId 返回类型从 Optional 改为 List |
+| `living-agent-core/.../operation/performance/PerformanceAssessmentService.java` | 接口新增 getCompanyTopPerformers/getCompanyBottomPerformers |
+| `living-agent-core/.../operation/performance/InMemoryPerformanceAssessmentService.java` | 实现新增接口方法 + @Override |
+| `living-agent-core/.../operation/performance/JpaPerformanceAssessmentService.java` | 实现新增接口方法 + @Override |
+| `living-agent-gateway/.../service/PerformanceDashboardService.java` | 移除 instanceof 耦合，直接调用接口方法 |
+| `living-agent-gateway/.../controller/PerformanceController.java` | 移除 instanceof 耦合，直接调用接口方法 |
+| `living-agent-gateway/.../controller/ApprovalController.java` | findByExecutionId 调用改为 .stream().findFirst() |
+| `living-agent-gateway/.../service/ExecutionReceiptTaskProjectBridge.java` | findByExecutionId 调用改为 .stream().findFirst() |
+| `living-agent-gateway/.../service/DepartmentChatService.java` | findByExecutionId 调用改为 .isEmpty()/.stream().findFirst() |
+| `living-agent-core/.../evolution/orchestrator/impl/SelfGovernanceOrchestratorImpl.java` | 修复 createIssue() 不存在和 setMode() 不存在错误 |
+
+**新增文件：** 无（本轮修改的是已有文件）
+
+**变更主题：** 事务注解补全 + findByExecutionId 返回类型适配 + instanceof 耦合消除 + 绩效接口扩展 + 编排器方法修复
 

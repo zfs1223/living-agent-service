@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useAuthStore } from '../../stores';
 import { useTranslation } from 'react-i18next';
 import { IconMessageCircle2, IconHistory, IconTrash, IconPlus, IconX } from '@tabler/icons-react';
-import { departmentApi } from '../../services/api';
+import { departmentApi, wsApi } from '../../services/api';
 
 interface InlineChatMessage {
   role: 'user' | 'assistant' | 'system';
@@ -194,8 +194,7 @@ export default function DepartmentChatInline({ departmentCode, deptName, onExecu
       const currentToken = useAuthStore.getState().token;
       if (!currentToken) return;
 
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/ws/dept/${encodeURIComponent(departmentCode)}?token=${currentToken}`;
+      const wsUrl = wsApi.deptUrl(departmentCode, currentToken);
 
       console.log('[DeptChat] Connecting to:', wsUrl.replace(/\?token=.*/, '?token=***'));
 
@@ -291,6 +290,40 @@ export default function DepartmentChatInline({ departmentCode, deptName, onExecu
             // 更新需求状态
             if (data.requirementStatus) {
               setRequirementStatus(data.requirementStatus as string);
+            }
+            // async_final_response: 将结果摘要添加到聊天消息中
+            if (data.eventType === 'async_final_response' && data.summary) {
+              setMessages(prev => [...prev, {
+                role: 'assistant',
+                content: data.summary || '',
+                timestamp: new Date().toISOString(),
+              }]);
+              setIsWaiting(false);
+            }
+            // waiting_progress: 等待过程中的进度提示
+            if (data.eventType === 'waiting_progress' && data.message) {
+              setMessages(prev => {
+                // 替换上一条等待消息，避免消息堆积
+                const last = prev[prev.length - 1];
+                if (last && last.role === 'assistant' && last.content.includes('正在执行')) {
+                  return [...prev.slice(0, -1), { role: 'assistant', content: data.message, timestamp: new Date().toISOString() }];
+                }
+                return [...prev, { role: 'assistant', content: data.message, timestamp: new Date().toISOString() }];
+              });
+            }
+            // PR-7: proactive_report: 登录时主动汇报
+            if (data.type === 'proactive_report' && data.suggestions) {
+              const suggestions = data.suggestions as string[];
+              const alerts = data.alerts as string[] || [];
+              const reportContent = `📋 系统状态汇报\n\n` +
+                (suggestions.length > 0 ? `💡 建议：\n${suggestions.map(s => `- ${s}`).join('\n')}\n\n` : '') +
+                (alerts.length > 0 ? `⚠️ 警告：\n${alerts.map(a => `- ${a}`).join('\n')}\n\n` : '') +
+                `📅 时间：${new Date().toLocaleString()}`;
+              setMessages(prev => [...prev, {
+                role: 'assistant',
+                content: reportContent,
+                timestamp: new Date().toISOString(),
+              }]);
             }
             return;
           }

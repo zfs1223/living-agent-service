@@ -19,6 +19,20 @@ export const DEFAULT_BACKEND_WS = '';
 
 /* ============ 用户/鉴权 ============ */
 
+/** 桌面端当前登录用户（与 frontend User 对齐） */
+export interface DesktopUser {
+  id: string;
+  name: string;
+  email: string;
+  avatar: string | null;
+  department: string | null;
+  identity: string;
+  accessLevel: string;
+  role: 'platform_admin' | 'org_admin' | 'agent_admin' | 'member';
+  founder: boolean;
+  tenantId: string;
+}
+
 export interface AuthSession {
   token: string;
   userId: string;
@@ -155,7 +169,11 @@ export type IpcChannel =
   | 'window:show'
   | 'window:quit'
   | 'app:version'
-  | 'app:platform';
+  | 'app:platform'
+  | 'win-automation:start'
+  | 'win-automation:stop'
+  | 'win-automation:status'
+  | 'win-automation:execute';
 
 export type IpcEvent =
   | 'localsave:saved'
@@ -163,3 +181,42 @@ export type IpcEvent =
   | 'taskboard:count-changed'
   | 'backend:status-changed'
   | 'auth:changed';
+
+/* ============ Windows 自动化 ============ */
+
+/**
+ * Windows 自动化操作类型（与后端 WindowsAutomationTool.OPERATION_PERMISSIONS 对齐）
+ * 详细说明见 docs/WINDOWS_MCP_INTEGRATION_PLAN.md §2.1
+ */
+export type WinAutomationOperation =
+  // UIA 控件操作
+  | 'click' | 'type' | 'scroll' | 'move' | 'shortcut' | 'snapshot' | 'screenshot'
+  // 条件等待
+  | 'wait' | 'wait_for'
+  // PowerShell
+  | 'shell'
+  // 进程管理
+  | 'process_list' | 'process_kill'
+  // 注册表
+  | 'registry_get' | 'registry_set' | 'registry_delete' | 'registry_list'
+  // 文件系统
+  | 'filesystem_read' | 'filesystem_write' | 'filesystem_copy' | 'filesystem_move'
+  | 'filesystem_delete' | 'filesystem_list' | 'filesystem_search' | 'filesystem_info'
+  // 剪贴板
+  | 'clipboard_get' | 'clipboard_set'
+  // 其他
+  | 'notification' | 'scrape'
+  // 虚拟桌面
+  | 'vdm_switch' | 'vdm_create' | 'vdm_move_window';
+
+/** Windows 自动化执行结果 */
+export interface WinAutomationResult {
+  success: boolean;
+  result?: unknown;
+  error?: string;
+}
+
+/** Windows 自动化服务状态 */
+export interface WinAutomationStatus {
+  running: boolean;
+}

@@ -2,9 +2,11 @@ import { useState, useEffect, useRef } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useAuthStore, getToken } from '../stores';
+import { useAuthStore } from '../stores';
 import { useIdleTimeout } from '../hooks/useIdleTimeout';
 import { agentApi } from '../services/api';
+import { request } from '../services/apiBase';
+import type { User } from '../types';
 import {
     IconHome,
     IconPlus,
@@ -84,19 +86,15 @@ function AccountSettingsModal({ user, onClose, isChinese }: { user: any; onClose
     const handleSaveProfile = async () => {
         setSaving(true);
         try {
-            const token = getToken();
             const body: any = {};
             if (username !== user?.username) body.username = username;
             if (email !== user?.email) body.email = email;
             if (displayName !== user?.display_name) body.display_name = displayName;
             if (Object.keys(body).length === 0) { showMsg(t('layout.noChanges'), 'error'); setSaving(false); return; }
-            const res = await fetch('/api/auth/me', {
+            const updated = await request<User>('/auth/me', {
                 method: 'PATCH',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                 body: JSON.stringify(body),
             });
-            if (!res.ok) { const err = await res.json().catch(() => ({ detail: 'Failed' })); throw new Error(err.detail); }
-            const updated = await res.json();
             setUser(updated);
             showMsg(t('layout.profileUpdated'));
         } catch (e: any) { showMsg(e.message || 'Failed', 'error'); }
@@ -109,13 +107,10 @@ function AccountSettingsModal({ user, onClose, isChinese }: { user: any; onClose
         if (newPassword !== confirmPassword) { showMsg(t('layout.passwordsDoNotMatch'), 'error'); return; }
         setSaving(true);
         try {
-            const token = getToken();
-            const res = await fetch('/api/auth/me/password', {
+            await request('/auth/me/password', {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                 body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
             });
-            if (!res.ok) { const err = await res.json().catch(() => ({ detail: 'Failed' })); throw new Error(err.detail); }
             showMsg(t('layout.passwordChanged'));
             setOldPassword(''); setNewPassword(''); setConfirmPassword('');
         } catch (e: any) { showMsg(e.message || 'Failed', 'error'); }
@@ -159,7 +154,7 @@ function AccountSettingsModal({ user, onClose, isChinese }: { user: any; onClose
 function VersionDisplay() {
     const [info, setInfo] = useState<{ version?: string; commit?: string }>({});
     useEffect(() => {
-        fetch('/api/version').then(r => r.json()).then(setInfo).catch(() => {});
+        request<{ version?: string; commit?: string }>('/version').then(setInfo).catch(() => {});
     }, []);
     if (!info.version) return null;
     return (
@@ -200,14 +195,12 @@ export default function Layout() {
         enabled: !!user && showNotifications,
     });
     const markAllRead = async () => {
-        const token = getToken();
-        await fetch('/api/messages/read-all', { method: 'PUT', headers: token ? { Authorization: `Bearer ${token}` } : {} });
+        await request('/messages/read-all', { method: 'PUT' });
         queryClient.invalidateQueries({ queryKey: ['notifications-unread'] });
         queryClient.invalidateQueries({ queryKey: ['notifications'] });
     };
     const markOneRead = async (id: string) => {
-        const token = getToken();
-        await fetch(`/api/messages/${id}/read`, { method: 'PUT', headers: token ? { Authorization: `Bearer ${token}` } : {} });
+        await request(`/messages/${id}/read`, { method: 'PUT' });
         queryClient.invalidateQueries({ queryKey: ['notifications-unread'] });
         queryClient.invalidateQueries({ queryKey: ['notifications'] });
     };
@@ -242,6 +235,7 @@ export default function Layout() {
         queryKey: ['agents', currentTenant],
         queryFn: () => agentApi.list(currentTenant || undefined),
         refetchInterval: 30000,
+        enabled: !!user,  // 只有用户已认证时才调用
     });
 
     const handleLogout = () => {
@@ -266,6 +260,7 @@ export default function Layout() {
     return (
         <div className={`app-layout ${isSidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
             <nav className={`sidebar ${isSidebarCollapsed ? 'collapsed' : ''}`}>
+                {/* 固定顶部：Logo 和折叠按钮 */}
                 <div className="sidebar-top">
                     <div className="sidebar-logo" style={{
                         padding: '14px 14px 12px',
@@ -299,7 +294,10 @@ export default function Layout() {
                             {isSidebarCollapsed ? SidebarIcons.expand : SidebarIcons.collapse}
                         </button>
                     </div>
+                </div>
 
+                {/* 可滚动导航区域 */}
+                <div className="sidebar-scrollable">
                     <div className="sidebar-section" style={{ paddingTop: '8px' }}>
                         <NavLink to="/dashboard" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}>
                             <span className="sidebar-item-icon" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
@@ -325,6 +323,12 @@ export default function Layout() {
                             </span>
                             <span className="sidebar-item-text">{t('nav.approvals', '审批')}</span>
                         </NavLink>
+                        <NavLink to="/autonomous" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}>
+                            <span className="sidebar-item-icon" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                                <IconCoin size={14} stroke={1.5} />
+                            </span>
+                            <span className="sidebar-item-text">{t('nav.autonomous', '经济自治')}</span>
+                        </NavLink>
                     </div>
 
                     <div className="sidebar-section">
@@ -340,10 +344,50 @@ export default function Layout() {
                             </NavLink>
                         ))}
                     </div>
-                </div>
-                
-                <div className="sidebar-divider" style={{ marginTop: '4px' }} />
 
+                    <div className="sidebar-section">
+                        <div className="sidebar-section-title">{t('nav.system', '系统')}</div>
+                        <NavLink to="/neurons" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}>
+                            <span className="sidebar-item-icon" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                                <IconCode size={14} stroke={1.5} />
+                            </span>
+                            <span className="sidebar-item-text">{t('nav.neurons', '神经元')}</span>
+                        </NavLink>
+                        <NavLink to="/interventions" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}>
+                            <span className="sidebar-item-icon" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                                <IconClipboard size={14} stroke={1.5} />
+                            </span>
+                            <span className="sidebar-item-text">{t('nav.interventions', '干预')}</span>
+                        </NavLink>
+                        <NavLink to="/proactive" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}>
+                            <span className="sidebar-item-icon" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                                <IconTrendingUp size={14} stroke={1.5} />
+                            </span>
+                            <span className="sidebar-item-text">{t('nav.proactive', '主动服务')}</span>
+                        </NavLink>
+                        <NavLink to="/reception" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}>
+                            <span className="sidebar-item-icon" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                                <IconHeadset size={14} stroke={1.5} />
+                            </span>
+                            <span className="sidebar-item-text">{t('nav.reception', '接待')}</span>
+                        </NavLink>
+                        <NavLink to="/voiceprint" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}>
+                            <span className="sidebar-item-icon" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                                <IconScale size={14} stroke={1.5} />
+                            </span>
+                            <span className="sidebar-item-text">{t('nav.voiceprint', '声纹')}</span>
+                        </NavLink>
+                        <NavLink to="/office" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}>
+                            <span className="sidebar-item-icon" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                                <IconSettingsAutomation size={14} stroke={1.5} />
+                            </span>
+                            <span className="sidebar-item-text">{t('nav.office', '办公室')}</span>
+                        </NavLink>
+                    </div>
+                </div>
+                {/* 可滚动区域结束 */}
+
+                {/* 固定底部：用户信息和设置 */}
                 <div className="sidebar-bottom" style={{ paddingTop: '8px' }}>
                     <div className="sidebar-section" style={{ borderBottom: '1px solid var(--border-subtle)', paddingBottom: '8px', marginBottom: 0 }}>
                         {user && (

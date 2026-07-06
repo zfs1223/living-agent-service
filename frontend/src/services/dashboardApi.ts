@@ -1,42 +1,4 @@
-import { useAuthStore } from '../stores';
-
-const API_BASE = '/api';
-
-async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
-    const authState = useAuthStore.getState();
-    const token = authState.token;
-    const user = authState.user;
-
-    const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(user?.id ? { 'X-Employee-Id': user.id } : {}),
-    };
-
-    const res = await fetch(`${API_BASE}${url}`, {
-        ...options,
-        headers,
-        credentials: 'include', // 确保 HttpOnly Cookie 随请求自动发送
-    });
-
-    if (!res.ok) {
-        const isAuthEndpoint = url.startsWith('/auth/login')
-            || url.startsWith('/auth/register');
-        const isPublicEndpoint = url.includes('/notification_bar/public')
-            || url.includes('/system/status');
-        if (res.status === 401 && !isAuthEndpoint && !isPublicEndpoint) {
-            localStorage.removeItem('token');
-            localStorage.removeItem('user');
-            window.location.href = '/login';
-            throw new Error('Session expired');
-        }
-        const error = await res.json().catch(() => ({ error: res.statusText }));
-        throw new Error(error.error || `HTTP ${res.status}`);
-    }
-
-    const json = await res.json();
-    return json.success !== false ? json.data : json;
-}
+import { request } from './apiBase';
 
 export interface SystemHealth {
   healthScore: number;

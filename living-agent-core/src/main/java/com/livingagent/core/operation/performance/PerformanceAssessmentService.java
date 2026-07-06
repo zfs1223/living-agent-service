@@ -32,6 +32,10 @@ public interface PerformanceAssessmentService {
     List<EmployeeRanking> getTopPerformers(String departmentId, int limit);
     
     List<EmployeeRanking> getBottomPerformers(String departmentId, int limit);
+
+    List<EmployeeRanking> getCompanyTopPerformers(int limit);
+
+    List<EmployeeRanking> getCompanyBottomPerformers(int limit);
     
     PerformanceTrend getPerformanceTrend(String employeeId, int periods);
     

@@ -6,7 +6,7 @@ use crate::channel::{MpscChannel, ChannelMessage, ChannelConfig};
 use crate::jni::{jstring_to_string, string_to_jstring};
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_native_ChannelNative_createMpscChannel(
+pub extern "system" fn Java_com_livingagent_core_nativelib_ChannelNative_createMpscChannel(
     mut env: Env,
     _class: JClass,
     name: JString,
@@ -32,7 +32,7 @@ pub extern "system" fn Java_com_livingagent_native_ChannelNative_createMpscChann
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_native_ChannelNative_destroyChannel(
+pub extern "system" fn Java_com_livingagent_core_nativelib_ChannelNative_destroyChannel(
     _env: Env,
     _class: JClass,
     handle: jlong,
@@ -45,7 +45,7 @@ pub extern "system" fn Java_com_livingagent_native_ChannelNative_destroyChannel(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_native_ChannelNative_sendMessage(
+pub extern "system" fn Java_com_livingagent_core_nativelib_ChannelNative_sendMessage(
     mut env: Env,
     _class: JClass,
     handle: jlong,
@@ -79,7 +79,7 @@ pub extern "system" fn Java_com_livingagent_native_ChannelNative_sendMessage(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_native_ChannelNative_receiveMessage(
+pub extern "system" fn Java_com_livingagent_core_nativelib_ChannelNative_receiveMessage(
     mut env: Env,
     _class: JClass,
     handle: jlong,
@@ -104,7 +104,7 @@ pub extern "system" fn Java_com_livingagent_native_ChannelNative_receiveMessage(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_native_ChannelNative_getChannelLength(
+pub extern "system" fn Java_com_livingagent_core_nativelib_ChannelNative_getChannelLength(
     _env: Env,
     _class: JClass,
     handle: jlong,
@@ -117,7 +117,7 @@ pub extern "system" fn Java_com_livingagent_native_ChannelNative_getChannelLengt
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_native_ChannelNative_isChannelEmpty(
+pub extern "system" fn Java_com_livingagent_core_nativelib_ChannelNative_isChannelEmpty(
     _env: Env,
     _class: JClass,
     handle: jlong,

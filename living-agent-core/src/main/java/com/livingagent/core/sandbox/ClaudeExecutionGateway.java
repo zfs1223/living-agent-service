@@ -34,9 +34,16 @@ public class ClaudeExecutionGateway {
     private final ConcurrentMap<String, ClaudeAsyncJob> asyncJobs = new ConcurrentHashMap<>();
     private final ClaudeCliProperties claudeCliProperties;
 
+    // P22: 可选的事件发布器，用于失败/超时时触发反馈闭环
+    private volatile org.springframework.context.ApplicationEventPublisher eventPublisher;
+
     public ClaudeExecutionGateway(SandboxService sandboxService, ClaudeCliProperties claudeCliProperties) {
         this.sandboxService = sandboxService;
         this.claudeCliProperties = claudeCliProperties;
+    }
+
+    public void setEventPublisher(org.springframework.context.ApplicationEventPublisher eventPublisher) {
+        this.eventPublisher = eventPublisher;
     }
 
     public CompletableFuture<ExecutionResult> execute(String sessionId, Map<String, Object> params) {
@@ -199,16 +206,64 @@ public class ClaudeExecutionGateway {
                                          ExecutionResult result,
                                          long startTime) {
         String sid = normalizeSessionId(sessionId);
+        long gatewayDuration = System.currentTimeMillis() - startTime;
         List<String> eventLines = extractJsonEventLines(result.stdout());
         String parsedClaudeSessionId = extractSessionId(eventLines);
+
+        // P22-B: 返回码检查与超时检测
+        boolean timeoutDetected = gatewayDuration > claudeCliProperties.getJobTimeoutMinutes() * 60_000L;
+        boolean outputEmpty = (result.stdout() == null || result.stdout().isBlank())
+            && (result.stderr() == null || result.stderr().isBlank());
+        if (timeoutDetected) {
+            log.warn("Claude CLI timeout detected: {}ms (threshold: {}min) sessionId={}",
+                gatewayDuration, claudeCliProperties.getJobTimeoutMinutes(), sid);
+        }
+        if (!result.success() && outputEmpty) {
+            log.error("Claude CLI failed with empty output: exitCode={} sessionId={}",
+                result.exitCode(), sid);
+        }
+
+        // P22: 失败/超时时发布 EvolutionSignal 触发反馈闭环
+        if ((timeoutDetected || !result.success()) && eventPublisher != null) {
+            try {
+                com.livingagent.core.evolution.signal.EvolutionSignal signal = new com.livingagent.core.evolution.signal.EvolutionSignal(
+                    com.livingagent.core.evolution.signal.EvolutionSignal.SignalType.ERROR,
+                    String.format("Claude CLI %s: exitCode=%d, sessionId=%s",
+                        timeoutDetected ? "timeout" : "failure", result.exitCode(), sid)
+                );
+                signal.setSource("claude-cli-gateway");
+                signal.setCategory(com.livingagent.core.evolution.signal.EvolutionSignal.SignalCategory.REPAIR);
+                signal.addTag("claude-cli");
+                if (timeoutDetected) signal.addTag("timeout");
+                signal.addMetadata("exitCode", result.exitCode());
+                signal.addMetadata("timeout", timeoutDetected);
+                signal.addMetadata("sessionId", sid);
+                eventPublisher.publishEvent(signal);
+                log.debug("P22: Published EvolutionSignal for Claude CLI failure (timeout={}, exitCode={})", timeoutDetected, result.exitCode());
+            } catch (Exception e) {
+                log.warn("P22: Failed to publish EvolutionSignal: {}", e.getMessage());
+            }
+        }
+
+        // P22-C: 输出解析验证
+        String outputFormat = stringValue(params.get("output_format"), "stream-json");
+        boolean parseSuccess = true;
+        if ("stream-json".equals(outputFormat) && !result.stdout().isBlank()) {
+            parseSuccess = !eventLines.isEmpty();
+            if (!parseSuccess) {
+                log.warn("Claude CLI stream-json output has no parseable JSON lines, falling back to raw text: sessionId={}", sid);
+            }
+        }
 
         Map<String, Object> metrics = new HashMap<>(result.metrics() != null ? result.metrics() : Map.of());
         metrics.put("provider", "claude-cli");
         metrics.put("action", action);
         metrics.put("stream_event_count", eventLines.size());
         metrics.put("stream_events", eventLines);
-        metrics.put("requested_output_format", stringValue(params.get("output_format"), "stream-json"));
-        metrics.put("gateway_duration_ms", System.currentTimeMillis() - startTime);
+        metrics.put("requested_output_format", outputFormat);
+        metrics.put("gateway_duration_ms", gatewayDuration);
+        metrics.put("timeout_detected", timeoutDetected);
+        metrics.put("output_parse_success", parseSuccess);
         if (parsedClaudeSessionId != null) {
             metrics.put("parsed_session_id", parsedClaudeSessionId);
         }
@@ -321,10 +376,41 @@ public class ClaudeExecutionGateway {
         }
 
         String systemPrompt = stringValue(params.get("system_prompt"), null);
-        if (systemPrompt != null && !systemPrompt.isBlank()) {
-            args.add("--append-system-prompt");
-            args.add(systemPrompt);
+
+        // 按部门注入技能目录
+        String skillsBaseDir = "/app/skills";
+        args.add("--add-dir");
+        args.add(skillsBaseDir + "/core");
+        String department = stringValue(params.get("department"),
+            claudeCliProperties.getProxy().getDefaultDepartmentId());
+        if (department != null && !department.isBlank()) {
+            args.add("--add-dir");
+            args.add(skillsBaseDir + "/" + department);
         }
+
+        // 服务发现系统提示词
+        StringBuilder servicePrompt = new StringBuilder();
+        servicePrompt.append("你是 Living Agent Service 的数字员工，通过 Claude Code CLI 执行任务。\n\n");
+        servicePrompt.append("## 可用服务\n");
+        servicePrompt.append("- PostgreSQL: psql -h postgres -U livingagent -d livingagent\n");
+        servicePrompt.append("- Redis: redis-cli -h redis\n");
+        servicePrompt.append("- Qdrant: curl http://qdrant:6333/collections\n");
+        servicePrompt.append("- Jenkins: curl http://jenkins:8080/api/json\n");
+        servicePrompt.append("- GitLab: git remote add origin http://gitlab:8929/...\n");
+        servicePrompt.append("- OpenProject: curl http://openproject:8080/api/v3/projects\n");
+        servicePrompt.append("- MemOS: curl http://memos:8381/openapi.json\n");
+        servicePrompt.append("- RuView: curl http://ruview-sensing:3000/health\n\n");
+        servicePrompt.append("## 当前部门技能\n");
+        servicePrompt.append("核心技能: ").append(skillsBaseDir).append("/core/\n");
+        if (department != null && !department.isBlank()) {
+            servicePrompt.append("部门技能: ").append(skillsBaseDir).append("/").append(department).append("/\n");
+        }
+        servicePrompt.append("参考 SKILL.md 文件获取技能详细说明。\n");
+        if (systemPrompt != null && !systemPrompt.isBlank()) {
+            servicePrompt.append("\n").append(systemPrompt);
+        }
+        args.add("--append-system-prompt");
+        args.add(servicePrompt.toString());
 
         Object maxTurns = params.get("max_turns");
         if (maxTurns instanceof Number number) {
@@ -336,6 +422,26 @@ public class ClaudeExecutionGateway {
         if (settingsJson != null && !settingsJson.isBlank()) {
             args.add("--settings");
             args.add(settingsJson);
+        }
+
+        if (claudeCliProperties.isMcpEnabled()) {
+            String mcpConfigPath = stringValue(params.get("mcp_config_path"),
+                claudeCliProperties.getMcpConfigPath());
+            if (mcpConfigPath != null && !mcpConfigPath.isBlank()) {
+                if (mcpConfigPath.startsWith("classpath:")) {
+                    String resourcePath = mcpConfigPath.substring("classpath:".length());
+                    var resource = getClass().getClassLoader().getResource(resourcePath);
+                    if (resource != null) {
+                        args.add("--mcp-config");
+                        args.add(resource.getPath());
+                    } else {
+                        log.warn("MCP config resource not found: {}", mcpConfigPath);
+                    }
+                } else {
+                    args.add("--mcp-config");
+                    args.add(mcpConfigPath);
+                }
+            }
         }
 
         return args;
@@ -353,6 +459,21 @@ public class ClaudeExecutionGateway {
         if (claudeCliProperties.isBashNoLogin()) {
             env.put("CLAUDE_BASH_NO_LOGIN", "1");
         }
+        env.put("CLAUDE_PLUGINS_DIR", "/home/livingagent/.claude/plugins");
+
+        // CodeGraph 环境变量
+        if (claudeCliProperties.getCodegraph().isEnabled()) {
+            ClaudeCliProperties.Codegraph cg = claudeCliProperties.getCodegraph();
+            env.put("CODEGRAPH_WATCH_DEBOUNCE_MS", String.valueOf(cg.getWatchDebounceMs()));
+            if (!cg.isAutoSync()) {
+                env.put("CODEGRAPH_NO_DAEMON", "1");
+            }
+        }
+
+        // 服务对接环境变量
+        env.put("GITLAB_URL", System.getenv().getOrDefault("GITLAB_BASE_URL", "http://gitlab:8929"));
+        env.put("JENKINS_URL", System.getenv().getOrDefault("JENKINS_BASE_URL", "http://jenkins:8080"));
+        env.put("OPENPROJECT_URL", System.getenv().getOrDefault("OPENPROJECT_BASE_URL", "http://openproject:8080"));
 
         String cliPath = stringValue(params.get("claude_path"), null);
         if (cliPath != null && !cliPath.isBlank()) {

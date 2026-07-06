@@ -21,8 +21,10 @@ public record BrainOutputContract(
 ) {
 
     public enum BrainOutputStatus {
+        /** DP2-4: 任务已规划完毕、员工已分派，等待执行启动。区别于 EXECUTING（正在执行中）。 */
         READY,
         NEEDS_CLARIFICATION,
+        /** DP2-4: 任务正在执行中（员工已开始工作），尚未完成。区别于 READY（等待启动）。 */
         EXECUTING,
         COMPLETED,
         BLOCKED,

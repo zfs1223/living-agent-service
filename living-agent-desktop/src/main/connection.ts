@@ -4,7 +4,7 @@
  * - 心跳监控
  * - 状态变更推送到渲染层
  */
-import { DEFAULT_BACKEND_URL } from '../shared/constants';
+import { DEFAULT_BACKEND_URL, SHARED_CONSTANTS } from '../shared/constants';
 import { sendToMainWindow } from './window';
 import { getBackendUrl, setBackendUrl } from './api-client';
 
@@ -38,7 +38,7 @@ async function tick(): Promise<void> {
 
 export async function startConnectionMonitor(): Promise<void> {
   await tick();
-  monitorTimer = setInterval(tick, 30_000); // 30s 心跳
+  monitorTimer = setInterval(tick, SHARED_CONSTANTS.HEARTBEAT_INTERVAL_MS);
 }
 
 export function stopConnectionMonitor(): void {

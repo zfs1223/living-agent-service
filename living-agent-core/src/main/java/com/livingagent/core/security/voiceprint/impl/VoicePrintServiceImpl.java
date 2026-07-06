@@ -1,7 +1,9 @@
 package com.livingagent.core.security.voiceprint.impl;
 
 import com.livingagent.core.database.vector.QdrantVectorStore;
+import com.livingagent.core.diagnosis.AppModeUtil;
 import com.livingagent.core.security.voiceprint.VoicePrintService;
+import com.livingagent.core.service.voice.SpeakerVerificationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,14 +22,21 @@ public class VoicePrintServiceImpl implements VoicePrintService {
     private final QdrantVectorStore vectorStore;
     private final Map<String, VoicePrintProfile> profileCache = new ConcurrentHashMap<>();
     private final double matchThreshold;
+    private final SpeakerVerificationService speakerVerificationService;
+    private volatile boolean remoteExtractionFailed = false;
 
     public VoicePrintServiceImpl(QdrantVectorStore vectorStore) {
-        this(vectorStore, DEFAULT_THRESHOLD);
+        this(vectorStore, DEFAULT_THRESHOLD, null);
     }
 
     public VoicePrintServiceImpl(QdrantVectorStore vectorStore, double matchThreshold) {
+        this(vectorStore, matchThreshold, null);
+    }
+
+    public VoicePrintServiceImpl(QdrantVectorStore vectorStore, double matchThreshold, SpeakerVerificationService speakerVerificationService) {
         this.vectorStore = vectorStore;
         this.matchThreshold = matchThreshold;
+        this.speakerVerificationService = speakerVerificationService;
         
         initializeCollection();
     }
@@ -228,23 +237,47 @@ public class VoicePrintServiceImpl implements VoicePrintService {
 
     private float[] extractEmbedding(byte[] audioData) {
         log.debug("Extracting voice embedding from {} bytes of audio data", audioData.length);
-        
+
+        // 尝试远程调用真实 embedding 提取
+        if (speakerVerificationService != null && !AppModeUtil.isDegraded() && !remoteExtractionFailed) {
+            try {
+                float[] remoteEmbedding = speakerVerificationService.extractEmbeddingRemote(audioData);
+                if (remoteEmbedding != null && remoteEmbedding.length == EMBEDDING_DIMENSION) {
+                    return remoteEmbedding;
+                }
+                log.warn("Remote embedding extraction returned invalid result, falling back to local stub");
+                remoteExtractionFailed = true;
+            } catch (Exception e) {
+                log.warn("Remote embedding extraction failed: {}, falling back to local stub", e.getMessage());
+                remoteExtractionFailed = true;
+            }
+        }
+
+        // Fallback: 伪实现（降级模式或远程不可用时）
+        if (AppModeUtil.isDegraded()) {
+            log.warn("Running in degraded mode, using stub embedding extraction");
+        } else if (remoteExtractionFailed) {
+            log.warn("Remote extraction previously failed, using stub embedding extraction");
+        } else {
+            log.warn("No SpeakerVerificationService available, using stub embedding extraction");
+        }
+
         float[] embedding = new float[EMBEDDING_DIMENSION];
         Random random = new Random(Arrays.hashCode(audioData));
         for (int i = 0; i < EMBEDDING_DIMENSION; i++) {
             embedding[i] = random.nextFloat() * 2 - 1;
         }
-        
+
         double norm = 0;
         for (float v : embedding) {
             norm += v * v;
         }
         norm = Math.sqrt(norm);
-        
+
         for (int i = 0; i < embedding.length; i++) {
             embedding[i] /= (float) norm;
         }
-        
+
         return embedding;
     }
 

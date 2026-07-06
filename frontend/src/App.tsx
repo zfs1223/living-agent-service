@@ -22,6 +22,13 @@ const SSOEntry = lazy(() => import('./pages/SSOEntry'));
 const Projects = lazy(() => import('./pages/Projects'));
 const Approvals = lazy(() => import('./pages/Approvals'));
 const DepartmentDetail = lazy(() => import('./pages/DepartmentDetail'));
+const Neurons = lazy(() => import('./pages/Neurons'));
+const Interventions = lazy(() => import('./pages/Interventions'));
+const Proactive = lazy(() => import('./pages/Proactive'));
+const Reception = lazy(() => import('./pages/Reception'));
+const VoicePrintLogin = lazy(() => import('./pages/VoicePrintLogin'));
+const Office = lazy(() => import('./pages/Office'));
+const Autonomous = lazy(() => import('./pages/Autonomous'));
 
 function getStoredTenantId() {
     return localStorage.getItem('current_tenant_id') || '';
@@ -35,6 +42,7 @@ function hasCompany(user: any) {
 function SetupCompanyRoute({ children }: { children: React.ReactNode }) {
     const token = useAuthStore((s) => s.token);
     const user = useAuthStore((s) => s.user);
+    console.log('[SetupCompanyRoute] token:', token, 'user:', user);
 
     if (!token) return <Navigate to="/login" replace />;
     if (!user) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: 'var(--text-tertiary)' }}>加载中...</div>;
@@ -45,15 +53,27 @@ function SetupCompanyRoute({ children }: { children: React.ReactNode }) {
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
     const token = useAuthStore((s) => s.token);
     const user = useAuthStore((s) => s.user);
+    console.log('[ProtectedRoute] token:', token, 'user:', user);
 
-    if (!token) return <Navigate to="/login" replace />;
-    if (!user) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: 'var(--text-tertiary)' }}>加载中...</div>;
-    if (!hasCompany(user)) return <Navigate to="/setup-company" replace />;
+    if (!token) {
+        console.log('[ProtectedRoute] no token, redirecting to /login');
+        return <Navigate to="/login" replace />;
+    }
+    if (!user) {
+        console.log('[ProtectedRoute] no user, showing loading');
+        return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: 'var(--text-tertiary)' }}>加载中...</div>;
+    }
+    if (!hasCompany(user)) {
+        console.log('[ProtectedRoute] no company, redirecting to /setup-company');
+        return <Navigate to="/setup-company" replace />;
+    }
+    console.log('[ProtectedRoute] authenticated, rendering children');
     return <>{children}</>;
 }
 
 function HomeRedirect() {
     const user = useAuthStore((s) => s.user);
+    console.log('[HomeRedirect] user:', user);
 
     if (user?.identity === 'INTERNAL_ENTERPRISE' || user?.access_level === 'FULL') return <Navigate to="/dashboard" replace />;
     if (user?.department_code) return <Navigate to={`/departments/${encodeURIComponent(user.department_code)}/overview`} replace />;
@@ -145,20 +165,24 @@ export default function App() {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
+        console.log('[App] useEffect running, token:', token, 'user:', user);
         // Initialize theme on app mount (ensures login page gets correct theme)
         const savedTheme = localStorage.getItem('theme') || 'dark';
         document.documentElement.setAttribute('data-theme', savedTheme);
 
         if (token && user) {
             // Token 和 user 都存在，说明会话有效，直接显示当前页面
+            console.log('[App] token && user both exist, showing page');
             setLoading(false);
             return;
         }
 
         if (token && !user) {
             // 有 token 但无 user 信息（页面刷新场景），调用 /api/auth/me 恢复
+            console.log('[App] token exists but no user, calling authApi.me()');
             authApi.me()
                 .then((u: any) => {
+                    console.log('[App] authApi.me() success:', u);
                     const tenantId = u.tenantId || u.tenant_id || getStoredTenantId();
                     if (tenantId) {
                         localStorage.setItem('current_tenant_id', tenantId);
@@ -178,10 +202,14 @@ export default function App() {
                     };
                     setAuth(mappedUser, token);
                 })
-                .catch(() => useAuthStore.getState().logout())
+                .catch((err) => {
+                    console.log('[App] authApi.me() failed:', err);
+                    useAuthStore.getState().logout();
+                })
                 .finally(() => setLoading(false));
         } else {
             // 没有 token，直接显示登录页
+            console.log('[App] no token, showing login page');
             setLoading(false);
         }
     }, []);
@@ -223,10 +251,21 @@ export default function App() {
                         {/* Projects and Approvals */}
                         <Route path="projects" element={<Projects />} />
                         <Route path="approvals" element={<Approvals />} />
-                        {/* Department routes */}
-                        <Route path="departments/:code" element={<Navigate to="overview" replace />} />
-                        <Route path="departments/:code/overview" element={<DepartmentDetail />} />
-                        <Route path="departments/:code/tasks" element={<DepartmentDetail />} />
+                        {/* Neuron & Intervention */}
+                            <Route path="neurons" element={<Neurons />} />
+                            <Route path="interventions" element={<Interventions />} />
+                            <Route path="proactive" element={<Proactive />} />
+                            {/* Reception */}
+                            <Route path="reception" element={<Reception />} />
+                            {/* Voice & Office */}
+                            <Route path="voiceprint" element={<VoicePrintLogin />} />
+                            <Route path="office" element={<Office />} />
+                            {/* Autonomous */}
+                            <Route path="autonomous" element={<Autonomous />} />
+                            {/* Department routes */}
+                            <Route path="departments/:code" element={<Navigate to="overview" replace />} />
+                            <Route path="departments/:code/overview" element={<DepartmentDetail />} />
+                            <Route path="departments/:code/tasks" element={<DepartmentDetail />} />
                     </Route>
                 </Routes>
             </Suspense>

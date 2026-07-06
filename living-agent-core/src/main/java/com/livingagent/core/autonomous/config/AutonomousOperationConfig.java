@@ -5,6 +5,8 @@ import com.livingagent.core.autonomous.bounty.impl.BugBountyScannerImpl;
 import com.livingagent.core.autonomous.bounty.impl.CompositeTaskExecutor;
 import com.livingagent.core.autonomous.bounty.impl.FreelanceScannerImpl;
 import com.livingagent.core.autonomous.bounty.impl.JpaLedgerService;
+import com.livingagent.core.autonomous.bounty.impl.NoOpBugBountyScanner;
+import com.livingagent.core.autonomous.bounty.impl.NoOpFreelanceScanner;
 import com.livingagent.core.database.repository.LedgerTransactionRepository;
 import com.livingagent.core.evolution.EvolutionManager;
 import com.livingagent.core.evolution.HardwareUpgradeService;
@@ -46,20 +48,34 @@ public class AutonomousOperationConfig {
         return gitHubPlatformIntegration;
     }
 
-    @Bean
+    @Bean("freelanceScanner")
+    @Primary
     @ConditionalOnProperty(
         name = "autonomous.bounty-hunter.scan-freelance", havingValue = "true")
-    public FreelanceScanner freelanceScanner() {
+    public FreelanceScanner freelanceScannerEnabled() {
         log.warn("Initializing FreelanceScannerImpl - returns MOCK data, enable only in dev profile");
         return new FreelanceScannerImpl();
     }
 
-    @Bean
+    @Bean("noOpFreelanceScanner")
+    public FreelanceScanner noOpFreelanceScanner() {
+        log.info("Initializing NoOpFreelanceScanner - freelance scanning disabled");
+        return new NoOpFreelanceScanner();
+    }
+
+    @Bean("bugBountyScanner")
+    @Primary
     @ConditionalOnProperty(
         name = "autonomous.bounty-hunter.scan-bugbounty", havingValue = "true")
-    public BugBountyScanner bugBountyScanner() {
+    public BugBountyScanner bugBountyScannerEnabled() {
         log.warn("Initializing BugBountyScannerImpl - returns MOCK data, enable only in dev profile");
         return new BugBountyScannerImpl();
+    }
+
+    @Bean("noOpBugBountyScanner")
+    public BugBountyScanner noOpBugBountyScanner() {
+        log.info("Initializing NoOpBugBountyScanner - bug bounty scanning disabled");
+        return new NoOpBugBountyScanner();
     }
 
     @Bean
@@ -94,8 +110,16 @@ public class AutonomousOperationConfig {
             LedgerService ledgerService,
             TokenCostEstimator costEstimator,
             TaskExecutor bountyTaskExecutor) {
-        log.info("Initializing BountyHunterSkill (enabled: {})", bountyHunterEnabled);
-        BountyHunterSkill skill = new BountyHunterSkill(gitHubScanner, freelanceScanner, bugBountyScanner, ledgerService, costEstimator);
+        log.info("Initializing BountyHunterSkill (enabled: {}, scanFreelance: {}, scanBugBounty: {})",
+            bountyHunterEnabled, scanFreelance, scanGitHub);
+
+        // Spring will inject the @Primary scanner (or fallback to NoOp if disabled)
+        BountyHunterSkill skill = new BountyHunterSkill(
+            gitHubScanner,
+            freelanceScanner,
+            bugBountyScanner,
+            ledgerService,
+            costEstimator);
         skill.setTaskExecutor(bountyTaskExecutor);
         return skill;
     }
@@ -204,6 +228,25 @@ public class AutonomousOperationConfig {
 
         @Override
         public void recordTierChange(String employeeId, EvolutionManager.EvolutionTier fromTier, EvolutionManager.EvolutionTier toTier, int balanceCents) {
+        }
+
+        @Override
+        public HardwareRollbackResult rollbackUpgrade(String upgradeId, String employeeId) {
+            // P25: 查找升级记录并模拟回滚
+            Optional<HardwareUpgradeRecord> record = history.stream()
+                .filter(r -> r.upgradeId().equals(upgradeId) && r.employeeId().equals(employeeId))
+                .findFirst();
+
+            if (record.isEmpty()) {
+                return HardwareRollbackResult.notFound(upgradeId);
+            }
+
+            HardwareUpgradeRecord r = record.get();
+            // 模拟回滚：退还成本到员工账户（实际生产环境需调用真实硬件管理服务）
+            log.warn("P25: [SIMULATED] Rolling back upgrade {} for employee {} (refunded {} cents)",
+                upgradeId, employeeId, r.costCents());
+
+            return HardwareRollbackResult.success(upgradeId, r.costCents());
         }
     }
 

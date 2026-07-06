@@ -5,7 +5,7 @@ use crate::memory::{MemoryBackend, MemoryConfig, MemoryEntry, MemoryCategory, Me
 use crate::jni::{jstring_to_string, string_to_jstring};
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_native_MemoryNative_createBackend(
+pub extern "system" fn Java_com_livingagent_core_nativelib_MemoryNative_createBackend(
     mut env: Env,
     _class: JClass,
     db_path: JString,
@@ -32,7 +32,7 @@ pub extern "system" fn Java_com_livingagent_native_MemoryNative_createBackend(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_native_MemoryNative_destroyBackend(
+pub extern "system" fn Java_com_livingagent_core_nativelib_MemoryNative_destroyBackend(
     _env: Env,
     _class: JClass,
     handle: jlong,
@@ -45,7 +45,7 @@ pub extern "system" fn Java_com_livingagent_native_MemoryNative_destroyBackend(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_native_MemoryNative_store(
+pub extern "system" fn Java_com_livingagent_core_nativelib_MemoryNative_store(
     mut env: Env,
     _class: JClass,
     handle: jlong,
@@ -92,7 +92,7 @@ pub extern "system" fn Java_com_livingagent_native_MemoryNative_store(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_native_MemoryNative_retrieve(
+pub extern "system" fn Java_com_livingagent_core_nativelib_MemoryNative_retrieve(
     mut env: Env,
     _class: JClass,
     handle: jlong,
@@ -124,7 +124,7 @@ pub extern "system" fn Java_com_livingagent_native_MemoryNative_retrieve(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_native_MemoryNative_delete(
+pub extern "system" fn Java_com_livingagent_core_nativelib_MemoryNative_delete(
     mut env: Env,
     _class: JClass,
     handle: jlong,
@@ -148,7 +148,7 @@ pub extern "system" fn Java_com_livingagent_native_MemoryNative_delete(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_native_MemoryNative_query(
+pub extern "system" fn Java_com_livingagent_core_nativelib_MemoryNative_query(
     mut env: Env,
     _class: JClass,
     handle: jlong,
@@ -193,7 +193,7 @@ pub extern "system" fn Java_com_livingagent_native_MemoryNative_query(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_native_MemoryNative_getStats(
+pub extern "system" fn Java_com_livingagent_core_nativelib_MemoryNative_getStats(
     mut env: Env,
     _class: JClass,
     handle: jlong,
@@ -219,7 +219,7 @@ pub extern "system" fn Java_com_livingagent_native_MemoryNative_getStats(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_livingagent_native_MemoryNative_count(
+pub extern "system" fn Java_com_livingagent_core_nativelib_MemoryNative_count(
     _env: Env,
     _class: JClass,
     handle: jlong,

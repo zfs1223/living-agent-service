@@ -108,6 +108,9 @@ public class TaskEntity {
     @Column(name = "blocking_issues", columnDefinition = "TEXT")
     private String blockingIssues;
 
+    @Column(name = "clarification_round")
+    private Integer clarificationRound;
+
     public TaskEntity() {
     }
 
@@ -203,4 +206,7 @@ public class TaskEntity {
 
     public String getBlockingIssues() { return blockingIssues; }
     public void setBlockingIssues(String blockingIssues) { this.blockingIssues = blockingIssues; }
+
+    public Integer getClarificationRound() { return clarificationRound; }
+    public void setClarificationRound(Integer clarificationRound) { this.clarificationRound = clarificationRound; }
 }

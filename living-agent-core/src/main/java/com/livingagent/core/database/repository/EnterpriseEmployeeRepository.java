@@ -55,4 +55,32 @@ public interface EnterpriseEmployeeRepository extends JpaRepository<EnterpriseEm
     List<EnterpriseEmployeeEntity> findActiveByDepartmentName(@Param("deptName") String departmentName);
 
     Optional<EnterpriseEmployeeEntity> findByEmployeeId(String employeeId);
+
+    /**
+     * P11-A: 写入验证 + 状态变更验证
+     */
+    default EnterpriseEmployeeEntity saveAndVerify(EnterpriseEmployeeEntity entity) {
+        String status = entity.getStatus();
+        if (status != null) {
+            validateStatus(status);
+        }
+        EnterpriseEmployeeEntity saved = save(entity);
+        if (saved.getEmployeeId() != null) {
+            Optional<EnterpriseEmployeeEntity> verified = findByEmployeeId(saved.getEmployeeId());
+            if (verified.isEmpty()) {
+                throw new IllegalStateException("Employee save verification failed: " + saved.getEmployeeId());
+            }
+        }
+        return saved;
+    }
+
+    private void validateStatus(String status) {
+        if (!java.util.Set.of(
+            "ACTIVE", "WORKING", "IDLE", "BUSY",
+            "OFFLINE", "DORMANT", "DISABLED", "ARCHIVED", "TERMINATED",
+            "LEARNING", "EVOLVING"
+        ).contains(status)) {
+            throw new IllegalArgumentException("Invalid employee status: " + status);
+        }
+    }
 }

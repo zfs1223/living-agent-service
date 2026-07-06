@@ -18,7 +18,7 @@ const MAIN_WINDOW_OPTIONS = {
   title: 'Living Agent',
   webPreferences: {
     preload: join(__dirname, '../preload/index.js'),
-    sandbox: false,         // 允许主进程 Node.js 集成（生产可改为 true + contextBridge）
+    sandbox: true,          // 生产环境启用沙箱，增强安全性
     contextIsolation: true, // 严格隔离
     nodeIntegration: false, // 禁用 NodeIntegration
     webSecurity: true
@@ -31,10 +31,7 @@ export function createMainWindow(): BrowserWindow {
   // dev 模式加载 Vite 开发服务器
   if (process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL']);
-    // 自动打开 DevTools
-    if (process.env['NODE_ENV'] === 'development') {
-      mainWindow.webContents.openDevTools({ mode: 'detach' });
-    }
+    // DevTools 按 F12 手动打开，不自动弹出
   } else {
     // 生产模式加载打包后的 HTML
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'));

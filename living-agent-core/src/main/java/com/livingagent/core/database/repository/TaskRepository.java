@@ -28,7 +28,7 @@ public interface TaskRepository extends JpaRepository<TaskEntity, String> {
 
     Optional<TaskEntity> findByTaskKey(String taskKey);
 
-    Optional<TaskEntity> findByExecutionId(String executionId);
+    List<TaskEntity> findByExecutionId(String executionId);
 
     List<TaskEntity> findBySourceTypeOrderByCreatedAtDesc(String sourceType);
 
@@ -37,4 +37,8 @@ public interface TaskRepository extends JpaRepository<TaskEntity, String> {
     long countByAssignedToAndStatusIn(String assignedTo, List<String> statuses);
 
     List<TaskEntity> findByReadinessStatus(String readinessStatus);
+
+    List<TaskEntity> findByConversationIdAndStatusIn(String conversationId, List<String> statuses);
+
+    List<TaskEntity> findByDepartmentCodeAndReadinessStatus(String departmentCode, String readinessStatus);
 }

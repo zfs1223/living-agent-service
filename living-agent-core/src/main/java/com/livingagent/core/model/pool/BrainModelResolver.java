@@ -62,6 +62,10 @@ public class BrainModelResolver {
         this.selectorManager = selectorManager;
         this.modelHealthRegistry = modelHealthRegistry;
         this.modelCapabilityAssessor = modelCapabilityAssessor;
+        // 将 modelHealthRegistry 注入到 ModelCapabilityAssessorImpl（如果适用）
+        if (modelCapabilityAssessor instanceof com.livingagent.core.model.pool.impl.ModelCapabilityAssessorImpl impl) {
+            impl.setModelHealthRegistry(modelHealthRegistry);
+        }
     }
 
     public ModelHealthRegistry getModelHealthRegistry() {
@@ -70,6 +74,13 @@ public class BrainModelResolver {
 
     public ResolvedBrainModel resolve(String brainId) {
         try {
+            // 优先按能力评分为大脑动态选择最优模型（确保使用评分最高的可用模型）
+            Optional<ResolvedBrainModel> capabilityBased = resolveByCapabilityForBrain(brainId);
+            if (capabilityBased.isPresent()) {
+                return capabilityBased.get();
+            }
+
+            // 回退到数据库分配
             return assignmentRepo.findByBrainId(brainId)
                 .map(this::resolveFromAssignment)
                 .flatMap(opt -> opt)
@@ -81,7 +92,87 @@ public class BrainModelResolver {
         }
     }
 
+    /**
+     * 基于能力评分为大脑动态选择最优模型。
+     * <p>
+     * 根据大脑类型映射到任务类型，调用 ModelCapabilityAssessor 选择评分最高的可用模型。
+     * 与员工的 resolveForEmployeeByCapability 逻辑对齐，确保大脑也能按评分择优，
+     * 而不是固定使用数据库中可能过时的分配。
+     * <p>
+     * 当 ModelCapabilityAssessor 未配置或无可用模型时返回 Optional.empty()，
+     * 由调用方回退到数据库分配。
+     */
+    private Optional<ResolvedBrainModel> resolveByCapabilityForBrain(String brainId) {
+        if (modelCapabilityAssessor == null) {
+            return Optional.empty();
+        }
+
+        String brainType = getBrainType(brainId);
+        String taskType = mapBrainTypeToTaskType(brainType);
+
+        List<LlmModel> availableModels = modelRepo.findByEnabledTrue().stream()
+            .filter(model -> {
+                ProviderConfig provider = providerRepo.findById(model.getProviderId()).orElse(null);
+                return provider != null && provider.isEnabled() && isModelAvailable(model, provider);
+            })
+            .filter(this::isModelHealthy)
+            .peek(model -> {
+                if (model.getCapabilityTags() == null || model.getPerformanceScore() == null) {
+                    modelCapabilityAssessor.assessModel(model);
+                }
+            })
+            .toList();
+
+        if (availableModels.isEmpty()) {
+            return Optional.empty();
+        }
+
+        LlmModel bestModel = modelCapabilityAssessor.selectBestModelForTask(taskType, null, availableModels);
+        if (bestModel == null || bestModel.getId() == null) {
+            return Optional.empty();
+        }
+
+        ProviderConfig provider = providerRepo.findById(bestModel.getProviderId()).orElse(null);
+        if (provider == null || !provider.isEnabled()) {
+            return Optional.empty();
+        }
+
+        ResolvedBrainModel resolved = buildResolvedModel(bestModel, provider);
+        log.info("Capability-based model selection for brain {} (type={}, task={}): provider={}, model={}, tags={}, score={}",
+            brainId, brainType, taskType, resolved.getProviderId(), resolved.getModelName(),
+            bestModel.getCapabilityTags(), bestModel.getPerformanceScore());
+
+        return Optional.of(resolved);
+    }
+
+    /**
+     * 大脑类型到任务类型的映射，用于能力择优评分。
+     * 与 ModelCapabilityAssessorImpl.TASK_TO_CAPABILITY 中的任务类型对齐。
+     */
+    private String mapBrainTypeToTaskType(String brainType) {
+        if (brainType == null) return "chat";
+        switch (brainType) {
+            case "tech": return "web_development";
+            case "main": return "review";
+            case "admin": return "document_generation";
+            case "hr": return "chat";
+            case "finance": return "data_analysis";
+            case "sales": return "chat";
+            case "cs": return "chat";
+            case "ops": return "web_development";
+            case "legal": return "document_generation";
+            default: return "chat";
+        }
+    }
+
     private Optional<ResolvedBrainModel> resolveFromAssignment(BrainModelAssignment assignment) {
+        // 检查 modelId 是否为 null（无效分配，返回 empty 触发 fallback）
+        if (assignment.getModelId() == null) {
+            log.warn("Assignment for brain {} has null modelId, falling back to default",
+                assignment.getBrainId());
+            return Optional.empty();
+        }
+
         LlmModel model = modelRepo.findById(assignment.getModelId()).orElse(null);
         if (model == null || !model.isEnabled()) {
             log.warn("Assigned model {} for brain {} not found or disabled, trying fallback",
@@ -330,9 +421,23 @@ public class BrainModelResolver {
     }
 
     private ResolvedBrainModel findDefaultConfiguredModel() {
+        Set<String> localProviders = Set.of("vllm", "ollama");
         return modelRepo.findByEnabledTrue().stream()
             .filter(LlmModel::isRecommended)
-            .sorted(Comparator.comparing(LlmModel::getProviderId).thenComparing(LlmModel::getModelName))
+            .sorted((a, b) -> {
+                // 1. 本地供应商优先
+                boolean aLocal = localProviders.contains(a.getProviderId());
+                boolean bLocal = localProviders.contains(b.getProviderId());
+                if (aLocal != bLocal) return aLocal ? -1 : 1;
+                // 2. 成功率高的优先
+                double rateA = getSuccessRate(a);
+                double rateB = getSuccessRate(b);
+                if (Math.abs(rateA - rateB) > 0.01) return Double.compare(rateB, rateA);
+                // 3. 静态性能分
+                int scoreA = a.getPerformanceScore() != null ? a.getPerformanceScore() : 0;
+                int scoreB = b.getPerformanceScore() != null ? b.getPerformanceScore() : 0;
+                return Integer.compare(scoreB, scoreA);
+            })
             .map(model -> {
                 ProviderConfig provider = providerRepo.findById(model.getProviderId()).orElse(null);
                 if (provider == null || !provider.isEnabled()) {
@@ -473,6 +578,33 @@ public class BrainModelResolver {
     }
 
     private record AvailabilityCacheEntry(Set<String> models, long loadedAtMillis) {}
+
+    /**
+     * 获取模型的运行时成功率（0.0~1.0），无记录返回 1.0（默认可用）
+     */
+    double getSuccessRate(LlmModel model) {
+        if (model.getId() == null) return 1.0;
+        ModelHealthRegistry.ModelHealthRecord health = modelHealthRegistry.getHealth(model.getId().toString());
+        if (health.totalCalls() <= 0) return 1.0;
+        return health.totalSuccesses() * 1.0 / health.totalCalls();
+    }
+
+    /**
+     * 获取模型健康度综合评分（0~100），用于排序决策
+     * 综合考虑成功率、静态性能分、冷却状态
+     */
+    int getHealthScore(LlmModel model) {
+        if (model == null || !model.isEnabled()) return 0;
+        // 冷却中的模型大幅降分
+        if (model.getId() != null && !modelHealthRegistry.isModelAvailable(model.getId().toString())) {
+            return 5;
+        }
+        int baseScore = model.getPerformanceScore() != null ? model.getPerformanceScore() : 50;
+        double successRate = getSuccessRate(model);
+        // 成功率权重：成功率每低10%扣5分
+        int ratePenalty = (int) ((1.0 - successRate) * 50);
+        return Math.max(10, baseScore - ratePenalty);
+    }
 
     private String getBrainType(String brainId) {
         if (brainId == null) return "default";

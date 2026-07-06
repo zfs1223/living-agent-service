@@ -1,5 +1,7 @@
 package com.livingagent.core.brain;
 
+import com.livingagent.core.evolution.personality.BrainPersonality;
+
 import java.util.List;
 import java.util.Optional;
 
@@ -24,4 +26,8 @@ public interface BrainRegistry {
     void startAll();
 
     void stopAll();
+
+    Optional<BrainPersonality> getPersonality(String brainName);
+
+    void updatePersonality(String brainName, BrainPersonality personality);
 }

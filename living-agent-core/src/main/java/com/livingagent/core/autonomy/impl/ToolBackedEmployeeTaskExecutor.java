@@ -44,7 +44,7 @@ public class ToolBackedEmployeeTaskExecutor implements EmployeeTaskExecutor {
 
     private static final Logger log = LoggerFactory.getLogger(ToolBackedEmployeeTaskExecutor.class);
 
-    private static final String ARTIFACTS_DIR = "data/artifacts";
+    private static final String ARTIFACTS_DIR = System.getProperty("livingagent.artifact.dir", "data/artifacts");
     private static final int LLM_TIMEOUT_SECONDS = 120;
 
     private static final Map<String, String> DEPARTMENT_TO_BRAIN_ID = Map.ofEntries(

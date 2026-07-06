@@ -28,9 +28,10 @@ import { TABS } from './AgentDetail/types';
 
 // API services
 import { activityApi, agentApi, enterpriseApi, fileApi, skillApi } from '../services/api';
+import { request } from '../services/apiBase';
 
 // Stores
-import { useAuthStore, getToken } from '../stores';
+import { useAuthStore } from '../stores';
 import { useToastStore } from '../stores/toastStore';
 
 
@@ -89,11 +90,9 @@ function AgentDetailInner() {
     const saveExpiry = async (permanent = false) => {
         setExpirySaving(true);
         try {
-            const token = getToken();
             const body = permanent ? { expires_at: null } : { expires_at: expiryValue ? new Date(expiryValue).toISOString() : null };
-            await fetch(`/api/agents/${encodeURIComponent(id!)}`, {
+            await request(`/agents/${encodeURIComponent(id!)}`, {
                 method: 'PATCH',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                 body: JSON.stringify(body),
             });
             queryClient.invalidateQueries({ queryKey: ['agent', id] });

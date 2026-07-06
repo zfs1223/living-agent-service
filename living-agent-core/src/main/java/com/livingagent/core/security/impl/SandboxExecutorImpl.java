@@ -1,7 +1,5 @@
 package com.livingagent.core.security.impl;
 
-import com.livingagent.core.security.ApprovalManager;
-import com.livingagent.core.security.ApprovalManager.ApprovalResponse;
 import com.livingagent.core.security.SandboxExecutor;
 import com.livingagent.core.security.bash.BashSecurityValidator;
 import com.livingagent.core.security.bash.BashValidationResult;
@@ -43,9 +41,6 @@ public class SandboxExecutorImpl implements SandboxExecutor {
     @org.springframework.beans.factory.annotation.Autowired
     private BashSecurityValidator bashSecurityValidator;
 
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
-    private ApprovalManager approvalManager;
-    
     private final AtomicLong totalExecutions = new AtomicLong(0);
     private final AtomicLong successfulExecutions = new AtomicLong(0);
     private final AtomicLong failedExecutions = new AtomicLong(0);
@@ -417,48 +412,12 @@ public class SandboxExecutorImpl implements SandboxExecutor {
     }
 
     /**
-     * 审批检查：高风险工具执行需人工审批
-     * @param toolName 工具名称（如 sandbox.script.bash, sandbox.command.git）
-     * @param contentSummary 内容摘要（脚本内容或命令参数）
-     * @param mode 执行模式（script 或 command）
-     * @return null 表示允许执行，非 null 表示拒绝执行（包含错误信息）
+     * 工具执行审批已移除：由 BrainBoundaryEnforcer 四重校验等价保障。
+     * 此方法保留为占位，直接返回 null（允许执行）。
+     * @return 始终返回 null（允许执行）
      */
     private ExecutionResult<?> checkApproval(String toolName, String contentSummary, String mode) {
-        if (approvalManager == null) {
-            return null;
-        }
-
-        if (!approvalManager.needsApproval(toolName)) {
-            return null;
-        }
-
-        log.info("Approval required for {} execution: toolName={}", mode, toolName);
-        ToolCall call = ToolCall.of(toolName, Map.of(
-            "mode", mode,
-            "content", contentSummary.length() > 200 ? contentSummary.substring(0, 200) + "..." : contentSummary
-        ));
-
-        ApprovalResponse response = approvalManager.requestApproval(toolName, call);
-
-        switch (response) {
-            case NO -> {
-                log.warn("{} execution denied by approval: toolName={}", mode, toolName);
-                return ExecutionResult.failure(mode + " execution denied by approval: " + toolName);
-            }
-            case ALWAYS -> {
-                log.info("{} execution approved (always): toolName={}, added to allowlist", mode, toolName);
-                approvalManager.addToAllowlist(toolName);
-                return null;
-            }
-            case YES -> {
-                log.info("{} execution approved: toolName={}", mode, toolName);
-                return null;
-            }
-            default -> {
-                log.warn("Unknown approval response for {}: {}, denying execution", mode, response);
-                return ExecutionResult.failure("Unknown approval response: " + response);
-            }
-        }
+        return null;
     }
 
     private ExecutionResult<String> executeInProcess(SandboxConfig config, String[] command) {

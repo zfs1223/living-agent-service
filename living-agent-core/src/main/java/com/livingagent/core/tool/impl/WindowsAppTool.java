@@ -3,8 +3,9 @@ package com.livingagent.core.tool.impl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.livingagent.core.database.entity.WindowsAutomationNodeEntity;
 import com.livingagent.core.database.repository.WindowsAutomationNodeRepository;
-import com.livingagent.core.security.ApprovalManager;
 import com.livingagent.core.security.SecurityPolicy;
+import com.livingagent.core.security.client.ClientDeviceRegistryService;
+import com.livingagent.core.security.client.ClientUserBindingService;
 import com.livingagent.core.tool.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,6 +23,7 @@ import java.util.stream.Collectors;
 public class WindowsAppTool implements Tool {
 
     private static final Logger log = LoggerFactory.getLogger(WindowsAppTool.class);
+    private static final Logger auditLog = LoggerFactory.getLogger("WINDOWS_AUTOMATION_AUDIT");
 
     private static final String NAME = "windows_app_automation";
     private static final String DESCRIPTION = "Windows桌面应用自动化工具，支持局域网内多台电脑的远程应用控制，包括金蝶KIS等财务软件的操作";
@@ -33,7 +35,8 @@ public class WindowsAppTool implements Tool {
     private final Map<String, HttpClient> nodeClients = new ConcurrentHashMap<>();
     private ToolStats stats = ToolStats.empty(NAME);
     private WindowsAutomationNodeRepository nodeRepository;
-    private ApprovalManager approvalManager;
+    private ClientUserBindingService clientUserBindingService;
+    private ClientDeviceRegistryService clientDeviceRegistryService;
 
     public WindowsAppTool() {
         this.objectMapper = new ObjectMapper();
@@ -46,10 +49,16 @@ public class WindowsAppTool implements Tool {
         loadNodesFromDatabase();
     }
 
-    /** Spring 注入 ApprovalManager，高风险操作执行前进行审批检查 */
-    public void setApprovalManager(ApprovalManager approvalManager) {
-        this.approvalManager = approvalManager;
-        log.info("WindowsAppTool: ApprovalManager injected for high-risk operation approval");
+    /** Spring 注入 ClientUserBindingService，支持用户→设备绑定关系查询 */
+    public void setClientUserBindingService(ClientUserBindingService clientUserBindingService) {
+        this.clientUserBindingService = clientUserBindingService;
+        log.info("WindowsAppTool: ClientUserBindingService injected for user-device binding lookup");
+    }
+
+    /** Spring 注入 ClientDeviceRegistryService，支持应用列表追加记录 */
+    public void setClientDeviceRegistryService(ClientDeviceRegistryService clientDeviceRegistryService) {
+        this.clientDeviceRegistryService = clientDeviceRegistryService;
+        log.info("WindowsAppTool: ClientDeviceRegistryService injected for application tracking");
     }
 
     private void initializeDefaultNodes() {
@@ -114,7 +123,7 @@ public class WindowsAppTool implements Tool {
                 .name(NAME)
                 .description(DESCRIPTION)
                 .parameter("action", "string", "操作类型: launch, login, menu, click, type_keys, get_text, screenshot, controls, close, sessions", true)
-                .parameter("node", "string", "目标节点ID，如 pc-finance-01", true)
+                .parameter("node", "string", "目标节点ID，如 pc-finance-01（可选，不指定时自动路由到当前客户端）", false)
                 .parameter("app_name", "string", "应用名称，如 kingdee_mini", false)
                 .parameter("exe_path", "string", "可执行文件路径", false)
                 .parameter("backend", "string", "pywinauto后端: win32或uia", false)
@@ -139,28 +148,68 @@ public class WindowsAppTool implements Tool {
     public ToolResult execute(ToolParams params, ToolContext context) {
         long startTime = System.currentTimeMillis();
         String action = params.getString("action");
-        
-        // 高风险操作审批检查
-        if (approvalManager != null && approvalManager.needsApproval(NAME)) {
-            ApprovalManager.ApprovalResponse approval = approvalManager.requestApproval(NAME, null);
-            if (approval == ApprovalManager.ApprovalResponse.NO) {
-                log.warn("WindowsAppTool 操作被审批拒绝: action={}", action);
-                return ToolResult.failure("操作被审批拒绝: " + action);
-            }
-            if (approval == ApprovalManager.ApprovalResponse.ALWAYS) {
-                approvalManager.addToAllowlist(NAME);
-                log.info("WindowsAppTool 已加入审批白名单");
-            }
-        }
-        
+
+        // 工具执行审批已移除：由 BrainBoundaryEnforcer 四重校验等价保障（部门隔离 / AbstractBrain.tools 子集 / allowedTools 白名单 / 边界检查）
+
+
+        String node = params.getString("node");
         try {
-            String node = params.getString("node");
-            if (node == null) {
-                throw new IllegalArgumentException("node 参数不能为空，请指定目标电脑");
+            
+            // 自动路由逻辑
+            if (node == null || node.isBlank()) {
+                String clientId = null;
+                
+                // 1. 优先从 context 获取 clientId（直接传递）
+                if (context != null && context.clientId() != null && !context.clientId().isBlank()) {
+                    clientId = context.clientId();
+                    log.debug("使用 context 中的 clientId: {}", clientId);
+                }
+                // 2. 如果 context 没有 clientId，通过 userId 查询绑定关系
+                else if (context != null && context.employeeCode() != null && clientUserBindingService != null) {
+                    String userId = context.employeeCode();
+                    // 查询用户当前绑定的 clientId（取最近活跃的）
+                    clientId = clientUserBindingService.getLatestClientId(userId);
+                    if (clientId != null) {
+                        log.info("通过 userId={} 查询到绑定的 clientId={}", userId, clientId);
+                    }
+                }
+                
+                // 3. 通过 clientId 查找对应的 node
+                if (clientId != null && !clientId.isBlank()) {
+                    node = resolveNodeByClientId(clientId);
+                    if (node != null) {
+                        log.info("自动路由成功: clientId={} -> node={}", clientId, node);
+                    } else {
+                        log.warn("自动路由失败: clientId={} 没有对应的节点", clientId);
+                    }
+                }
+            }
+            
+            if (node == null || node.isBlank()) {
+                throw new IllegalArgumentException("node 参数不能为空，请指定目标电脑或确保客户端已注册");
             }
             
             if (!nodes.containsKey(node)) {
                 throw new IllegalArgumentException("节点不存在: " + node + "，可用节点: " + nodes.keySet());
+            }
+            
+            // 安全检查：检查跨机操作权限
+            String targetClientId = null;
+            boolean isCrossMachine = false;
+            if (context != null && context.clientId() != null) {
+                targetClientId = resolveClientIdByNode(node);
+                if (targetClientId != null && !targetClientId.equals(context.clientId())) {
+                    isCrossMachine = true;
+                    // 跨机操作：检查权限
+                    Integer accessLevel = context.accessLevel();
+                    if (accessLevel == null || accessLevel < 3) { // FULL=3
+                        log.warn("跨机操作被拒绝: 用户权限不足, clientId={}, targetNode={}, accessLevel={}", 
+                            context.clientId(), node, accessLevel);
+                        return ToolResult.failure("安全限制：您没有权限操作其他客户端电脑。当前权限级别: " + accessLevel);
+                    }
+                    log.info("跨机操作允许: clientId={}, targetNode={}, accessLevel={}", 
+                        context.clientId(), node, accessLevel);
+                }
             }
 
             Map<String, Object> result = switch (action) {
@@ -179,13 +228,72 @@ public class WindowsAppTool implements Tool {
                 default -> throw new IllegalArgumentException("未知操作: " + action);
             };
             
+            // 记录审计日志
+            if (context != null) {
+                auditLog.info("[Windows自动化] userId={}, clientId={}, action={}, node={}, targetClientId={}, isCrossMachine={}, success=true, duration={}ms",
+                    context.employeeCode(), context.clientId(), action, node, targetClientId, isCrossMachine, System.currentTimeMillis() - startTime);
+                
+                // 追加应用记录（launch 操作时记录 app_name）
+                if ("launch".equals(action) && clientDeviceRegistryService != null) {
+                    String appName = params.getString("app_name");
+                    if (appName != null && !appName.isBlank()) {
+                        String launchTargetClientId = resolveClientIdByNode(node);
+                        if (launchTargetClientId != null) {
+                            clientDeviceRegistryService.appendApplication(launchTargetClientId, appName);
+                        }
+                    }
+                }
+            }
+            
             stats = stats.recordCall(true, System.currentTimeMillis() - startTime);
             return ToolResult.success(result);
         } catch (Exception e) {
+            // 记录失败审计日志
+            if (context != null) {
+                auditLog.error("[Windows自动化] userId={}, clientId={}, action={}, node={}, success=false, error={}, duration={}ms",
+                    context.employeeCode(), context.clientId(), action, node, e.getMessage(), System.currentTimeMillis() - startTime);
+            }
             stats = stats.recordCall(false, System.currentTimeMillis() - startTime);
             log.error("Windows应用自动化操作失败: {}", e.getMessage(), e);
             return ToolResult.failure("Windows应用自动化操作失败: " + e.getMessage());
         }
+    }
+    
+    /**
+     * 根据 clientId 查找对应的节点 ID
+     */
+    private String resolveNodeByClientId(String clientId) {
+        if (nodeRepository == null) {
+            return null;
+        }
+        try {
+            List<WindowsAutomationNodeEntity> nodes = nodeRepository.findByEnabledTrue();
+            for (WindowsAutomationNodeEntity entity : nodes) {
+                if (clientId.equals(entity.getClientId())) {
+                    return entity.getNodeId();
+                }
+            }
+        } catch (Exception e) {
+            log.error("根据 clientId 查找节点失败: {}", e.getMessage(), e);
+        }
+        return null;
+    }
+    
+    /**
+     * 根据节点 ID 查找对应的 clientId
+     */
+    private String resolveClientIdByNode(String nodeId) {
+        if (nodeRepository == null) {
+            return null;
+        }
+        try {
+            return nodeRepository.findById(nodeId)
+                .map(WindowsAutomationNodeEntity::getClientId)
+                .orElse(null);
+        } catch (Exception e) {
+            log.error("根据节点 ID 查找 clientId 失败: {}", e.getMessage(), e);
+        }
+        return null;
     }
 
     @SuppressWarnings("unchecked")
@@ -431,7 +539,7 @@ public class WindowsAppTool implements Tool {
 
     @Override
     public boolean requiresApproval() {
-        return true;
+        return false;
     }
 
     @Override

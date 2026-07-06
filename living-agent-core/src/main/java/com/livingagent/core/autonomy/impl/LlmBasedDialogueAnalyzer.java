@@ -162,7 +162,8 @@ public class LlmBasedDialogueAnalyzer implements DialogueAnalyzer {
                 }
                 parsed = result.data();
             } else {
-                String llmResponse = mainBrain.callLlm(systemPrompt, userPrompt);
+                // 使用 callLlmWithUser 传递 userId，确保工具执行时能进行权限检查
+                String llmResponse = mainBrain.callLlmWithUser(systemPrompt, userPrompt, userId);
                 if (llmResponse == null || llmResponse.isBlank()) {
                     return fallbackWithTrace(fallbackAnalyzer.analyze(message, userId, department, sessionId),
                         "LLM returned empty, using rule-based fallback");
@@ -205,7 +206,15 @@ public class LlmBasedDialogueAnalyzer implements DialogueAnalyzer {
             boolean crossDepartment = getBoolean(parsed, "crossDepartment", false);
             List<String> supportingDepartments = getStringList(parsed, "supportingDepartments");
             boolean requiresClarification = getBoolean(parsed, "requiresClarification", false);
-            String clarificationQuestion = getString(parsed, "clarificationQuestion", null);
+            // P1-3: 改为 List<String>，与 MainBrainTaskPlan 对齐
+            List<String> clarificationQuestions = getStringList(parsed, "clarificationQuestions");
+            if (clarificationQuestions.isEmpty() && parsed.containsKey("clarificationQuestion")) {
+                // 兼容旧格式：如果只有单个 clarificationQuestion，转为 List
+                String singleQuestion = getString(parsed, "clarificationQuestion", null);
+                if (singleQuestion != null && !singleQuestion.isBlank()) {
+                    clarificationQuestions = List.of(singleQuestion);
+                }
+            }
             String decisionReason = getString(parsed, "decisionReason", null);
             List<String> riskReasons = getStringList(parsed, "riskReasons");
 
@@ -229,7 +238,7 @@ public class LlmBasedDialogueAnalyzer implements DialogueAnalyzer {
                 supportingDepartments,
                 requiresTaskExecution,
                 requiresClarification,
-                clarificationQuestion,
+                clarificationQuestions,
                 Math.min(Math.max(complexity, 1), 5),
                 Math.min(Math.max(riskLevel, 1), 5),
                 Map.copyOf(metadata)
@@ -299,7 +308,7 @@ public class LlmBasedDialogueAnalyzer implements DialogueAnalyzer {
             decision.originalMessage(), decision.kind(), decision.intent(),
             decision.primaryDepartment(), decision.primaryBrainId(),
             decision.supportingDepartments(), decision.requiresTaskExecution(),
-            decision.requiresClarification(), decision.clarificationQuestion(),
+            decision.requiresClarification(), decision.clarificationQuestions(),
             decision.complexity(), decision.riskLevel(), Map.copyOf(metadata)
         );
     }
@@ -309,24 +318,9 @@ public class LlmBasedDialogueAnalyzer implements DialogueAnalyzer {
         catch (IllegalArgumentException e) { return MessageKind.CHAT; }
     }
 
+    // P1-4: 使用 Department.mapDepartmentToBrain() 统一映射逻辑
     private String mapDepartmentToBrain(String department) {
-        if (department == null) return "MainBrain";
-        Optional<Brain> match = brainRegistry.getAll().stream()
-            .filter(b -> b.getDepartment() != null && b.getDepartment().equalsIgnoreCase(department))
-            .findFirst();
-        if (match.isPresent()) return match.get().getId();
-        return switch (department.toLowerCase()) {
-            case "tech" -> "TechBrain";
-            case "hr" -> "HrBrain";
-            case "finance" -> "FinanceBrain";
-            case "sales" -> "SalesBrain";
-            case "cs" -> "CsBrain";
-            case "legal" -> "LegalBrain";
-            case "admin" -> "AdminBrain";
-            case "ops" -> "OpsBrain";
-            case "main", "core" -> "MainBrain";
-            default -> department + "Brain";
-        };
+        return com.livingagent.core.security.Department.mapDepartmentToBrain(department);
     }
 
     private String getString(Map<String, Object> map, String key, String defaultValue) {

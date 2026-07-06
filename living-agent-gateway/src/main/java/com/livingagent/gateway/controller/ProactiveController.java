@@ -4,6 +4,7 @@ import com.livingagent.core.proactive.suggestion.ProactiveSuggestionService;
 import com.livingagent.core.proactive.suggestion.ProactiveSuggestionService.Suggestion;
 import com.livingagent.core.proactive.suggestion.ProactiveSuggestionService.SuggestionType;
 import com.livingagent.core.security.AccessGateService;
+import com.livingagent.gateway.controller.common.ApiResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -34,7 +35,7 @@ public class ProactiveController {
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.debug("Getting daily digest for user: {}", userId);
 
@@ -49,7 +50,7 @@ public class ProactiveController {
                 "今日暂无重要事项"
         );
 
-        return ResponseEntity.ok(ApiResponse.success(digest));
+        return ResponseEntity.ok(ApiResponse.ok(digest));
     }
 
     @GetMapping("/habits")
@@ -58,7 +59,7 @@ public class ProactiveController {
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.debug("Getting habits for user: {}", userId);
 
@@ -70,7 +71,7 @@ public class ProactiveController {
                 new HabitInfo("habit_3", "周报提交", "WEEKLY", "FRIDAY:17:00", true, 4, 0)
         );
 
-        return ResponseEntity.ok(ApiResponse.success(habits));
+        return ResponseEntity.ok(ApiResponse.ok(habits));
     }
 
     @PostMapping("/habits/{habitId}/checkin")
@@ -80,7 +81,7 @@ public class ProactiveController {
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.info("Habit checkin: {} for user: {}", habitId, userId);
 
@@ -92,7 +93,7 @@ public class ProactiveController {
                 15
         );
 
-        return ResponseEntity.ok(ApiResponse.success(result));
+        return ResponseEntity.ok(ApiResponse.ok(result));
     }
 
     @PostMapping("/habits")
@@ -101,7 +102,7 @@ public class ProactiveController {
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.info("Creating habit: {}", request.name());
 
@@ -115,7 +116,7 @@ public class ProactiveController {
                 0
         );
 
-        return ResponseEntity.ok(ApiResponse.success(habit));
+        return ResponseEntity.ok(ApiResponse.ok(habit));
     }
 
     @PutMapping("/habits/{id}")
@@ -125,7 +126,7 @@ public class ProactiveController {
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.info("Updating habit: {}", id);
 
@@ -139,7 +140,7 @@ public class ProactiveController {
                 0
         );
 
-        return ResponseEntity.ok(ApiResponse.success(habit));
+        return ResponseEntity.ok(ApiResponse.ok(habit));
     }
 
     @DeleteMapping("/habits/{id}")
@@ -147,11 +148,11 @@ public class ProactiveController {
             @PathVariable String id,
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.info("Deleting habit: {}", id);
 
-        return ResponseEntity.ok(ApiResponse.success(null));
+        return ResponseEntity.ok(ApiResponse.ok(null));
     }
 
     @GetMapping("/notifications")
@@ -162,7 +163,7 @@ public class ProactiveController {
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.debug("Getting notifications for user: {}", userId);
 
@@ -202,7 +203,7 @@ public class ProactiveController {
                     .toList();
         }
 
-        return ResponseEntity.ok(ApiResponse.success(notifications.stream().limit(limit).toList()));
+        return ResponseEntity.ok(ApiResponse.ok(notifications.stream().limit(limit).toList()));
     }
 
     @PostMapping("/notifications/{id}/read")
@@ -212,14 +213,14 @@ public class ProactiveController {
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.info("Marking notification as read: {}", id);
 
         String effectiveUserId = userId != null ? userId : "default";
         suggestionService.acknowledgeSuggestion(effectiveUserId, id);
 
-        return ResponseEntity.ok(ApiResponse.success(null));
+        return ResponseEntity.ok(ApiResponse.ok(null));
     }
 
     @PostMapping("/notifications/read-all")
@@ -228,14 +229,14 @@ public class ProactiveController {
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.info("Marking all notifications as read for user: {}", userId);
 
         String effectiveUserId = userId != null ? userId : "default";
         suggestionService.clearUserSuggestions(effectiveUserId);
 
-        return ResponseEntity.ok(ApiResponse.success(null));
+        return ResponseEntity.ok(ApiResponse.ok(null));
     }
 
     @GetMapping("/meeting-notes")
@@ -245,13 +246,13 @@ public class ProactiveController {
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.debug("Getting meeting notes for user: {}", userId);
 
         List<MeetingNote> notes = List.of();
 
-        return ResponseEntity.ok(ApiResponse.success(notes));
+        return ResponseEntity.ok(ApiResponse.ok(notes));
     }
 
     @GetMapping("/meeting-notes/{id}")
@@ -259,12 +260,12 @@ public class ProactiveController {
             @PathVariable String id,
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.debug("Getting meeting note: {}", id);
 
         return ResponseEntity.status(404)
-                .body(ApiResponse.error("not_found", "Meeting note not found: " + id));
+                .body(ApiResponse.err("not_found", "Meeting note not found: " + id));
     }
 
     @GetMapping("/analytics")
@@ -274,7 +275,7 @@ public class ProactiveController {
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.debug("Getting analytics for user: {}, days: {}", userId, days);
 
@@ -300,7 +301,7 @@ public class ProactiveController {
                 )
         );
 
-        return ResponseEntity.ok(ApiResponse.success(analytics));
+        return ResponseEntity.ok(ApiResponse.ok(analytics));
     }
 
     @GetMapping("/suggestions")
@@ -310,7 +311,7 @@ public class ProactiveController {
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.debug("Getting suggestions for user: {}", userId);
 
@@ -323,7 +324,7 @@ public class ProactiveController {
                 .map(this::convertToSuggestionResponse)
                 .toList();
 
-        return ResponseEntity.ok(ApiResponse.success(response));
+        return ResponseEntity.ok(ApiResponse.ok(response));
     }
 
     @GetMapping("/predictions")
@@ -333,7 +334,7 @@ public class ProactiveController {
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.debug("Getting predictions for user: {}", userId);
 
@@ -354,7 +355,7 @@ public class ProactiveController {
                 )
         );
 
-        return ResponseEntity.ok(ApiResponse.success(predictions.stream().limit(limit).toList()));
+        return ResponseEntity.ok(ApiResponse.ok(predictions.stream().limit(limit).toList()));
     }
 
     private String mapSuggestionTypeToNotificationType(SuggestionType type) {
@@ -378,21 +379,6 @@ public class ProactiveController {
                 suggestion.isActionable(),
                 suggestion.getAction()
         );
-    }
-
-    public record ApiResponse<T>(
-            boolean success,
-            T data,
-            String error,
-            String errorDescription
-    ) {
-        public static <T> ApiResponse<T> success(T data) {
-            return new ApiResponse<>(true, data, null, null);
-        }
-
-        public static <T> ApiResponse<T> error(String error, String description) {
-            return new ApiResponse<>(false, null, error, description);
-        }
     }
 
     public record DailyDigest(

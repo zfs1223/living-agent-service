@@ -12,6 +12,7 @@ import java.time.Instant;
     @Index(name = "idx_receipt_execution_id", columnList = "execution_id"),
     @Index(name = "idx_receipt_dispatch_id", columnList = "dispatch_id"),
     @Index(name = "idx_receipt_employee_code", columnList = "employee_code"),
+    @Index(name = "idx_receipt_department", columnList = "department"),
     @Index(name = "idx_receipt_status", columnList = "status"),
     @Index(name = "idx_receipt_created_at", columnList = "created_at")
 })
@@ -38,6 +39,9 @@ public class EmployeeExecutionReceiptEntity {
 
     @Column(name = "employee_neuron_id", length = 200)
     private String employeeNeuronId;
+
+    @Column(name = "department", length = 50)
+    private String department;
 
     @Column(name = "status", nullable = false, length = 30)
     private String status;
@@ -89,6 +93,9 @@ public class EmployeeExecutionReceiptEntity {
 
     public String getEmployeeNeuronId() { return employeeNeuronId; }
     public void setEmployeeNeuronId(String employeeNeuronId) { this.employeeNeuronId = employeeNeuronId; }
+
+    public String getDepartment() { return department; }
+    public void setDepartment(String department) { this.department = department; }
 
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }

@@ -46,7 +46,7 @@ public class ChatNeuronRouter {
 
     public void initialize() {
         neuronRegistry.get("neuron://chat/qwen3/001").ifPresent(n -> this.chatNeuron = n);
-        neuronRegistry.get("neuron://tool/bitnet/001").ifPresent(n -> this.toolNeuron = n);
+        neuronRegistry.get("neuron://tool/qwen35/001").ifPresent(n -> this.toolNeuron = n);
 
         for (Neuron neuron : neuronRegistry.getAll()) {
             String id = neuron.getId();
@@ -223,7 +223,11 @@ public class ChatNeuronRouter {
                     log.info("TOOL_CALL denied for {} access, downgrading to chatNeuron", accessLevel);
                     yield chatNeuron;
                 }
-                log.debug("TOOL_CALL routed to chatNeuron for {} access", accessLevel);
+                if (toolNeuron != null) {
+                    log.debug("TOOL_CALL routed to toolNeuron for {} access", accessLevel);
+                    yield toolNeuron;
+                }
+                log.warn("TOOL_CALL: toolNeuron unavailable, falling back to chatNeuron");
                 yield chatNeuron;
             }
             

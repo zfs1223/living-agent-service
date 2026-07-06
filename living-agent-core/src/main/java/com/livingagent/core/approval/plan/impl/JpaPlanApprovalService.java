@@ -7,6 +7,7 @@ import com.livingagent.core.database.entity.PlanApprovalRequestEntity;
 import com.livingagent.core.database.entity.PlanApprovalRequestEntity.ApprovalStatus;
 import com.livingagent.core.database.entity.PlanApprovalRequestEntity.PlanType;
 import com.livingagent.core.database.repository.PlanApprovalRequestRepository;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Primary;
@@ -31,14 +32,28 @@ public class JpaPlanApprovalService implements PlanApprovalService {
     private static final long DEFAULT_DEADLINE_MS = 60_000;
 
     private final PlanApprovalRequestRepository repository;
-    private final AtomicLong idCounter;
+    private AtomicLong idCounter;
 
     public JpaPlanApprovalService(PlanApprovalRequestRepository repository) {
         this.repository = repository;
-        // 从数据库初始化 ID 计数器
-        Integer maxId = repository.findMaxRequestId();
-        this.idCounter = new AtomicLong(maxId != null ? maxId : 0);
-        log.info("Initialized JpaPlanApprovalService with max requestId={}", idCounter.get());
+        // 初始化为默认值，避免在构造函数中查询数据库
+        this.idCounter = new AtomicLong(0);
+    }
+
+    @PostConstruct
+    public void initializeIdCounter() {
+        try {
+            // 从数据库初始化 ID 计数器(Bean 初始化完成后执行)
+            Integer maxId = repository.findMaxRequestId();
+            if (maxId != null && maxId > 0) {
+                this.idCounter = new AtomicLong(maxId);
+            }
+            log.info("Initialized JpaPlanApprovalService with max requestId={}", idCounter.get());
+        } catch (Exception e) {
+            // 如果表不存在或其他异常,使用默认值 0
+            log.warn("Failed to initialize id counter from database, using default value 0: {}", e.getMessage());
+            this.idCounter = new AtomicLong(0);
+        }
     }
 
     @Override

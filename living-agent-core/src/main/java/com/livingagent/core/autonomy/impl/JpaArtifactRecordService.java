@@ -10,6 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -32,6 +33,7 @@ public class JpaArtifactRecordService implements ArtifactRecordService {
     }
 
     @Override
+    @Transactional
     public ArtifactRecord recordArtifact(ArtifactRecord record) {
         ArtifactRecordEntity entity = toEntity(record);
         entity = repository.save(entity);
@@ -106,6 +108,7 @@ public class JpaArtifactRecordService implements ArtifactRecordService {
     }
 
     @Override
+    @Transactional
     public List<ArtifactRecord> scanAndIndexDirectory(String baseDir) {
         log.info("Scanning directory for artifact indexing: {}", baseDir);
         java.nio.file.Path basePath = java.nio.file.Paths.get(baseDir);
@@ -171,6 +174,7 @@ public class JpaArtifactRecordService implements ArtifactRecordService {
     }
 
     @Override
+    @Transactional
     public ArtifactRecord associateTaskAndProject(String artifactId, String taskId, String projectId) {
         return repository.findByArtifactId(artifactId)
             .map(entity -> {

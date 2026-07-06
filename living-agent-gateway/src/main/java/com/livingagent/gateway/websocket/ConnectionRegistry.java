@@ -50,5 +50,7 @@ public interface ConnectionRegistry {
 
     int getActiveConnectionCountByTenant(String tenantId);
 
+    List<String> getAllSessionIds();
+
     void cleanupStaleConnections(long maxIdleMs);
 }

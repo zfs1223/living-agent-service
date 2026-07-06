@@ -209,15 +209,24 @@ Authorization: PRIVATE-TOKEN <root_token>
 { "key": "KUBE_CONFIG", "value": "...", "protected": true, "masked": true }
 ```
 
-### 2.3 需要扩展的 GitLabTool API
+### 2.3 管理类操作独立成 GitLabAdminTool
 
-| 新 action | API 端点 | 用途 | 当前状态 |
-|-----------|---------|------|---------|
-| `create_user` | `POST /api/v4/users` | 创建数字员工GitLab账号 | ❌ 未实现 |
-| `create_group` | `POST /api/v4/groups` | 创建部门Group | ❌ 未实现 |
-| `add_group_member` | `POST /api/v4/groups/{id}/members` | 加入Group并授权 | ❌ 未实现 |
-| `create_token` | `POST /api/v4/users/{id}/personal_access_tokens` | 为用户创建Token | ❌ 未实现 |
-| `block_user` | `POST /api/v4/users/{id}/block` | 锁定员工账号 | ❌ 未实现 |
+> **调整说明**：根据 `MAINBRAIN_ADMIN_BRIDGE_PLAN.md`，管理类操作不再扩展到 GitLabTool，而是独立成 GitLabAdminTool（实现 Tool 接口），部门为 "admin_management"，MainBrain 可访问，其他大脑不可访问。
+
+| AdminTool action | API 端点 | 用途 | 实现位置 |
+|-------------------|---------|------|---------|
+| `create_user` | `POST /api/v4/users` | 创建数字员工GitLab账号 | `core/tool/impl/admin/GitLabAdminTool.java` |
+| `create_group` | `POST /api/v4/groups` | 创建部门Group | `core/tool/impl/admin/GitLabAdminTool.java` |
+| `add_group_member` | `POST /api/v4/groups/{id}/members` | 加入Group并授权 | `core/tool/impl/admin/GitLabAdminTool.java` |
+| `create_token` | `POST /api/v4/users/{id}/personal_access_tokens` | 为用户创建Token | `core/tool/impl/admin/GitLabAdminTool.java` |
+| `block_user` | `POST /api/v4/users/{id}/block` | 锁定员工账号 | `core/tool/impl/admin/GitLabAdminTool.java` |
+
+**权限隔离**：
+- GitLabAdminTool 实现 Tool 接口，注册到 ToolRegistry
+- 部门设置为 "admin_management"
+- MainBrain 使用 `toolRegistry.getAll()` 可访问
+- 其他大脑通过 `filterToolsByBrainDepartment()` 过滤，不可访问
+- 员工使用的 GitLabTool 保持原有日常操作，不添加管理类 action
 
 ---
 
@@ -350,17 +359,26 @@ GET /api/v3/projects/{tech_project_id}/memberships  → 确认成员列表
 GET /api/v3/work_packages?pageSize=1                → 确认项目可操作
 ```
 
-### 3.3 需要扩展的 OpenProjectTool API
+### 3.3 管理类操作独立成 OpenProjectAdminTool
 
-| 新 action | API 端点 | 用途 | 当前状态 |
-|-----------|---------|------|---------|
-| `create_project` | `POST /api/v3/projects` | 创建部门项目 | ❌ 未实现 |
-| `create_user` | `POST /api/v3/users` | 创建员工OpenProject账号 | ❌ 未实现 |
-| `add_member` | `POST /api/v3/projects/{id}/memberships` | 加入项目并授权 | ❌ 未实现 |
-| `create_role` | `POST /api/v3/roles` | 创建自定义角色 | ❌ 未实现 |
-| `lock_user` | `PATCH /api/v3/users/{id}` | 锁定/解锁员工账号 | ❌ 未实现 |
+> **调整说明**：根据 `MAINBRAIN_ADMIN_BRIDGE_PLAN.md`，管理类操作不再扩展到 OpenProjectTool，而是独立成 OpenProjectAdminTool（实现 Tool 接口），部门为 "admin_management"，MainBrain 可访问，其他大脑不可访问。
 
-> **注意**：OpenProjectTool 当前实现中 `NAME = "jira"`，对外暴露为 jira 工具名。这是设计上兼容 Jira 语义，内部映射到 OpenProject API。
+| AdminTool action | API 端点 | 用途 | 实现位置 |
+|-------------------|---------|------|---------|
+| `create_project` | `POST /api/v3/projects` | 创建部门项目 | `core/tool/impl/admin/OpenProjectAdminTool.java` |
+| `create_user` | `POST /api/v3/users` | 创建员工OpenProject账号 | `core/tool/impl/admin/OpenProjectAdminTool.java` |
+| `add_member` | `POST /api/v3/projects/{id}/memberships` | 加入项目并授权 | `core/tool/impl/admin/OpenProjectAdminTool.java` |
+| `create_role` | `POST /api/v3/roles` | 创建自定义角色 | `core/tool/impl/admin/OpenProjectAdminTool.java` |
+| `lock_user` | `PATCH /api/v3/users/{id}` | 锁定/解锁员工账号 | `core/tool/impl/admin/OpenProjectAdminTool.java` |
+
+**权限隔离**：
+- OpenProjectAdminTool 实现 Tool 接口，注册到 ToolRegistry
+- 部门设置为 "admin_management"
+- MainBrain 使用 `toolRegistry.getAll()` 可访问
+- 其他大脑通过 `filterToolsByBrainDepartment()` 过滤，不可访问
+- 员工使用的 OpenProjectTool 保持原有日常操作，不添加管理类 action
+
+> **注意**：OpenProjectTool 当前实现中 `NAME = "jira"`，对外暴露为 jira 工具名。这是设计上兼容 Jira 语义，内部映射到 OpenProject API。OpenProjectAdminTool 将使用独立的工具名 "openproject_admin"。
 
 ---
 
@@ -502,14 +520,23 @@ POST /securityRealm/createAccountByAdmin
 # 然后创建 T03 的 API Token（同上方式）
 ```
 
-### 4.3 需要扩展的 JenkinsTool API
+### 4.3 管理类操作独立成 JenkinsAdminTool
 
-| 新 action | API 端点 | 用途 | 当前状态 |
-|-----------|---------|------|---------|
-| `create_job` | `POST /createItem?name={name}` | 创建Pipeline Job | ❌ 未实现 |
-| `delete_job` | `POST /job/{name}/doDelete` | 删除Job | ❌ 未实现 |
-| `list_plugins` | `GET /pluginManager/api/json` | 查看已安装插件 | ❌ 未实现 |
-| `create_credential` | `POST /credentials/...` | 创建凭据 | ❌ 未实现 |
+> **调整说明**：根据 `MAINBRAIN_ADMIN_BRIDGE_PLAN.md`，管理类操作不再扩展到 JenkinsTool，而是独立成 JenkinsAdminTool（实现 Tool 接口），部门为 "admin_management"，MainBrain 可访问，其他大脑不可访问。
+
+| AdminTool action | API 端点 | 用途 | 实现位置 |
+|-------------------|---------|------|---------|
+| `create_job` | `POST /createItem?name={name}` | 创建Pipeline Job | `core/tool/impl/admin/JenkinsAdminTool.java` |
+| `delete_job` | `POST /job/{name}/doDelete` | 删除Job | `core/tool/impl/admin/JenkinsAdminTool.java` |
+| `list_plugins` | `GET /pluginManager/api/json` | 查看已安装插件 | `core/tool/impl/admin/JenkinsAdminTool.java` |
+| `create_credential` | `POST /credentials/...` | 创建凭据 | `core/tool/impl/admin/JenkinsAdminTool.java` |
+
+**权限隔离**：
+- JenkinsAdminTool 实现 Tool 接口，注册到 ToolRegistry
+- 部门设置为 "admin_management"
+- MainBrain 使用 `toolRegistry.getAll()` 可访问
+- 其他大脑通过 `filterToolsByBrainDepartment()` 过滤，不可访问
+- 员工使用的 JenkinsTool 保持原有日常操作，不添加管理类 action
 
 ---
 
@@ -788,58 +815,61 @@ ChairmanOnboardingService.onboard(userId):
 
 ---
 
-## 九、工具扩展清单（GitLabTool / OpenProjectTool / JenkinsTool）
+## 九、管理类工具实现清单（GitLabAdminTool / OpenProjectAdminTool / JenkinsAdminTool）
 
-### 9.1 GitLabTool 需新增的 action（管理类）
+> **调整说明**：根据 `MAINBRAIN_ADMIN_BRIDGE_PLAN.md`，管理类操作不再扩展到员工使用的 GitLabTool/OpenProjectTool/JenkinsTool，而是独立成管理类工具（实现 Tool 接口），通过 ToolRegistry 权限机制区分。
 
-| action | API | 权限级别 |
-|--------|-----|---------|
-| `create_group` | `POST /api/v4/groups` | Admin |
-| `delete_group` | `DELETE /api/v4/groups/{id}` | Admin |
-| `create_project` | `POST /api/v4/projects` | Admin |
-| `delete_project` | `DELETE /api/v4/projects/{id}` | Admin |
-| `create_user` | `POST /api/v4/users` | Admin |
-| `block_user` | `POST /api/v4/users/{id}/block` | Admin |
-| `unblock_user` | `POST /api/v4/users/{id}/unblock` | Admin |
-| `add_member` | `POST /api/v4/groups/{id}/members` | Maintainer+ |
-| `remove_member` | `DELETE /api/v4/groups/{id}/members/{uid}` | Maintainer+ |
-| `create_token` | `POST /api/v4/users/{id}/personal_access_tokens` | Admin |
+### 9.1 GitLabAdminTool 实现清单
 
-### 9.2 OpenProjectTool 需新增的 action（管理类）
+| action | API | 权限级别 | 实现位置 |
+|--------|-----|---------|---------|
+| `create_group` | `POST /api/v4/groups` | Admin | `core/tool/impl/admin/GitLabAdminTool.java` |
+| `delete_group` | `DELETE /api/v4/groups/{id}` | Admin | `core/tool/impl/admin/GitLabAdminTool.java` |
+| `create_project` | `POST /api/v4/projects` | Admin | `core/tool/impl/admin/GitLabAdminTool.java` |
+| `delete_project` | `DELETE /api/v4/projects/{id}` | Admin | `core/tool/impl/admin/GitLabAdminTool.java` |
+| `create_user` | `POST /api/v4/users` | Admin | `core/tool/impl/admin/GitLabAdminTool.java` |
+| `block_user` | `POST /api/v4/users/{id}/block` | Admin | `core/tool/impl/admin/GitLabAdminTool.java` |
+| `unblock_user` | `POST /api/v4/users/{id}/unblock` | Admin | `core/tool/impl/admin/GitLabAdminTool.java` |
+| `add_member` | `POST /api/v4/groups/{id}/members` | Maintainer+ | `core/tool/impl/admin/GitLabAdminTool.java` |
+| `remove_member` | `DELETE /api/v4/groups/{id}/members/{uid}` | Maintainer+ | `core/tool/impl/admin/GitLabAdminTool.java` |
+| `create_token` | `POST /api/v4/users/{id}/personal_access_tokens` | Admin | `core/tool/impl/admin/GitLabAdminTool.java` |
 
-| action | API | 权限级别 |
-|--------|-----|---------|
-| `create_project` | `POST /api/v3/projects` | Admin |
-| `create_user` | `POST /api/v3/users` | Admin |
-| `lock_user` | `PATCH /api/v3/users/{id}` (status=locked) | Admin |
-| `add_member` | `POST /api/v3/projects/{id}/memberships` | Admin |
-| `remove_member` | `DELETE /api/v3/memberships/{id}` | Admin |
-| `create_role` | `POST /api/v3/roles` | Admin |
-| `list_roles` | `GET /api/v3/roles` | Admin |
-| `list_projects` | `GET /api/v3/projects` | Any authenticated |
-| `get_project` | `GET /api/v3/projects/{id}` | Project member |
+### 9.2 OpenProjectAdminTool 实现清单
 
-### 9.3 JenkinsTool 需新增的 action（管理类）
+| action | API | 权限级别 | 实现位置 |
+|--------|-----|---------|---------|
+| `create_project` | `POST /api/v3/projects` | Admin | `core/tool/impl/admin/OpenProjectAdminTool.java` |
+| `create_user` | `POST /api/v3/users` | Admin | `core/tool/impl/admin/OpenProjectAdminTool.java` |
+| `lock_user` | `PATCH /api/v3/users/{id}` (status=locked) | Admin | `core/tool/impl/admin/OpenProjectAdminTool.java` |
+| `add_member` | `POST /api/v3/projects/{id}/memberships` | Admin | `core/tool/impl/admin/OpenProjectAdminTool.java` |
+| `remove_member` | `DELETE /api/v3/memberships/{id}` | Admin | `core/tool/impl/admin/OpenProjectAdminTool.java` |
+| `create_role` | `POST /api/v3/roles` | Admin | `core/tool/impl/admin/OpenProjectAdminTool.java` |
+| `list_roles` | `GET /api/v3/roles` | Admin | `core/tool/impl/admin/OpenProjectAdminTool.java` |
 
-| action | API | 权限级别 |
-|--------|-----|---------|
-| `create_job` | `POST /createItem?name={name}` | Admin |
-| `delete_job` | `POST /job/{name}/doDelete` | Admin |
-| `create_credential` | `POST /credentials/store/system/domain/_/createCredentials` | Admin |
-| `list_credentials` | `GET /credentials/store/system/domain/_/api/json` | Admin |
-| `create_user` | `POST /securityRealm/createAccountByAdmin` | Admin |
+### 9.3 JenkinsAdminTool 实现清单
 
-### 9.4 管理类 action 的安全限制
+| action | API | 权限级别 | 实现位置 |
+|--------|-----|---------|---------|
+| `create_job` | `POST /createItem?name={name}` | Admin | `core/tool/impl/admin/JenkinsAdminTool.java` |
+| `delete_job` | `POST /job/{name}/doDelete` | Admin | `core/tool/impl/admin/JenkinsAdminTool.java` |
+| `create_credential` | `POST /credentials/store/system/domain/_/createCredentials` | Admin | `core/tool/impl/admin/JenkinsAdminTool.java` |
+| `list_credentials` | `GET /credentials/store/system/domain/_/api/json` | Admin | `core/tool/impl/admin/JenkinsAdminTool.java` |
+| `create_user` | `POST /securityRealm/createAccountByAdmin` | Admin | `core/tool/impl/admin/JenkinsAdminTool.java` |
+
+### 9.4 权限隔离机制
 
 ```
-关键规则：管理类 action（上述列表）仅在以下条件下可用：
-  1. 调用者是 MainBrain (neuron://core/main-brain/001)
-  2. 或 调用者通过了 AccessLevel.FULL + role=chairman 检查
-  3. 使用管理员 Token（非员工专属 Token）
+关键规则：管理类工具通过 ToolRegistry 权限机制区分：
+  1. GitLabAdminTool/OpenProjectAdminTool/JenkinsAdminTool 实现 Tool 接口
+  2. 部门设置为 "admin_management"
+  3. 注册到 ToolRegistry
+  4. MainBrain 使用 toolRegistry.getAll() 获取所有工具（包括管理类工具）
+  5. 其他大脑使用 filterToolsByBrainDepartment() 过滤工具（不包括 "admin_management"）
+  6. 员工使用的 GitLabTool/OpenProjectTool/JenkinsTool 保持原有日常操作，不添加管理类 action
 
-GitLabTool.resolveAccessToken() 需要区分：
-  ├── 员工调用 (有 employeeCode) → 使用员工专属 Token
-  └── MainBrain 调用 (no employeeCode) → 使用管理员 Token
+调用路径：
+  ├── 启动时：ServiceAdminBootstrap → ToolRegistry.get("gitlab_admin") → GitLabAdminTool.execute()
+  └── 运行时：MainBrain 六步决策法 → ToolRegistry.get("gitlab_admin") → GitLabAdminTool.execute()
 ```
 
 ---
@@ -853,21 +883,19 @@ GitLabTool.resolveAccessToken() 需要区分：
 | M-01 | P0 | `ServiceAdminCredential` 实体 + JPA Repository | 小 | 无 |
 | M-02 | P0 | `EmployeeExternalAccount` 实体 + JPA Repository | 小 | 无 |
 | M-03 | P0 | `ServiceAdminBootstrap` - 服务健康检查 + 凭据获取 | 中 | M-01 |
-| M-04 | P0 | `ServiceAdminBootstrap` - OpenProject 初始化 | 中 | M-03 |
-| M-05 | P0 | `ServiceAdminBootstrap` - GitLab 初始化 | 中 | M-03 |
-| M-06 | P0 | `ServiceAdminBootstrap` - Jenkins 初始化 | 中 | M-03 |
-| M-07 | P0 | `ServiceAdminBootstrap` - MemOS 初始化 | 小 | M-03 |
-| M-08 | P0 | `ServiceAdminBootstrap` - 员工账号批量创建 + 联结 | 中 | M-02, M-04~M-07 |
-| M-09 | P0 | GitLabTool 扩展 - 管理类 action 实现 | 中 | M-05 |
-| M-10 | P0 | OpenProjectTool 扩展 - 管理类 action 实现 | 中 | M-04 |
-| M-11 | P0 | JenkinsTool 扩展 - 管理类 action 实现 | 中 | M-06 |
-| M-12 | P1 | `ChairmanOnboardingService` - 董事长自动授权 | 中 | M-01, M-02 |
-| M-13 | P1 | `ServiceHealthMonitor` - 运行时健康检查 | 小 | 无 |
-| M-14 | P1 | OpenProjectTaskBridge - 任务双向同步 | 大 | M-10 |
-| M-15 | P1 | GitLabMRBridge - MR 自动关联 | 大 | M-09 |
-| M-16 | P1 | JenkinsBuildBridge - 构建自动化 | 中 | M-11 |
-| M-17 | P2 | 员工绩效看板 | 中 | M-14 |
-| M-18 | P2 | MemOS 知识自动晋升 | 中 | M-07 |
+| M-04 | P0 | `GitLabAdminTool` - 实现 Tool 接口，部门为 "admin_management" | 中 | M-03 |
+| M-05 | P0 | `OpenProjectAdminTool` - 实现 Tool 接口，部门为 "admin_management" | 中 | M-03 |
+| M-06 | P0 | `JenkinsAdminTool` - 实现 Tool 接口，部门为 "admin_management" | 中 | M-03 |
+| M-07 | P0 | `ServiceAdminBootstrap` - 通过 ToolRegistry 调用 AdminTool | 中 | M-04~M-06 |
+| M-08 | P0 | `ServiceAdminBootstrap` - 员工账号批量创建 + 联结 | 中 | M-02, M-07 |
+| M-09 | P0 | `AdminConfig` - 注册管理类工具到 ToolRegistry | 小 | M-04~M-06 |
+| M-10 | P1 | `ChairmanOnboardingService` - 董事长自动授权 | 中 | M-01, M-02 |
+| M-11 | P1 | `ServiceHealthMonitor` - 运行时健康检查 | 小 | 无 |
+| M-12 | P1 | OpenProjectTaskBridge - 任务双向同步 | 大 | M-05 |
+| M-13 | P1 | GitLabMRBridge - MR 自动关联 | 大 | M-04 |
+| M-14 | P1 | JenkinsBuildBridge - 构建自动化 | 中 | M-06 |
+| M-15 | P2 | 员工绩效看板 | 中 | M-12 |
+| M-16 | P2 | MemOS 知识自动晋升 | 中 | M-07 |
 
 ### 10.2 推荐执行顺序
 
@@ -876,21 +904,21 @@ GitLabTool.resolveAccessToken() 需要区分：
   M-01 → M-02 → M-03
   （创建实体、Repository、基础框架和健康检查）
 
-第二周（服务初始化）:
-  M-04 → M-05 → M-06 → M-07
-  （实现四个服务的完整初始化流程）
+第二周（管理类工具实现）:
+  M-04 → M-05 → M-06 → M-09
+  （实现三个管理类工具 + 注册到 ToolRegistry）
 
-第三周（员工账号 + 工具扩展）:
-  M-08 → M-09 → M-10 → M-11
-  （批量创建员工账号 + 扩展Tool的管理类 action）
+第三周（员工账号 + 编排层）:
+  M-07 → M-08
+  （通过 ToolRegistry 调用 AdminTool + 批量创建员工账号）
 
 第四周（授权 + 运行时监控）:
-  M-12 → M-13
+  M-10 → M-11
   （董事长自动授权 + 健康监控）
 
 后续迭代:
-  M-14 → M-15 → M-16  （任务闭环）
-  M-17 → M-18          （治理能力）
+  M-12 → M-13 → M-14  （任务闭环）
+  M-15 → M-16          （治理能力）
 ```
 
 ---

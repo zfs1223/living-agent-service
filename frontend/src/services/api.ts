@@ -264,30 +264,6 @@ export const agentApi = {
 // Note: AgentTaskController (/agents/{agentId}/tasks) is deprecated.
 // All task operations now use the unified /tasks API.
 export const taskApi = {
-    /** @deprecated Use globalTaskApi.list instead. AgentTaskController is deprecated. */
-    list: (agentId: string, status?: string, type?: string) => {
-        const params = new URLSearchParams();
-        if (status) params.set('status', status);
-        if (type) params.set('type', type);
-        return request<Task[]>(`/tasks?${params}`);
-    },
-
-    /** @deprecated Use globalTaskApi.create instead. AgentTaskController is deprecated. */
-    create: (agentId: string, data: any) =>
-        request<Task>(`/tasks`, { method: 'POST', body: JSON.stringify(data) }),
-
-    /** @deprecated Use globalTaskApi.update instead. AgentTaskController is deprecated. */
-    update: (agentId: string, taskId: string, data: Partial<Task>) =>
-        request<Task>(`/tasks/${taskId}`, { method: 'PATCH', body: JSON.stringify(data) }),
-
-    /** @deprecated AgentTaskController is deprecated. */
-    getLogs: (agentId: string, taskId: string) =>
-        request<{ id: string; task_id: string; content: string; created_at: string }[]>(`/tasks/${taskId}/logs`),
-
-    /** @deprecated AgentTaskController is deprecated. */
-    trigger: (agentId: string, taskId: string) =>
-        request<any>(`/tasks/${taskId}/trigger`, { method: 'POST' }),
-
     getPublicTasks: (department?: string) => {
         const params = new URLSearchParams();
         if (department) params.set('department', department);
@@ -590,7 +566,7 @@ export const projectApi = {
         request<any>(`/projects/${id}`),
 
     create: (data: any) =>
-        request<any>('/projects/', { method: 'POST', body: JSON.stringify(data) }),
+        request<any>('/projects', { method: 'POST', body: JSON.stringify(data) }),
 
     update: (id: string, data: any) =>
         request<any>(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
@@ -624,11 +600,14 @@ export const approvalApi = {
     getMyPending: () =>
         request<any[]>('/approvals/my-pending'),
 
+    getMyApprovals: () =>
+        request<any[]>('/approvals/my'),
+
     get: (id: string) =>
         request<any>(`/approvals/${id}`),
 
     create: (data: any) =>
-        request<any>('/approvals/', { method: 'POST', body: JSON.stringify(data) }),
+        request<any>('/approvals', { method: 'POST', body: JSON.stringify(data) }),
 
     getSteps: (approvalId: string) =>
         request<any[]>(`/approvals/${approvalId}/steps`),
@@ -652,7 +631,7 @@ export const approvalApi = {
 // ─── Neurons ───────────────────────────────────────────
 export const neuronApi = {
     list: () =>
-        request<any[]>('/neurons/'),
+        request<any[]>('/neurons'),
 
     get: (id: string) =>
         request<any>(`/neurons/${id}`),

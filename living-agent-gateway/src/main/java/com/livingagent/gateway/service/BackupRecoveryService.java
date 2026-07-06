@@ -13,6 +13,10 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * @deprecated 真实还原逻辑未实现（restoreSnapshot 仅检查快照是否存在），暂标记废弃。
+ */
+@Deprecated
 @Service
 public class BackupRecoveryService {
 

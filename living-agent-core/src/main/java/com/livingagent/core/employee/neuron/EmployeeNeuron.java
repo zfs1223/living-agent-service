@@ -446,7 +446,13 @@ public class EmployeeNeuron extends AbstractNeuron {
         Map.entry("行政部", "admin"),
         Map.entry("法务部", "legal"),
         Map.entry("跨部门协调", "core"),
-        Map.entry("跨部门", "core")
+        Map.entry("跨部门", "core"),
+        Map.entry("综合管理", "core")  // dept_main 对应 MainBrain (department=core)
+    );
+
+    // departmentId 后缀到 Brain department 的特殊映射
+    private static final Map<String, String> DEPARTMENT_ID_TO_BRAIN_DEPT = Map.of(
+        "main", "core"  // dept_main -> MainBrain (department=core)
     );
 
     public boolean bindBrain(BrainRegistry brainRegistry) {
@@ -461,6 +467,14 @@ public class EmployeeNeuron extends AbstractNeuron {
             // departmentId 为空时，从 department 中文名映射到 code
             department = DEPARTMENT_NAME_TO_CODE.getOrDefault(employee.getDepartment(), employee.getDepartment());
             log.info("bindBrain: departmentId is null, mapped department='{}' -> code='{}'", employee.getDepartment(), department);
+        } else {
+            // 去掉 dept_ 前缀（数据库使用 dept_tech 格式，Brain 注册使用 tech 格式）
+            if (department.startsWith("dept_")) {
+                department = department.substring(5);
+                log.debug("bindBrain: normalized departmentId '{}' -> '{}'", employee.getDepartmentId(), department);
+            }
+            // 特殊映射：main -> core（dept_main 对应 MainBrain）
+            department = DEPARTMENT_ID_TO_BRAIN_DEPT.getOrDefault(department, department);
         }
         Optional<Brain> brainOpt = brainRegistry.getByDepartment(department);
         if (brainOpt.isPresent()) {

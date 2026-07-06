@@ -98,6 +98,12 @@ public class SystemController {
                     .body(ApiResponse.err("invalid_name", "姓名不能为空"));
         }
 
+        // companyName 必填：董事长注册时必须提供公司名称
+        if (request.companyName() == null || request.companyName().isBlank()) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.err("invalid_company_name", "公司名称不能为空"));
+        }
+
         String employeeId = "founder_" + UUID.randomUUID().toString().substring(0, 8);
 
         AuthContext founder = new AuthContext();
@@ -120,14 +126,16 @@ public class SystemController {
 
         founderService.markFounderRegistered();
 
-        String tenantId = null;
-        if (request.companyName() != null && !request.companyName().isBlank()) {
-            tenantId = "tenant_" + UUID.randomUUID().toString().substring(0, 8);
-            configService.createTenantWithCompany(tenantId, request.companyName(), savedFounder.getEmployeeId());
-            configService.updateSystemConfig(new SystemConfigUpdateRequest(
-                request.companyName(), null, null, null
-            ));
-        }
+        // 必须创建 tenantId (因为 companyName 已验证必填)
+        String tenantId = "tenant_" + UUID.randomUUID().toString().substring(0, 8);
+        configService.createTenantWithCompany(tenantId, request.companyName(), savedFounder.getEmployeeId());
+        configService.updateSystemConfig(new SystemConfigUpdateRequest(
+            request.companyName(), null, null, null
+        ));
+
+        // 更新 founder 的 tenantId
+        savedFounder.setTenantId(tenantId);
+        employeeService.updateTenantId(savedFounder.getEmployeeId(), tenantId);
 
         log.info("Registered founder in database: {} ({})", savedFounder.getName(), savedFounder.getEmail());
 

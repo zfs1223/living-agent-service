@@ -75,7 +75,7 @@ export async function loadCachedTasks(dept?: string): Promise<PublicTask[]> {
         const files = await readdir(mDir);
         for (const f of files) {
           if (dept && f !== `${dept.replace(/[\\/:*?"<>|]/g, '_')}.json`) continue;
-          if (!dept && f === 'all.json') continue;
+          if (!dept && f !== 'all.json') continue;
           try {
             const content = JSON.parse(await readFile(join(mDir, f), 'utf-8'));
             if (content.cachedAt && content.ttl) {

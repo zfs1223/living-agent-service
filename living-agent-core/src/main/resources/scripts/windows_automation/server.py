@@ -31,6 +31,7 @@ active_sessions: Dict[str, Dict[str, Any]] = {}
 # ==================== 节点注册与心跳 ====================
 
 NODE_ID_FILE = Path(__file__).parent / "node_id.txt"
+CLIENT_ID_FILE = Path(__file__).parent / "client_id.txt"
 CONFIG_PATH = Path(__file__).parent / "config.json"
 
 # 从 config.json 读取服务器地址
@@ -60,6 +61,21 @@ def load_or_create_node_id() -> str:
         f.write(node_id)
     logger.info(f"生成新节点 ID: {node_id}")
     return node_id
+
+
+def load_or_create_client_id() -> str:
+    """加载或创建客户端 ID（与桌面端设备绑定）"""
+    if CLIENT_ID_FILE.exists():
+        with open(CLIENT_ID_FILE, 'r') as f:
+            client_id = f.read().strip()
+            if client_id:
+                return client_id
+    # 首次启动，生成新 ID
+    client_id = str(uuid.uuid4())
+    with open(CLIENT_ID_FILE, 'w') as f:
+        f.write(client_id)
+    logger.info(f"生成新客户端 ID: {client_id}")
+    return client_id
 
 
 def get_local_ip() -> str:
@@ -104,11 +120,13 @@ def register_to_server():
         return
 
     node_id = load_or_create_node_id()
+    client_id = load_or_create_client_id()
     host_info = get_host_info()
     port = _server_config.get("port", 8765)
 
     registration_data = {
         "node_id": node_id,
+        "client_id": client_id,
         "ip": get_local_ip(),
         "port": port,
         "applications": load_applications(),

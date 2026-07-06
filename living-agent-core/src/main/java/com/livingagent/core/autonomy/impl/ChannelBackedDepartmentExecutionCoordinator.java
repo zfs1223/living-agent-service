@@ -47,6 +47,7 @@ public class ChannelBackedDepartmentExecutionCoordinator implements DepartmentEx
                 UUID.randomUUID().toString(),
                 preparedAssignmentBatch != null ? preparedAssignmentBatch.batchId() : null,
                 preparedAssignmentBatch != null ? preparedAssignmentBatch.department() : null,
+                null,
                 "NO_ASSIGNMENT",
                 List.of(),
                 Map.of("reason", "prepared assignment batch is empty")
@@ -117,6 +118,7 @@ public class ChannelBackedDepartmentExecutionCoordinator implements DepartmentEx
             executionId,
             preparedAssignmentBatch.batchId(),
             preparedAssignmentBatch.department(),
+            preparedAssignmentBatch.sessionId(),
             STATUS_WAITING_RECEIPT,
             dispatches,
             resultMetadata

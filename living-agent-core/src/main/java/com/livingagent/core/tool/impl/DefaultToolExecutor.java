@@ -20,12 +20,12 @@ public class DefaultToolExecutor implements ToolExecutor {
     
     @Override
     public String getDescription() {
-        return "Default tool executor";
+        return "Default fallback tool executor - returns failure when no specific executor matches";
     }
     
     @Override
     public ToolResult execute(Map<String, Object> parameters, String userId) {
-        log.info("Executing default tool with parameters: {}", parameters);
-        return ToolResult.success(Map.of("message", "Default execution completed"));
+        log.warn("DefaultToolExecutor invoked - no specific tool executor matched. Parameters: {}, userId: {}", parameters, userId);
+        return ToolResult.failure("no_matching_executor: No specific tool executor available for this request. Parameters: " + parameters.keySet());
     }
 }

@@ -95,23 +95,26 @@ public class WorkflowMonitor {
 
     @Scheduled(fixedRate = 60000)
     public void checkTimeouts() {
-        log.debug("Running timeout check for {} active executions", activeExecutions.size());
-        
+        // 只在有活跃执行时打印日志，避免无意义的重复输出
+        if (!activeExecutions.isEmpty()) {
+            log.debug("Running timeout check for {} active executions", activeExecutions.size());
+        }
+
         Instant now = Instant.now();
         List<String> timedOut = new ArrayList<>();
         List<String> heartbeatsMissed = new ArrayList<>();
-        
+
         for (Map.Entry<String, PhaseExecution> entry : activeExecutions.entrySet()) {
             String projectId = entry.getKey();
             PhaseExecution execution = entry.getValue();
-            
+
             Duration timeout = phaseTimeouts.getOrDefault(
                 execution.getPhase().getCode(), Duration.ofHours(24));
-            
+
             if (execution.getElapsedTime().compareTo(timeout) > 0) {
                 timedOut.add(projectId);
             }
-            
+
             Instant lastBeat = lastHeartbeat.get(execution.getNeuronId());
             if (lastBeat != null) {
                 Duration sinceLastBeat = Duration.between(lastBeat, now);
@@ -120,11 +123,11 @@ public class WorkflowMonitor {
                 }
             }
         }
-        
+
         for (String projectId : timedOut) {
             handleTimeout(projectId);
         }
-        
+
         for (String projectId : heartbeatsMissed) {
             handleHeartbeatMissed(projectId);
         }

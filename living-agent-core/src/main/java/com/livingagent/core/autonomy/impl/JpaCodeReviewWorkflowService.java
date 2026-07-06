@@ -11,6 +11,7 @@ import com.livingagent.core.database.entity.CodeReviewStateEntity;
 import com.livingagent.core.database.repository.CodeReviewStateRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -38,6 +39,7 @@ public class JpaCodeReviewWorkflowService implements CodeReviewWorkflowService {
     }
 
     @Override
+    @Transactional
     public ReviewState createOrUpdate(String taskId, String projectId, String executionId, ReviewStage stage,
                                       String developerEmployeeCode, String reviewerEmployeeCode,
                                       String worktreePath, String diffPath, String reviewReportPath,
@@ -78,6 +80,7 @@ public class JpaCodeReviewWorkflowService implements CodeReviewWorkflowService {
     }
 
     @Override
+    @Transactional
     public ReviewState advanceStage(String taskId, ReviewStage nextStage, Map<String, Object> metadata) {
         CodeReviewStateEntity entity = repository.findByTaskId(taskId)
             .orElseThrow(() -> new IllegalArgumentException("Review state not found for taskId=" + taskId));
@@ -104,6 +107,7 @@ public class JpaCodeReviewWorkflowService implements CodeReviewWorkflowService {
     }
 
     @Override
+    @Transactional
     public ReviewState requestChanges(String taskId, List<String> findings, Map<String, Object> metadata) {
         CodeReviewStateEntity entity = repository.findByTaskId(taskId)
             .orElseThrow(() -> new IllegalArgumentException("Review state not found for taskId=" + taskId));
@@ -125,6 +129,7 @@ public class JpaCodeReviewWorkflowService implements CodeReviewWorkflowService {
     }
 
     @Override
+    @Transactional
     public ReviewState approve(String taskId, Map<String, Object> metadata) {
         CodeReviewStateEntity entity = repository.findByTaskId(taskId)
             .orElseThrow(() -> new IllegalArgumentException("Review state not found for taskId=" + taskId));
@@ -141,6 +146,7 @@ public class JpaCodeReviewWorkflowService implements CodeReviewWorkflowService {
     }
 
     @Override
+    @Transactional
     public ReviewState escalate(String taskId, String reason, Map<String, Object> metadata) {
         CodeReviewStateEntity entity = repository.findByTaskId(taskId)
             .orElseThrow(() -> new IllegalArgumentException("Review state not found for taskId=" + taskId));

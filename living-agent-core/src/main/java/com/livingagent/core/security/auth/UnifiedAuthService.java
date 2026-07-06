@@ -1,5 +1,8 @@
 package com.livingagent.core.security.auth;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.livingagent.core.database.entity.SessionContextEntity;
+import com.livingagent.core.database.repository.SessionContextRepository;
 import com.livingagent.core.security.AuthContext;
 import com.livingagent.core.security.UserIdentity;
 import com.livingagent.core.security.voiceprint.VoicePrintService;
@@ -19,12 +22,15 @@ public class UnifiedAuthService {
     private final Map<String, OAuthService> oauthServices;
     private final VoicePrintService voicePrintService;
     private final PhoneVerificationService phoneVerificationService;
+    private final SessionContextRepository sessionContextRepository;
+    private final ObjectMapper objectMapper;
     private final Map<String, AuthSession> activeSessions = new ConcurrentHashMap<>();
 
     public UnifiedAuthService(
             List<OAuthService> oauthServices,
             VoicePrintService voicePrintService,
-            PhoneVerificationService phoneVerificationService
+            PhoneVerificationService phoneVerificationService,
+            SessionContextRepository sessionContextRepository
     ) {
         this.oauthServices = new ConcurrentHashMap<>();
         if (oauthServices != null) {
@@ -34,6 +40,28 @@ public class UnifiedAuthService {
         }
         this.voicePrintService = voicePrintService;
         this.phoneVerificationService = phoneVerificationService;
+        this.sessionContextRepository = sessionContextRepository;
+        this.objectMapper = new ObjectMapper();
+    }
+
+    /**
+     * B-1-10: 启动时从 DB 加载未过期会话到内存缓存。
+     */
+    public void loadSessionsFromDb() {
+        try {
+            List<SessionContextEntity> entities = sessionContextRepository.findAll();
+            int loaded = 0;
+            for (SessionContextEntity entity : entities) {
+                AuthSession session = toAuthSession(entity);
+                if (session != null && !session.isExpired()) {
+                    activeSessions.put(session.sessionId(), session);
+                    loaded++;
+                }
+            }
+            log.info("B-1-10: Loaded {} active sessions from database (total entities: {})", loaded, entities.size());
+        } catch (Exception e) {
+            log.warn("B-1-10: Failed to load sessions from database: {}", e.getMessage());
+        }
     }
 
     public AuthResult authenticateByOAuth(String provider, String code, String redirectUri) {
@@ -100,24 +128,47 @@ public class UnifiedAuthService {
         return AuthResult.success(authContext, session);
     }
 
+    /**
+     * B-1-10: 验证会话。优先从内存查，内存未命中时从 DB 查。
+     */
     public Optional<AuthSession> validateSession(String sessionId) {
         if (sessionId == null) {
             return Optional.empty();
         }
 
         AuthSession session = activeSessions.get(sessionId);
+
+        // B-1-10: 内存未命中时从 DB 查
+        if (session == null) {
+            try {
+                session = sessionContextRepository.findById(sessionId)
+                    .map(this::toAuthSession)
+                    .orElse(null);
+                if (session != null) {
+                    activeSessions.put(sessionId, session);
+                    log.debug("B-1-10: Session loaded from DB: {}", sessionId);
+                }
+            } catch (Exception e) {
+                log.debug("B-1-10: Failed to query session from DB: {}", e.getMessage());
+            }
+        }
+
         if (session == null) {
             return Optional.empty();
         }
 
         if (session.isExpired()) {
             activeSessions.remove(sessionId);
+            // B-1-10: 过期会话从 DB 删除
+            try { sessionContextRepository.deleteById(sessionId); } catch (Exception ignored) {}
             log.info("Session expired: {}", sessionId);
             return Optional.empty();
         }
 
         if (session.isRevoked()) {
             activeSessions.remove(sessionId);
+            // B-1-10: 已撤销会话从 DB 删除
+            try { sessionContextRepository.deleteById(sessionId); } catch (Exception ignored) {}
             log.info("Session revoked: {}", sessionId);
             return Optional.empty();
         }
@@ -144,12 +195,16 @@ public class UnifiedAuthService {
 
         if (oldSession.isExpired()) {
             activeSessions.remove(oldSessionId);
+            // B-1-10: 过期会话从 DB 删除
+            try { sessionContextRepository.deleteById(oldSessionId); } catch (Exception ignored) {}
             log.info("Cannot refresh expired session: {}", oldSessionId);
             return Optional.empty();
         }
 
         // 使旧会话立即失效
         activeSessions.remove(oldSessionId);
+        // B-1-10: 旧会话从 DB 删除
+        try { sessionContextRepository.deleteById(oldSessionId); } catch (Exception ignored) {}
         log.info("Old session revoked for token rotation: {}", oldSessionId);
 
         // 创建新会话
@@ -161,16 +216,26 @@ public class UnifiedAuthService {
         return Optional.of(newSession);
     }
 
+    /**
+     * B-1-10: 使会话失效，同时从 DB 删除。
+     */
     public void invalidateSession(String sessionId) {
         AuthSession removed = activeSessions.remove(sessionId);
         if (removed != null) {
+            // B-1-10: 同时从 DB 删除
+            try { sessionContextRepository.deleteById(sessionId); } catch (Exception ignored) {}
             log.info("Session invalidated: {} for user: {}", sessionId, removed.authContext().getName());
         }
     }
 
+    /**
+     * B-1-10: 使某用户所有会话失效，同时从 DB 删除。
+     */
     public void invalidateAllSessionsForUser(String employeeId) {
         activeSessions.entrySet().removeIf(entry -> {
             if (entry.getValue().authContext().getEmployeeId().equals(employeeId)) {
+                // B-1-10: 同时从 DB 删除
+                try { sessionContextRepository.deleteById(entry.getKey()); } catch (Exception ignored) {}
                 log.info("Invalidated session {} for user: {}", entry.getKey(), employeeId);
                 return true;
             }
@@ -187,6 +252,9 @@ public class UnifiedAuthService {
         }
     }
 
+    /**
+     * B-1-10: 创建会话，同时写 DB。
+     */
     private AuthSession createSession(AuthContext authContext, String authMethod) {
         String sessionId = "sess_" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 16);
         Instant now = Instant.now();
@@ -202,6 +270,14 @@ public class UnifiedAuthService {
         );
 
         activeSessions.put(sessionId, session);
+
+        // B-1-10: 同时写 DB
+        try {
+            sessionContextRepository.save(toSessionContextEntity(session));
+        } catch (Exception e) {
+            log.warn("B-1-10: Failed to persist session to DB: {}", e.getMessage());
+        }
+
         return session;
     }
 
@@ -239,6 +315,77 @@ public class UnifiedAuthService {
         stats.put("oauthProviders", oauthServices.keySet());
         stats.put("voicePrintCount", voicePrintService != null ? voicePrintService.getVoicePrintCount() : 0);
         return stats;
+    }
+
+    // ===== B-1-10: DB 映射方法 =====
+
+    /** AuthSession -> SessionContextEntity */
+    private SessionContextEntity toSessionContextEntity(AuthSession session) {
+        SessionContextEntity entity = new SessionContextEntity();
+        entity.setSessionId(session.sessionId());
+        entity.setUserId(session.authContext().getEmployeeId());
+        entity.setTenantId(session.authContext().getTenantId());
+        entity.setDepartmentCode(session.authContext().getDepartment());
+        entity.setConnectedAt(session.createdAt());
+        entity.setLastActivity(Instant.now());
+        // 将 authMethod、expiresAt 等信息序列化到 attributesJson
+        try {
+            Map<String, Object> attrs = new ConcurrentHashMap<>();
+            attrs.put("authMethod", session.authMethod());
+            attrs.put("expiresAt", session.expiresAt().toString());
+            attrs.put("name", session.authContext().getName());
+            attrs.put("identity", session.authContext().getIdentity() != null ? session.authContext().getIdentity().name() : null);
+            if (session.metadata() != null && !session.metadata().isEmpty()) {
+                attrs.put("metadata", session.metadata());
+            }
+            entity.setAttributesJson(objectMapper.writeValueAsString(attrs));
+        } catch (Exception e) {
+            entity.setAttributesJson("{}");
+        }
+        return entity;
+    }
+
+    /** SessionContextEntity -> AuthSession */
+    private AuthSession toAuthSession(SessionContextEntity entity) {
+        try {
+            String json = entity.getAttributesJson();
+            Map<String, Object> attrs = (json != null && !json.isEmpty())
+                ? objectMapper.readValue(json, Map.class) : Map.of();
+
+            AuthContext authContext = new AuthContext();
+            authContext.setEmployeeId(entity.getUserId());
+            authContext.setTenantId(entity.getTenantId());
+            authContext.setDepartment(entity.getDepartmentCode());
+            authContext.setSessionId(entity.getSessionId());
+            if (attrs.containsKey("name")) authContext.setName((String) attrs.get("name"));
+            if (attrs.containsKey("identity")) {
+                try {
+                    authContext.setIdentity(UserIdentity.valueOf((String) attrs.get("identity")));
+                } catch (Exception ignored) {}
+            }
+
+            String authMethod = (String) attrs.getOrDefault("authMethod", "unknown");
+            Instant expiresAt = attrs.containsKey("expiresAt")
+                ? Instant.parse((String) attrs.get("expiresAt"))
+                : entity.getConnectedAt().plusSeconds(3600);
+
+            @SuppressWarnings("unchecked")
+            Map<String, Object> metadata = attrs.containsKey("metadata")
+                ? (Map<String, Object>) attrs.get("metadata")
+                : new ConcurrentHashMap<>();
+
+            return new AuthSession(
+                entity.getSessionId(),
+                authContext,
+                authMethod,
+                entity.getConnectedAt(),
+                expiresAt,
+                metadata
+            );
+        } catch (Exception e) {
+            log.warn("B-1-10: Failed to map SessionContextEntity to AuthSession: {}", e.getMessage());
+            return null;
+        }
     }
 
     public record AuthResult(

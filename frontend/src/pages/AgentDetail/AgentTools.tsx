@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { getToken } from '../../stores';
+import { useAuthStore } from '../../stores';
 import { useToastStore } from '../../stores/toastStore';
+import { request } from '../../services/apiBase';
 
 const getCategoryLabels = (t: any): Record<string, string> => ({
     file: t('agent.toolCategories.file'),
@@ -65,16 +66,15 @@ export default function AgentTools({ agentId, canManage = false }: { agentId: st
 
     const loadTools = async () => {
         try {
-            const token = getToken();
-            const res = await fetch(`/api/tools/agents/${encodeURIComponent(agentId!)}/with-config`, {
-                headers: { Authorization: `Bearer ${token}` },
-            });
-            if (res.ok) setTools(await res.json());
-            else {
-                const res2 = await fetch(`/api/tools/agents/${encodeURIComponent(agentId!)}`, { headers: { Authorization: `Bearer ${token}` } });
-                if (res2.ok) setTools(await res2.json());
-            }
-        } catch (e) { console.error(e); }
+            const data = await request<any[]>(`/tools/agents/${encodeURIComponent(agentId!)}/with-config`);
+            setTools(data);
+        } catch (e) {
+            // fallback: 不带 with-config 的旧接口
+            try {
+                const data2 = await request<any[]>(`/tools/agents/${encodeURIComponent(agentId!)}`);
+                setTools(data2);
+            } catch (e2) { console.error(e2); }
+        }
         setLoading(false);
     };
 
@@ -83,10 +83,8 @@ export default function AgentTools({ agentId, canManage = false }: { agentId: st
     const toggleTool = async (toolId: string, enabled: boolean) => {
         setTools(prev => prev.map(t => t.id === toolId ? { ...t, enabled } : t));
         try {
-            const token = getToken();
-            await fetch(`/api/tools/agents/${encodeURIComponent(agentId!)}`, {
+            await request<void>(`/tools/agents/${encodeURIComponent(agentId!)}`, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                 body: JSON.stringify([{ tool_id: toolId, enabled }]),
             });
         } catch (e) { console.error(e); }
@@ -112,24 +110,18 @@ export default function AgentTools({ agentId, canManage = false }: { agentId: st
         setConfigGlobalData({});
         setConfigSaving(true);
         try {
-            const token = getToken();
-            const res = await fetch(`/api/tools/agents/${encodeURIComponent(agentId!)}/category-config/${category}`, {
-                headers: { Authorization: `Bearer ${token}` },
-            });
-            if (res.ok) {
-                const data = await res.json();
-                const globalCfg = data.global_config || {};
-                const agentCfg = data.agent_config || {};
-                setConfigGlobalData(globalCfg);
-                const catSchema = CATEGORY_CONFIG_SCHEMAS[category];
-                const sensitiveKeys = getSensitiveKeys(catSchema);
-                const merged: Record<string, any> = {};
-                for (const [k, v] of Object.entries(globalCfg)) {
-                    if (!sensitiveKeys.has(k)) merged[k] = v;
-                }
-                Object.assign(merged, agentCfg);
-                setConfigData(merged);
+            const data = await request<any>(`/tools/agents/${encodeURIComponent(agentId!)}/category-config/${category}`);
+            const globalCfg = data.global_config || {};
+            const agentCfg = data.agent_config || {};
+            setConfigGlobalData(globalCfg);
+            const catSchema = CATEGORY_CONFIG_SCHEMAS[category];
+            const sensitiveKeys = getSensitiveKeys(catSchema);
+            const merged: Record<string, any> = {};
+            for (const [k, v] of Object.entries(globalCfg)) {
+                if (!sensitiveKeys.has(k)) merged[k] = v;
             }
+            Object.assign(merged, agentCfg);
+            setConfigData(merged);
         } catch (e) { console.error(e); }
         setConfigSaving(false);
     };
@@ -138,8 +130,6 @@ export default function AgentTools({ agentId, canManage = false }: { agentId: st
         if (!configTool && !configCategory) return;
         setConfigSaving(true);
         try {
-            const token = getToken();
-
             if (configCategory) {
                 const raw = configData;
                 const catSchema = CATEGORY_CONFIG_SCHEMAS[configCategory!];
@@ -149,9 +139,8 @@ export default function AgentTools({ agentId, canManage = false }: { agentId: st
                     if (sensitiveKeys.has(k) && (v === '' || v === undefined || v === null)) continue;
                     payload[k] = v;
                 }
-                await fetch(`/api/tools/agents/${encodeURIComponent(agentId!)}/category-config/${configCategory}`, {
+                await request<any>(`/tools/agents/${encodeURIComponent(agentId!)}/category-config/${configCategory}`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                     body: JSON.stringify({ config: payload }),
                 });
                 setConfigCategory(null);
@@ -164,9 +153,8 @@ export default function AgentTools({ agentId, canManage = false }: { agentId: st
                     if (sensitiveKeys.has(k) && (v === '' || v === undefined || v === null)) continue;
                     payload[k] = v;
                 }
-                await fetch(`/api/tools/agents/${encodeURIComponent(agentId!)}/tool-config/${configTool.id}`, {
+                await request<any>(`/tools/agents/${encodeURIComponent(agentId!)}/tool-config/${configTool.id}`, {
                     method: 'PUT',
-                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                     body: JSON.stringify({ config: payload }),
                 });
                 setConfigTool(null);
@@ -212,11 +200,9 @@ export default function AgentTools({ agentId, canManage = false }: { agentId: st
                                         const catToolIds = new Set((catTools as any[]).map(t => t.id));
                                         setTools(prev => prev.map(t => catToolIds.has(t.id) ? { ...t, enabled: targetEnabled } : t));
                                         try {
-                                            const token = getToken();
                                             const payload = Array.from(catToolIds).map(id => ({ tool_id: id, enabled: targetEnabled }));
-                                            await fetch(`/api/tools/agents/${encodeURIComponent(agentId!)}`, {
+                                            await request<void>(`/tools/agents/${encodeURIComponent(agentId!)}`, {
                                                 method: 'PUT',
-                                                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                                                 body: JSON.stringify(payload),
                                             });
                                         } catch (err: any) {
@@ -274,13 +260,8 @@ export default function AgentTools({ agentId, canManage = false }: { agentId: st
                                                 if (!confirm(t('agent.tools.confirmDelete', `Remove "${tool.display_name}" from this agent?`))) return;
                                                 setDeletingToolId(tool.id);
                                                 try {
-                                                    const token = getToken();
-                                                    const res = await fetch(`/api/tools/agent-tool/${tool.agent_tool_id}`, {
-                                                        method: 'DELETE',
-                                                        headers: { Authorization: `Bearer ${token}` },
-                                                    });
-                                                    if (res.ok) await loadTools();
-                                                    else useToastStore.getState().showToast('删除失败', 'error');
+                                                    await request<void>(`/tools/agent-tool/${tool.agent_tool_id}`, { method: 'DELETE' });
+                                                    await loadTools();
                                                 } catch (e) { useToastStore.getState().showToast('删除失败: ' + e, 'error'); }
                                                 setDeletingToolId(null);
                                             }}
@@ -396,7 +377,7 @@ export default function AgentTools({ agentId, canManage = false }: { agentId: st
                                             );
                                         })
                                         .map((field: any) => {
-                                            const userFromStore = require('../../stores').useAuthStore.getState().user;
+                                            const userFromStore = useAuthStore.getState().user;
                                             const currentUserRole = userFromStore?.role;
                                             const isReadOnly = field.read_only_for_roles?.includes(currentUserRole);
                                             return (
@@ -476,8 +457,7 @@ export default function AgentTools({ agentId, canManage = false }: { agentId: st
                             <div style={{ display: 'flex', gap: '8px', marginTop: '16px', justifyContent: 'flex-end' }}>
                                 {configTool && configTool.agent_config && Object.keys(configTool.agent_config || {}).length > 0 && (
                                     <button className="btn btn-ghost" style={{ color: 'var(--error)', marginRight: 'auto' }} onClick={async () => {
-                                        const token = getToken();
-                                        await fetch(`/api/tools/agents/${encodeURIComponent(agentId!)}/tool-config/${configTool.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ config: {} }) });
+                                        await request<any>(`/tools/agents/${encodeURIComponent(agentId!)}/tool-config/${configTool.id}`, { method: 'PUT', body: JSON.stringify({ config: {} }) });
                                         setConfigTool(null); loadTools();
                                     }}>重置为全局默认</button>
                                 )}

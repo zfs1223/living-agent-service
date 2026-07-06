@@ -1,6 +1,7 @@
 package com.livingagent.core.autonomy;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 
 public record DialogueDecision(
@@ -12,10 +13,10 @@ public record DialogueDecision(
     String intent,
     String primaryDepartment,
     String primaryBrainId,
-    java.util.List<String> supportingDepartments,
+    List<String> supportingDepartments,
     boolean requiresTaskExecution,
     boolean requiresClarification,
-    String clarificationQuestion,
+    List<String> clarificationQuestions,  // P1-3: 改为 List<String>，与 MainBrainTaskPlan 对齐
     int complexity,
     int riskLevel,
     Map<String, Object> metadata

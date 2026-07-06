@@ -1,23 +1,26 @@
 package com.livingagent.gateway.controller;
 
-import com.livingagent.core.security.AccessGateService;
+import com.livingagent.core.database.entity.MessageEntity;
+import com.livingagent.core.database.repository.MessageRepository;
+import com.livingagent.gateway.controller.common.ApiResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
-import java.util.*;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/messages")
 public class MessageController {
 
     private static final Logger log = LoggerFactory.getLogger(MessageController.class);
-    private final AccessGateService accessGateService;
+    private final MessageRepository messageRepository;
 
-    public MessageController(AccessGateService accessGateService) {
-        this.accessGateService = accessGateService;
+    public MessageController(MessageRepository messageRepository) {
+        this.messageRepository = messageRepository;
     }
 
     @GetMapping("/inbox")
@@ -25,11 +28,14 @@ public class MessageController {
             @RequestParam(defaultValue = "50") int limit,
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId == null || employeeId.isBlank()) {
-            return ResponseEntity.ok(ApiResponse.ok(new ArrayList<>()));
+            return ResponseEntity.ok(ApiResponse.ok(List.of()));
         }
-        log.debug("Getting inbox messages, limit: {}, employee: {}", limit, employeeId);
-        List<MessageInfo> messages = new ArrayList<>();
-        return ResponseEntity.ok(ApiResponse.ok(messages));
+        List<MessageEntity> messages = messageRepository.findByRecipientIdOrderByCreatedAtDesc(employeeId);
+        if (messages.size() > limit) {
+            messages = messages.subList(0, limit);
+        }
+        List<MessageInfo> result = messages.stream().map(this::toMessageInfo).toList();
+        return ResponseEntity.ok(ApiResponse.ok(result));
     }
 
     @GetMapping("/unread-count")
@@ -38,44 +44,55 @@ public class MessageController {
         if (employeeId == null || employeeId.isBlank()) {
             return ResponseEntity.ok(ApiResponse.ok(new UnreadCount(0)));
         }
-        log.debug("Getting unread count for employee: {}", employeeId);
-        return ResponseEntity.ok(ApiResponse.ok(new UnreadCount(0)));
+        long count = messageRepository.countByRecipientIdAndReadAtIsNull(employeeId);
+        return ResponseEntity.ok(ApiResponse.ok(new UnreadCount((int) count)));
     }
 
     @PutMapping("/{messageId}/read")
+    @Transactional
     public ResponseEntity<ApiResponse<Void>> markAsRead(
             @PathVariable String messageId,
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId == null || employeeId.isBlank()) {
             return ResponseEntity.status(401).body(ApiResponse.err("unauthorized", "Not authenticated"));
         }
-        log.info("Marking message as read: {}", messageId);
-        return ResponseEntity.ok(ApiResponse.ok(null));
+        var message = messageRepository.findByMessageId(messageId);
+        if (message.isEmpty()) {
+            return ResponseEntity.status(404).body(ApiResponse.err("not_found", "Message not found: " + messageId));
+        }
+        MessageEntity entity = message.get();
+        if (!entity.getRecipientId().equals(employeeId)) {
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Not your message"));
+        }
+        if (entity.getReadAt() == null) {
+            entity.setReadAt(Instant.now());
+            messageRepository.save(entity);
+        }
+        return ResponseEntity.ok(ApiResponse.ok());
     }
 
     @PutMapping("/read-all")
+    @Transactional
     public ResponseEntity<ApiResponse<Void>> markAllAsRead(
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId == null || employeeId.isBlank()) {
             return ResponseEntity.status(401).body(ApiResponse.err("unauthorized", "Not authenticated"));
         }
-        log.info("Marking all messages as read");
-        return ResponseEntity.ok(ApiResponse.ok(null));
+        int updated = messageRepository.markAllAsReadByRecipientId(employeeId, Instant.now());
+        log.info("Marked {} messages as read for employee: {}", updated, employeeId);
+        return ResponseEntity.ok(ApiResponse.ok());
     }
 
-    public record ApiResponse<T>(
-            boolean success,
-            T data,
-            String error,
-            String errorDescription
-    ) {
-        public static <T> ApiResponse<T> ok(T data) {
-            return new ApiResponse<>(true, data, null, null);
-        }
-
-        public static <T> ApiResponse<T> err(String error, String description) {
-            return new ApiResponse<>(false, null, error, description);
-        }
+    private MessageInfo toMessageInfo(MessageEntity entity) {
+        return new MessageInfo(
+                entity.getMessageId(),
+                entity.getType(),
+                entity.getTitle(),
+                entity.getContent(),
+                entity.getSenderId(),
+                entity.getCreatedAt(),
+                entity.isRead()
+        );
     }
 
     public record MessageInfo(

@@ -6,6 +6,8 @@ import com.livingagent.core.security.AccessGateService;
 import com.livingagent.gateway.controller.common.ApiResponse;
 import com.livingagent.gateway.service.DashboardDataService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -29,8 +31,21 @@ public class DashboardController {
         this.accessGateService = accessGateService;
     }
 
+    /**
+     * 从 SecurityContext 获取当前认证用户的 employeeId
+     * 优先使用 SecurityContext（由 SessionAuthenticationFilter 设置），其次使用 X-Employee-Id header
+     */
+    private String getAuthenticatedEmployeeId(String headerEmployeeId) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.isAuthenticated() && auth.getName() != null) {
+            return auth.getName();  // SessionAuthenticationFilter 设置的 principal 就是 employeeId
+        }
+        return headerEmployeeId;  // 降级使用 header
+    }
+
     @GetMapping("/overview")
-    public ResponseEntity<?> overview(@RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+    public ResponseEntity<?> overview(@RequestHeader(value = "X-Employee-Id", required = false) String headerEmployeeId) {
+        String employeeId = getAuthenticatedEmployeeId(headerEmployeeId);
         if (employeeId == null || employeeId.isBlank()) {
             return ResponseEntity.status(401).body(ApiResponse.err("unauthorized", "Not authenticated"));
         }
@@ -39,8 +54,9 @@ public class DashboardController {
 
     @GetMapping("/enterprise/summary")
     public ResponseEntity<ApiResponse<DashboardDTOs.EnterpriseSummary>> getEnterpriseSummary(
-            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+            @RequestHeader(value = "X-Employee-Id", required = false) String headerEmployeeId) {
 
+        String employeeId = getAuthenticatedEmployeeId(headerEmployeeId);
         if (employeeId == null || employeeId.isBlank()) {
             return ResponseEntity.status(401)
                 .body(ApiResponse.err("unauthorized", "Not authenticated"));
@@ -57,8 +73,9 @@ public class DashboardController {
 
     @GetMapping("/enterprise/departments")
     public ResponseEntity<ApiResponse<List<DashboardDTOs.DepartmentHealth>>> getDepartmentHealth(
-            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+            @RequestHeader(value = "X-Employee-Id", required = false) String headerEmployeeId) {
 
+        String employeeId = getAuthenticatedEmployeeId(headerEmployeeId);
         if (employeeId == null || !accessGateService.hasFullAccess(employeeId)) {
             return ResponseEntity.status(403)
                 .body(ApiResponse.err("forbidden", "Enterprise access required"));
@@ -70,8 +87,9 @@ public class DashboardController {
 
     @GetMapping("/enterprise/risks")
     public ResponseEntity<ApiResponse<List<DashboardDTOs.RiskAlert>>> getRiskAlerts(
-            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+            @RequestHeader(value = "X-Employee-Id", required = false) String headerEmployeeId) {
 
+        String employeeId = getAuthenticatedEmployeeId(headerEmployeeId);
         if (employeeId == null || !accessGateService.hasFullAccess(employeeId)) {
             return ResponseEntity.status(403)
                 .body(ApiResponse.err("forbidden", "Enterprise access required"));
@@ -83,8 +101,9 @@ public class DashboardController {
 
     @GetMapping("/enterprise/costs")
     public ResponseEntity<ApiResponse<DashboardDTOs.CostAnalysis>> getCostAnalysis(
-            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+            @RequestHeader(value = "X-Employee-Id", required = false) String headerEmployeeId) {
 
+        String employeeId = getAuthenticatedEmployeeId(headerEmployeeId);
         if (employeeId == null || !accessGateService.hasFullAccess(employeeId)) {
             return ResponseEntity.status(403)
                 .body(ApiResponse.err("forbidden", "Enterprise access required"));
@@ -97,8 +116,9 @@ public class DashboardController {
     @GetMapping("/department/{code}/summary")
     public ResponseEntity<ApiResponse<DashboardDTOs.DepartmentSummary>> getDepartmentSummary(
             @PathVariable String code,
-            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+            @RequestHeader(value = "X-Employee-Id", required = false) String headerEmployeeId) {
 
+        String employeeId = getAuthenticatedEmployeeId(headerEmployeeId);
         if (employeeId == null || employeeId.isBlank()) {
             return ResponseEntity.status(401)
                 .body(ApiResponse.err("unauthorized", "Not authenticated"));
@@ -122,8 +142,9 @@ public class DashboardController {
 
     @GetMapping("/employee/workspace")
     public ResponseEntity<ApiResponse<DashboardDTOs.WorkspaceSummary>> getWorkspaceSummary(
-            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+            @RequestHeader(value = "X-Employee-Id", required = false) String headerEmployeeId) {
 
+        String employeeId = getAuthenticatedEmployeeId(headerEmployeeId);
         if (employeeId == null || employeeId.isBlank()) {
             return ResponseEntity.status(401)
                 .body(ApiResponse.err("unauthorized", "Not authenticated"));

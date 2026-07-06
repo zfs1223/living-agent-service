@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
-import { useAuthStore, getToken } from '../../stores';
+import { useAuthStore } from '../../stores';
 import { useToastStore } from '../../stores/toastStore';
 import { useAppStore } from '../../stores';
-import { agentApi, uploadFileWithProgress } from '../../services/api';
+import { agentApi, wsApi, uploadFileWithProgress } from '../../services/api';
 import MarkdownRenderer from '../../components/MarkdownRenderer';
 import AgentBayLivePanel, { LivePreviewState } from '../../components/AgentBayLivePanel';
 import { copyToClipboard } from '../../utils/clipboard';
+import { request } from '../../services/apiBase';
 
 /** Tiny copy button shown on hover at the bottom of message bubbles */
 function CopyMessageButton({ text }: { text: string }) {
@@ -121,14 +122,10 @@ export default function AgentChat({ agentId, agent, supportsVision, llmModels }:
         if (!aId) return [];
         if (!silent && currentAgentIdRef.current === aId) setSessionsLoading(true);
         try {
-            const tkn = getToken();
-            const res = await fetch(`/api/agents/${encodeURIComponent(aId!)}/sessions?scope=mine`, { headers: { Authorization: `Bearer ${tkn}` } });
-            if (res.ok) {
-                const data = await res.json();
-                if (currentAgentIdRef.current === aId) setSessions(data);
-                if (!silent && currentAgentIdRef.current === aId) setSessionsLoading(false);
-                return data;
-            }
+            const data = await request<any[]>(`/agents/${encodeURIComponent(aId!)}/sessions?scope=mine`);
+            if (currentAgentIdRef.current === aId) setSessions(data);
+            if (!silent && currentAgentIdRef.current === aId) setSessionsLoading(false);
+            return data;
         } catch { }
         if (!silent && currentAgentIdRef.current === aId) setSessionsLoading(false);
         return [];
@@ -138,12 +135,8 @@ export default function AgentChat({ agentId, agent, supportsVision, llmModels }:
         if (!agentId) return;
         setAllSessionsLoading(true);
         try {
-            const tkn = getToken();
-            const res = await fetch(`/api/agents/${encodeURIComponent(agentId!)}/sessions?scope=all`, { headers: { Authorization: `Bearer ${tkn}` } });
-            if (res.ok) {
-                const all = await res.json();
-                if (currentAgentIdRef.current === agentId) { setAllSessions(all.filter((s: any) => s.source_channel !== 'trigger')); }
-            }
+            const all = await request<any[]>(`/agents/${encodeURIComponent(agentId!)}/sessions?scope=all`);
+            if (currentAgentIdRef.current === agentId) { setAllSessions(all.filter((s: any) => s.source_channel !== 'trigger')); }
         } catch { }
         setAllSessionsLoading(false);
     };
@@ -183,10 +176,7 @@ export default function AgentChat({ agentId, agent, supportsVision, llmModels }:
         sessionMsgAbortRef.current = controller;
         const loadSeq = ++sessionLoadSeqRef.current;
         try {
-            const tkn = getToken();
-            const res = await fetch(`/api/agents/${encodeURIComponent(targetAgentId!)}/sessions/${sess.id}/messages`, { headers: { Authorization: `Bearer ${tkn}` }, signal: controller.signal });
-            if (!res.ok) return;
-            const msgs = await res.json();
+            const msgs = await request<any[]>(`/agents/${encodeURIComponent(targetAgentId!)}/sessions/${sess.id}/messages`, { signal: controller.signal });
             if (controller.signal.aborted || loadSeq !== sessionLoadSeqRef.current) return;
             if (currentAgentIdRef.current !== targetAgentId) return;
             if (activeSessionIdRef.current !== sess.id) return;
@@ -199,18 +189,15 @@ export default function AgentChat({ agentId, agent, supportsVision, llmModels }:
     const createNewSession = async () => {
         if (!agentId) return;
         try {
-            const tkn = getToken();
-            const res = await fetch(`/api/agents/${encodeURIComponent(agentId!)}/sessions`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tkn}` }, body: JSON.stringify({}) });
-            if (res.ok) { const newSess = await res.json(); setSessions(prev => [newSess, ...prev]); setIsStreaming(false); setIsWaiting(false); await selectSession(newSess); }
-            else { const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` })); useToastStore.getState().showToast(t('chat.createSessionFailed', '创建会话失败') + `: ${err.detail || res.status}`, 'error'); }
+            const newSess = await request<any>(`/agents/${encodeURIComponent(agentId!)}/sessions`, { method: 'POST', body: JSON.stringify({}) });
+            setSessions(prev => [newSess, ...prev]); setIsStreaming(false); setIsWaiting(false); await selectSession(newSess);
         } catch (err: any) { useToastStore.getState().showToast(t('chat.createSessionFailed', '创建会话失败') + `: ${err.message || err}`, 'error'); }
     };
 
     const deleteSession = async (sessionId: string) => {
         if (!confirm(t('chat.deleteConfirm', 'Delete this session?'))) return;
-        const tkn = getToken();
         try {
-            await fetch(`/api/agents/${encodeURIComponent(agentId!)}/sessions/${sessionId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${tkn}` } });
+            await request(`/agents/${encodeURIComponent(agentId!)}/sessions/${sessionId}`, { method: 'DELETE' });
             if (agentId) closeSessionSocket(buildSessionRuntimeKey(agentId, sessionId), true);
             if (activeSession?.id === sessionId) { activeSessionIdRef.current = null; setActiveSession(null); setChatMessages([]); setHistoryMsgs([]); setWsConnected(false); setIsStreaming(false); setIsWaiting(false); }
             await fetchMySessions(false, agentId);
@@ -242,14 +229,12 @@ export default function AgentChat({ agentId, agent, supportsVision, llmModels }:
         const existing = wsMapRef.current[key];
         if (existing && (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)) return;
         reconnectDisabledRef.current[key] = false;
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const sessionParam = `&session_id=${sessionId}`;
         const scheduleReconnect = () => {
             if (reconnectDisabledRef.current[key]) return;
             clearReconnectTimer(key);
             reconnectTimerRef.current[key] = setTimeout(() => { reconnectTimerRef.current[key] = null; if (!reconnectDisabledRef.current[key]) ensureSessionSocket(sess, aId, authToken); }, 2000);
         };
-        const ws = new WebSocket(`${protocol}//${window.location.host}/ws/agent?token=${authToken}${sessionParam}&agentId=${encodeURIComponent(aId)}`);
+        const ws = new WebSocket(wsApi.agentUrl(aId, authToken, sessionId));
         wsMapRef.current[key] = ws;
         ws.onopen = () => {
             if (reconnectDisabledRef.current[key]) { ws.close(); return; }

@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { adminApi, fetchJson } from '../services/api';
-import { useAuthStore, getToken } from '../stores';
+import { useAuthStore } from '../stores';
+import { request } from '../services/apiBase';
 import { saveAccentColor, getSavedAccentColor } from '../utils/theme';
 import { IconFilter } from '@tabler/icons-react';
 import PlatformDashboard from './PlatformDashboard';
@@ -111,15 +112,13 @@ function PlatformTab() {
         // Load platform toggles
         adminApi.getPlatformSettings().then(setSettings).catch(() => { });
         // Load notification bar
-        const token = getToken();
-        fetch('/api/enterprise/system-settings/notification_bar', {
-            headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        }).then(r => r.json()).then(d => {
-            if (d?.value) {
-                setNbEnabled(!!d.value.enabled);
-                setNbText(d.value.text || '');
-            }
-        }).catch(() => { });
+        request<any>('/enterprise/system-settings/notification_bar')
+            .then(d => {
+                if (d?.value) {
+                    setNbEnabled(!!d.value.enabled);
+                    setNbText(d.value.text || '');
+                }
+            }).catch(() => { });
         // Load Public URL
         fetchJson<any>('/enterprise/system-settings/platform')
             .then(d => {
@@ -142,10 +141,8 @@ function PlatformTab() {
     const saveNotificationBar = async () => {
         setNbSaving(true);
         try {
-            const token = getToken();
-            await fetch('/api/enterprise/system-settings/notification_bar', {
+            await request('/enterprise/system-settings/notification_bar', {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
                 body: JSON.stringify({ value: { enabled: nbEnabled, text: nbText } }),
             });
             setNbSaved(true);

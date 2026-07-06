@@ -3,7 +3,10 @@ package com.livingagent.core.intervention.impl;
 import com.livingagent.core.intervention.*;
 import com.livingagent.core.channel.ChannelMessage;
 import com.livingagent.core.channel.ChannelPublisher;
+import com.livingagent.core.database.entity.InterventionDecisionEntity;
+import com.livingagent.core.database.repository.InterventionDecisionRepository;
 import com.livingagent.core.knowledge.KnowledgeBase;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -28,6 +31,9 @@ public class InterventionDecisionEngineImpl implements InterventionDecisionEngin
     private final ImpactAnalyzer impactAnalyzer;
     private final KnowledgeBase knowledgeBase;
     private final ChannelPublisher channelPublisher;
+    private final InterventionProperties properties;
+    private final InterventionDecisionRepository decisionRepository;
+    private final ObjectMapper objectMapper;
 
     private final AtomicLong decisionCounter = new AtomicLong(0);
     private final AtomicLong autoExecutedCounter = new AtomicLong(0);
@@ -44,11 +50,16 @@ public class InterventionDecisionEngineImpl implements InterventionDecisionEngin
             RiskAssessmentService riskAssessmentService,
             ImpactAnalyzer impactAnalyzer,
             KnowledgeBase knowledgeBase,
-            ChannelPublisher channelPublisher) {
+            ChannelPublisher channelPublisher,
+            InterventionProperties properties,
+            InterventionDecisionRepository decisionRepository) {
         this.riskAssessmentService = riskAssessmentService;
         this.impactAnalyzer = impactAnalyzer;
         this.knowledgeBase = knowledgeBase;
         this.channelPublisher = channelPublisher;
+        this.properties = properties;
+        this.decisionRepository = decisionRepository;
+        this.objectMapper = new ObjectMapper();
         initializeDefaultRules();
         initializeDefaultScopes();
     }
@@ -123,12 +134,25 @@ public class InterventionDecisionEngineImpl implements InterventionDecisionEngin
 
     @Override
     public InterventionDecision evaluate(InterventionRequest request) {
-        return evaluate(
+        InterventionDecision decision = evaluate(
             request.getOperationType(),
             request.getOperationDetails(),
             request.getSourceNeuronId(),
             request.getSourceChannelId()
         );
+        if (request.getDepartment() != null && decision.getDepartment() == null) {
+            decision.setDepartment(request.getDepartment());
+        }
+        if (request.getSessionId() != null && decision.getSessionId() == null) {
+            decision.setSessionId(request.getSessionId());
+        }
+        if (request.getConversationId() != null && decision.getConversationId() == null) {
+            decision.setConversationId(request.getConversationId());
+        }
+        if (request.getAiDecision() != null && decision.getAiDecision() == null) {
+            decision.setAiDecision(request.getAiDecision());
+        }
+        return decision;
     }
 
     @Override
@@ -187,6 +211,8 @@ public class InterventionDecisionEngineImpl implements InterventionDecisionEngin
         allDecisions.put(decision.getDecisionId(), decision);
         decisionCounter.incrementAndGet();
 
+        persistDecision(decision);
+
         publishDecisionMessage(decision);
 
         log.info("Decision made: {} for operation: {} - Type: {}", 
@@ -226,9 +252,9 @@ public class InterventionDecisionEngineImpl implements InterventionDecisionEngin
         decision.setInterventionType(type);
 
         if (type == InterventionDecision.InterventionType.REALTIME_CONFIRM) {
-            decision.setTimeoutSeconds(300);
+            decision.setTimeoutSeconds(properties.getDefaultRealtimeTimeoutSeconds());
         } else if (type == InterventionDecision.InterventionType.ASYNC_APPROVAL) {
-            decision.setTimeoutSeconds(86400);
+            decision.setTimeoutSeconds(properties.getDefaultAsyncTimeoutSeconds());
         }
 
         return decision;
@@ -269,6 +295,8 @@ public class InterventionDecisionEngineImpl implements InterventionDecisionEngin
             decision.getDecisionId(), decision.getEscalationLevel(), escalationTarget);
 
         publishEscalationMessage(decision);
+
+        persistDecision(decision);
 
         return Optional.of(decision);
     }
@@ -323,6 +351,8 @@ public class InterventionDecisionEngineImpl implements InterventionDecisionEngin
 
         updateAutonomousScope(decision);
 
+        persistDecision(decision);
+
         return decision;
     }
 
@@ -330,20 +360,22 @@ public class InterventionDecisionEngineImpl implements InterventionDecisionEngin
         for (AutonomousScope scope : autonomousScopes.values()) {
             if (scope.matches(decision.getOperationType())) {
                 scope.incrementExecutionCount();
-                
+
                 if (decision.getStatus() == InterventionDecision.DecisionStatus.COMPLETED &&
                     decision.getHumanDecision() == null) {
                     scope.incrementSuccessCount();
                 }
 
-                if (scope.getSuccessRate() >= 95 && scope.getExecutionCount() >= 10) {
+                if (scope.getSuccessRate() >= properties.getUpgrade().getSuccessRateThreshold() &&
+                    scope.getExecutionCount() >= properties.getUpgrade().getMinExecutionCount()) {
                     if (scope.getAutonomyLevel() == AutonomyLevel.LIMITED) {
                         scope.setAutonomyLevel(AutonomyLevel.FULL);
                         log.info("Autonomous scope {} upgraded to FULL autonomy", scope.getScopeId());
                     }
                 }
 
-                if (scope.getSuccessRate() < 80 && scope.getExecutionCount() >= 5) {
+                if (scope.getSuccessRate() < properties.getDowngrade().getSuccessRateThreshold() &&
+                    scope.getExecutionCount() >= properties.getDowngrade().getMinExecutionCount()) {
                     if (scope.getAutonomyLevel() == AutonomyLevel.FULL) {
                         scope.setAutonomyLevel(AutonomyLevel.LIMITED);
                         log.warn("Autonomous scope {} downgraded to LIMITED autonomy", scope.getScopeId());
@@ -398,6 +430,9 @@ public class InterventionDecisionEngineImpl implements InterventionDecisionEngin
 
     @Override
     public List<InterventionDecision> getPendingDecisions(String department) {
+        if (pendingDecisions.isEmpty()) {
+            loadPendingFromDb(department);
+        }
         return pendingDecisions.values().stream()
             .filter(d -> department == null || department.equals(d.getDepartment()))
             .sorted(Comparator.comparing(InterventionDecision::getCreatedAt).reversed())
@@ -422,6 +457,116 @@ public class InterventionDecisionEngineImpl implements InterventionDecisionEngin
             .filter(rule -> rule.matches(operationType, new HashMap<>()))
             .sorted(Comparator.comparingInt(InterventionRule::getPriority).reversed())
             .collect(Collectors.toList());
+    }
+
+    private void persistDecision(InterventionDecision decision) {
+        try {
+            InterventionDecisionEntity entity = new InterventionDecisionEntity();
+            entity.setDecisionId(decision.getDecisionId());
+            entity.setSessionId(decision.getSessionId());
+            entity.setConversationId(decision.getConversationId());
+            entity.setOperationType(decision.getOperationType());
+            entity.setOperationDetails(decision.getOperationDetails() != null ?
+                objectMapper.writeValueAsString(decision.getOperationDetails()) : null);
+            entity.setSourceNeuronId(decision.getSourceNeuronId());
+            entity.setSourceChannelId(decision.getSourceChannelId());
+            entity.setRiskLevel(decision.getRiskLevel() != null ? decision.getRiskLevel().name() : null);
+            entity.setRiskScore(decision.getRiskScore());
+            entity.setRiskFactors(decision.getRiskFactors() != null ?
+                objectMapper.writeValueAsString(decision.getRiskFactors()) : null);
+            entity.setImpactLevel(decision.getImpactLevel() != null ? decision.getImpactLevel().name() : null);
+            entity.setImpactScore(decision.getImpactScore());
+            entity.setImpactScope(decision.getImpactScope() != null ?
+                objectMapper.writeValueAsString(decision.getImpactScope()) : null);
+            entity.setInterventionType(decision.getInterventionType() != null ? decision.getInterventionType().name() : null);
+            entity.setAiDecision(decision.getAiDecision());
+            entity.setHumanDecision(decision.getHumanDecision());
+            entity.setFinalDecision(decision.getFinalDecision());
+            entity.setStatus(decision.getStatus() != null ? decision.getStatus().name() : null);
+            entity.setDepartment(decision.getDepartment());
+            entity.setAssignedTo(decision.getAssignedTo());
+            entity.setRespondedBy(decision.getRespondedBy());
+            entity.setTimeoutSeconds(decision.getTimeoutSeconds());
+            entity.setEscalationLevel(decision.getEscalationLevel());
+            entity.setLearningApplied(decision.isLearningApplied());
+            entity.setLearningNotes(decision.getLearningNotes());
+            entity.setCreatedAt(decision.getCreatedAt());
+            entity.setRespondedAt(decision.getRespondedAt());
+            entity.setCompletedAt(decision.getCompletedAt());
+
+            InterventionDecisionEntity existing = decisionRepository.findByDecisionId(decision.getDecisionId());
+            if (existing != null) {
+                entity.setId(existing.getId());
+            }
+            decisionRepository.save(entity);
+        } catch (Exception e) {
+            log.warn("Failed to persist intervention decision {}: {}", decision.getDecisionId(), e.getMessage());
+        }
+    }
+
+    private void loadPendingFromDb(String department) {
+        try {
+            List<String> pendingStatuses = List.of("AWAITING_RESPONSE", "ESCALATED");
+            List<InterventionDecisionEntity> entities;
+            if (department != null) {
+                entities = decisionRepository.findByStatusInAndDepartment(pendingStatuses, department);
+            } else {
+                entities = decisionRepository.findByStatusIn(pendingStatuses);
+            }
+            for (InterventionDecisionEntity entity : entities) {
+                InterventionDecision decision = toDecision(entity);
+                if (decision != null && !pendingDecisions.containsKey(decision.getDecisionId())) {
+                    pendingDecisions.put(decision.getDecisionId(), decision);
+                    allDecisions.put(decision.getDecisionId(), decision);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to load pending decisions from DB: {}", e.getMessage());
+        }
+    }
+
+    private InterventionDecision toDecision(InterventionDecisionEntity entity) {
+        try {
+            InterventionDecision decision = InterventionDecision.builder()
+                .decisionId(entity.getDecisionId())
+                .sessionId(entity.getSessionId())
+                .conversationId(entity.getConversationId())
+                .operationType(entity.getOperationType())
+                .sourceNeuronId(entity.getSourceNeuronId())
+                .sourceChannelId(entity.getSourceChannelId())
+                .department(entity.getDepartment())
+                .aiDecision(entity.getAiDecision())
+                .timeoutSeconds(entity.getTimeoutSeconds() != null ? entity.getTimeoutSeconds() : 0)
+                .build();
+            if (entity.getRiskLevel() != null) {
+                decision.setRiskLevel(InterventionDecision.RiskLevel.valueOf(entity.getRiskLevel()));
+            }
+            decision.setRiskScore(entity.getRiskScore() != null ? entity.getRiskScore() : 0.0);
+            if (entity.getImpactLevel() != null) {
+                decision.setImpactLevel(InterventionDecision.ImpactLevel.valueOf(entity.getImpactLevel()));
+            }
+            decision.setImpactScore(entity.getImpactScore() != null ? entity.getImpactScore() : 0.0);
+            if (entity.getInterventionType() != null) {
+                decision.setInterventionType(InterventionDecision.InterventionType.valueOf(entity.getInterventionType()));
+            }
+            decision.setHumanDecision(entity.getHumanDecision());
+            decision.setFinalDecision(entity.getFinalDecision());
+            if (entity.getStatus() != null) {
+                decision.setStatus(InterventionDecision.DecisionStatus.valueOf(entity.getStatus()));
+            }
+            decision.setAssignedTo(entity.getAssignedTo());
+            decision.setRespondedBy(entity.getRespondedBy());
+            decision.setEscalationLevel(entity.getEscalationLevel() != null ? entity.getEscalationLevel() : 0);
+            decision.setLearningApplied(entity.getLearningApplied() != null ? entity.getLearningApplied() : false);
+            decision.setLearningNotes(entity.getLearningNotes());
+            decision.setCreatedAt(entity.getCreatedAt());
+            decision.setRespondedAt(entity.getRespondedAt());
+            decision.setCompletedAt(entity.getCompletedAt());
+            return decision;
+        } catch (Exception e) {
+            log.warn("Failed to convert entity to decision {}: {}", entity.getDecisionId(), e.getMessage());
+            return null;
+        }
     }
 
     private String generateDecisionId() {

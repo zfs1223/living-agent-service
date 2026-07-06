@@ -179,7 +179,7 @@ public class SkillFinderTool implements Tool {
         
         if (result.isSuccess()) {
             skillRegistry.reloadSkills();
-            
+
             Map<String, Object> output = new LinkedHashMap<>();
             output.put("action", "install");
             output.put("status", "success");
@@ -187,7 +187,15 @@ public class SkillFinderTool implements Tool {
             output.put("source", source);
             output.put("version", result.getVersion());
             output.put("message", "技能安装成功");
-            
+
+            // NP1-2: 安装后更新员工技能（如果指定了目标员工）
+            String targetEmployee = params.getString("employee_code");
+            if (targetEmployee != null && !targetEmployee.isEmpty()) {
+                output.put("employee_updated", targetEmployee);
+                output.put("note", "技能已安装，员工 " + targetEmployee + " 的技能列表需在下次分派时生效");
+                log.info("Skill {} installed and associated with employee {}", skillId, targetEmployee);
+            }
+
             log.info("Skill installed: {} from {}", skillId, source);
             return ToolResult.success(output);
         } else {

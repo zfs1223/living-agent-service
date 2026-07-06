@@ -19,6 +19,9 @@ import { appOnReady, appOnActivate, appOnBeforeQuit, getMainWindow } from './win
 import { SHARED_CONSTANTS } from '../shared/constants';
 import { getOrCreateClientId } from './client-id';
 import { loadBackendUrl, isBackendConfigured } from './api-client';
+import { wsClient } from './ws-client';
+import { loadToken } from './auth';
+import { winAutomationService } from './win-automation-service';
 
 // 单实例锁：避免多开
 const gotTheLock = app.requestSingleInstanceLock();
@@ -83,6 +86,34 @@ app.whenReady().then(async () => {
   // 9. 本地保存同步
   await startLocalSaveSync();
 
+  // 10. 建立 WebSocket 连接（实时任务通知、执行事件推送）
+  const token = await loadToken();
+  if (token) {
+    try {
+      await wsClient.connect('/ws/agent');
+      console.log('[LivingAgent] WebSocket connected to /ws/agent');
+    } catch (e) {
+      console.error('[LivingAgent] Failed to connect WebSocket:', e);
+    }
+  } else {
+    console.warn('[LivingAgent] No token, WebSocket will connect after login');
+  }
+
+  // 11. 启动 Windows 自动化服务（内嵌 Python 子进程）
+  //     仅 Windows 平台启动；后端通过 WebSocket 转发 WIN_AUTOMATION_CALL 调用
+  try {
+    await winAutomationService.start();
+    if (winAutomationService.isRunning()) {
+      console.log('[LivingAgent] Windows automation service started successfully');
+    } else {
+      const startError = winAutomationService.getStartError();
+      console.error('[LivingAgent] Windows automation service FAILED to start:', startError);
+      console.error('[LivingAgent] Please ensure Python is installed and run: pip install -r resources/win-automation/requirements.txt');
+    }
+  } catch (e) {
+    console.error('[LivingAgent] Failed to start Windows automation service:', e);
+  }
+
   // 应用 ready 钩子
   appOnReady(mainWindow);
 }).catch((err) => {
@@ -113,6 +144,7 @@ appOnBeforeQuit(() => {
   destroyTray();
   stopConnectionMonitor();
   stopLocalSaveSync();
+  winAutomationService.stop();
   unregisterIpcHandlers();
 });
 

@@ -135,8 +135,8 @@ EXPOSE 8382
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:8382/actuator/health || exit 1
 
-# JVM 选项
-ENV JAVA_OPTS="-Xms512m -Xmx1536m -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8"
+# JVM 选项 (包含 java.library.path 以加载 Rust native 库)
+ENV JAVA_OPTS="-Xms512m -Xmx1536m -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8 -Djava.library.path=/app/lib"
 
 # 启动应用
 ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]

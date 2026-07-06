@@ -1,6 +1,7 @@
 package com.livingagent.gateway.controller;
 
 import com.livingagent.core.security.AccessGateService;
+import com.livingagent.gateway.controller.common.ApiResponse;
 import com.livingagent.core.service.voice.SpeakerVerificationService;
 import com.livingagent.core.service.voice.SpeakerVerificationResult;
 import org.slf4j.Logger;
@@ -39,13 +40,13 @@ public class VoicePrintController {
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.info("Registering voice print for speaker: {}", speakerId);
 
         if (!speakerVerificationService.isEnabled()) {
             return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("service_disabled", "Voice print service is disabled"));
+                    .body(ApiResponse.err("service_disabled", "Voice print service is disabled"));
         }
 
         try {
@@ -72,7 +73,7 @@ public class VoicePrintController {
         } catch (IOException e) {
             log.error("Failed to process audio file", e);
             return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("io_error", "Failed to process audio file: " + e.getMessage()));
+                    .body(ApiResponse.err("io_error", "Failed to process audio file: " + e.getMessage()));
         }
     }
 
@@ -83,13 +84,13 @@ public class VoicePrintController {
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.info("Voice print login attempt");
 
         if (!speakerVerificationService.isEnabled()) {
             return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("service_disabled", "Voice print service is disabled"));
+                    .body(ApiResponse.err("service_disabled", "Voice print service is disabled"));
         }
 
         try {
@@ -113,7 +114,7 @@ public class VoicePrintController {
                         result.getSimilarity(),
                         true
                 );
-                return ResponseEntity.ok(ApiResponse.success(response));
+                return ResponseEntity.ok(ApiResponse.ok(response));
             } else {
                 VoicePrintLoginResponse response = new VoicePrintLoginResponse(
                         null,
@@ -122,12 +123,12 @@ public class VoicePrintController {
                         false
                 );
                 return ResponseEntity.status(401)
-                        .body(ApiResponse.error("verification_failed", result.getMessage()));
+                        .body(ApiResponse.err("verification_failed", result.getMessage()));
             }
         } catch (IOException e) {
             log.error("Failed to process audio file", e);
             return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("io_error", "Failed to process audio file: " + e.getMessage()));
+                    .body(ApiResponse.err("io_error", "Failed to process audio file: " + e.getMessage()));
         }
     }
 
@@ -139,13 +140,13 @@ public class VoicePrintController {
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.info("Verifying voice print for speaker: {}", speakerId);
 
         if (!speakerVerificationService.isEnabled()) {
             return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("service_disabled", "Voice print service is disabled"));
+                    .body(ApiResponse.err("service_disabled", "Voice print service is disabled"));
         }
 
         try {
@@ -166,7 +167,7 @@ public class VoicePrintController {
         } catch (IOException e) {
             log.error("Failed to process audio file", e);
             return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("io_error", "Failed to process audio file: " + e.getMessage()));
+                    .body(ApiResponse.err("io_error", "Failed to process audio file: " + e.getMessage()));
         }
     }
 
@@ -174,7 +175,7 @@ public class VoicePrintController {
     public ResponseEntity<ApiResponse<List<VoicePrintInfo>>> listVoicePrints(
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.debug("Listing voice prints");
 
@@ -187,21 +188,21 @@ public class VoicePrintController {
                 Instant.now()
         ));
 
-        return ResponseEntity.ok(ApiResponse.success(voicePrints));
+        return ResponseEntity.ok(ApiResponse.ok(voicePrints));
     }
 
     @GetMapping("/status")
     public ResponseEntity<ApiResponse<VoicePrintStatusResponse>> getStatus(
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         VoicePrintStatusResponse response = new VoicePrintStatusResponse(
                 speakerVerificationService.isEnabled(),
                 speakerVerificationService.isUseRemote(),
                 speakerVerificationService.getThreshold()
         );
-        return ResponseEntity.ok(ApiResponse.success(response));
+        return ResponseEntity.ok(ApiResponse.ok(response));
     }
 
     private ResponseEntity<ApiResponse<VoicePrintResponse>> buildResponse(SpeakerVerificationResult result) {
@@ -215,25 +216,10 @@ public class VoicePrintController {
                     result.getMessage(),
                     result.getAllResults()
             );
-            return ResponseEntity.ok(ApiResponse.success(response));
+            return ResponseEntity.ok(ApiResponse.ok(response));
         } else {
             return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("verification_failed", result.getMessage()));
-        }
-    }
-
-    public record ApiResponse<T>(
-            boolean success,
-            T data,
-            String error,
-            String errorDescription
-    ) {
-        public static <T> ApiResponse<T> success(T data) {
-            return new ApiResponse<>(true, data, null, null);
-        }
-
-        public static <T> ApiResponse<T> error(String error, String description) {
-            return new ApiResponse<>(false, null, error, description);
+                    .body(ApiResponse.err("verification_failed", result.getMessage()));
         }
     }
 

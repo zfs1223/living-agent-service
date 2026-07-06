@@ -72,6 +72,7 @@ public abstract class AbstractBrain implements Brain {
     protected volatile BrainOutputContract lastOutputContract;
 
     protected static final int DEFAULT_MAX_ITERATIONS = 10;
+    protected static final String MAX_ITERATIONS_PROPERTY = "livingagent.brain.maxIterations";
     protected static final int DEFAULT_MAX_TOKENS = 4096;
     protected static final double DEFAULT_TEMPERATURE = 0.7;
     protected static final int PERSIST_THRESHOLD = 30000;
@@ -239,6 +240,13 @@ public abstract class AbstractBrain implements Brain {
             .employeeId(context.getEmployeeId());
 
         this.context = builder.build();
+        // 保留 clientId 和 accessLevel（updateProvider 会重建 context，需手动恢复）
+        this.context.setClientId(context.getClientId());
+        this.context.setAccessLevel(context.getAccessLevel());
+    }
+
+    public BrainContext getContext() {
+        return context;
     }
 
     @Override
@@ -422,6 +430,24 @@ public abstract class AbstractBrain implements Brain {
     }
 
     protected int getMaxIterations() {
+        // 支持通过环境变量或系统属性配置最大迭代次数
+        String configValue = System.getProperty(MAX_ITERATIONS_PROPERTY);
+        if (configValue == null) {
+            configValue = System.getenv("LIVINGAGENT_BRAIN_MAX_ITERATIONS");
+        }
+        if (configValue != null) {
+            try {
+                int configuredValue = Integer.parseInt(configValue);
+                if (configuredValue > 0 && configuredValue <= 100) {
+                    log.debug("Using configured max iterations: {}", configuredValue);
+                    return configuredValue;
+                } else {
+                    log.warn("Invalid max iterations value: {}, using default: {}", configuredValue, DEFAULT_MAX_ITERATIONS);
+                }
+            } catch (NumberFormatException e) {
+                log.warn("Failed to parse max iterations: {}, using default: {}", configValue, DEFAULT_MAX_ITERATIONS);
+            }
+        }
         return DEFAULT_MAX_ITERATIONS;
     }
 
@@ -555,13 +581,38 @@ public abstract class AbstractBrain implements Brain {
         responseMessage.addMetadata("type", "brain_response");
         publish(outputChannel, responseMessage);
 
+        // NP1-3: 如果原始消息要求响应回传给主脑，则额外发送一条响应消息到 response_channel
+        String requiresResponse = original.getMetadata("requires_response");
+        String responseChannel = original.getMetadata("response_channel");
+        String coordinationSessionId = original.getMetadata("coordination_session_id");
+        if ("true".equals(requiresResponse) && responseChannel != null && coordinationSessionId != null) {
+            ChannelMessage deptResponse = ChannelMessage.text(
+                responseChannel,
+                getId(),
+                responseChannel,
+                original.getSessionId(),
+                content
+            );
+            deptResponse.addMetadata("coordination_session_id", coordinationSessionId);
+            deptResponse.addMetadata("is_department_response", "true");
+            deptResponse.addMetadata("source_department", department);
+            deptResponse.addMetadata("source_brain_id", getId());
+            publish(responseChannel, deptResponse);
+            log.info("NP1-3: Sent department response back to MainBrain for session {}, dept={}", coordinationSessionId, department);
+        }
+
         // 构建 BrainOutputContract 并保存到 lastOutputContract
         BrainOutputContract.BrainOutputStatus contractStatus = iterations >= getMaxIterations()
             ? BrainOutputContract.BrainOutputStatus.EXECUTING
             : BrainOutputContract.BrainOutputStatus.COMPLETED;
+        // DP2-3: 填充 plan 字段，描述执行步骤
+        String planDescription = iterations > 0
+            ? "ReAct循环执行" + iterations + "步" + (iterations >= getMaxIterations() ? "（达到最大迭代次数）" : "")
+            : "直接响应";
         BrainOutputContract contract = BrainOutputContract.builder()
             .status(contractStatus)
             .summary(content != null && content.length() > 500 ? content.substring(0, 500) : content)
+            .plan(planDescription)
             .conversationId(original.getSessionId())
             .riskLevel(BrainOutputContract.RiskLevel.LOW)
             .metadata(Map.of(
@@ -663,14 +714,47 @@ public abstract class AbstractBrain implements Brain {
     
     protected void executeRepair(EvolutionDecisionEngine.EvolutionDecision decision) {
         log.info("Brain {} executing repair for skill: {}", id, decision.getTargetSkillId());
+        // DP2-1: REPAIR 策略 — 重置技能参数到安全默认值
+        if (context != null && decision.getTargetSkillId() != null) {
+            Map<String, Object> repairState = new HashMap<>();
+            repairState.put("action", "repair");
+            repairState.put("skillId", decision.getTargetSkillId());
+            repairState.put("timestamp", System.currentTimeMillis());
+            repairState.put("reasons", decision.getReasons());
+            context.setState("_repair_" + decision.getTargetSkillId(), repairState);
+            log.info("DP2-1: Brain {} repaired skill {}, state saved to context", id, decision.getTargetSkillId());
+        }
     }
-    
+
     protected void executeOptimize(EvolutionDecisionEngine.EvolutionDecision decision) {
         log.info("Brain {} executing optimization for skill: {}", id, decision.getTargetSkillId());
+        // DP2-1: OPTIMIZE 策略 — 调整人格参数以提升效率
+        if (personality != null && decision.getParameters() != null) {
+            Object deltaObj = decision.getParameters().get("personalityDelta");
+            if (deltaObj instanceof Map<?, ?> deltaMap) {
+                for (Map.Entry<?, ?> entry : deltaMap.entrySet()) {
+                    String param = String.valueOf(entry.getKey());
+                    double delta = entry.getValue() instanceof Number n ? n.doubleValue() : 0.0;
+                    updatePersonality(param, delta);
+                    log.info("DP2-1: Brain {} optimized personality param {} by {}", id, param, delta);
+                }
+            }
+        }
     }
-    
+
     protected void executeInnovate(EvolutionDecisionEngine.EvolutionDecision decision) {
         log.info("Brain {} executing innovation: {}", id, decision.getParameters());
+        // DP2-1: INNOVATE 策略 — 记录创新尝试到知识库
+        if (context != null) {
+            Map<String, Object> innovationRecord = new HashMap<>();
+            innovationRecord.put("action", "innovate");
+            innovationRecord.put("brainId", id);
+            innovationRecord.put("parameters", decision.getParameters());
+            innovationRecord.put("reasons", decision.getReasons());
+            innovationRecord.put("timestamp", System.currentTimeMillis());
+            context.setState("_innovation_" + System.currentTimeMillis(), innovationRecord);
+            log.info("DP2-1: Brain {} recorded innovation attempt, state saved to context", id);
+        }
     }
     
     protected void escalateToMainBrain(EvolutionDecisionEngine.EvolutionDecision decision) {
@@ -725,7 +809,11 @@ public abstract class AbstractBrain implements Brain {
     protected ToolRegistry getToolRegistry() {
         return context != null ? context.getToolRegistry() : null;
     }
-    
+
+    protected BrainReActEngine getReActEngine() {
+        return reactEngine;
+    }
+
     protected KnowledgeBase getKnowledgeBase() {
         return context != null ? context.getKnowledgeBase() : null;
     }

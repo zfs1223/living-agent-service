@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { agentApi, taskApi, activityApi } from '../services/api';
+import { agentApi, activityApi, globalTaskApi } from '../services/api';
 import { useAuthStore } from '../stores';
 import { usePolling } from '../hooks/usePolling';
 import EnterpriseDashboard from './Dashboard/EnterpriseDashboard';
@@ -461,7 +461,7 @@ export default function Dashboard() {
 
     const fetchData = useCallback(async () => {
         try {
-            const taskResults = await Promise.allSettled(agents.map(a => taskApi.list(a.id)));
+            const taskResults = await Promise.allSettled(agents.map(a => globalTaskApi.list()));
             const tasks: Task[] = [];
             taskResults.forEach(r => { if (r.status === 'fulfilled') tasks.push(...r.value); });
             setAllTasks(tasks);

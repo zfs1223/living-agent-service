@@ -1,6 +1,7 @@
 package com.livingagent.gateway.controller;
 
 import com.livingagent.core.security.AccessGateService;
+import com.livingagent.gateway.controller.common.ApiResponse;
 import com.livingagent.gateway.service.BackupRecoveryService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -26,9 +27,9 @@ public class RecoveryController {
             @RequestParam String scope,
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
-        return ResponseEntity.ok(ApiResponse.success(backupRecoveryService.createSnapshot(scope, payload, employeeId == null ? "system" : employeeId)));
+        return ResponseEntity.ok(ApiResponse.ok(backupRecoveryService.createSnapshot(scope, payload, employeeId == null ? "system" : employeeId)));
     }
 
     @GetMapping("/snapshots")
@@ -36,9 +37,9 @@ public class RecoveryController {
             @RequestParam(required = false) String scope,
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
-        return ResponseEntity.ok(ApiResponse.success(backupRecoveryService.listSnapshots(scope)));
+        return ResponseEntity.ok(ApiResponse.ok(backupRecoveryService.listSnapshots(scope)));
     }
 
     @PostMapping("/snapshots/{snapshotId}/restore")
@@ -46,13 +47,13 @@ public class RecoveryController {
             @PathVariable String snapshotId,
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         boolean restored = backupRecoveryService.restoreSnapshot(snapshotId);
         if (!restored) {
-            return ResponseEntity.status(404).body(ApiResponse.error("not_found", "Snapshot not found"));
+            return ResponseEntity.status(404).body(ApiResponse.err("not_found", "Snapshot not found"));
         }
-        return ResponseEntity.ok(ApiResponse.success(Map.of("snapshotId", snapshotId, "restored", true)));
+        return ResponseEntity.ok(ApiResponse.ok(Map.of("snapshotId", snapshotId, "restored", true)));
     }
 
     @PostMapping("/snapshots/{snapshotId}/verify")
@@ -61,13 +62,9 @@ public class RecoveryController {
             @RequestBody Map<String, Object> currentState,
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
-        return ResponseEntity.ok(ApiResponse.success(backupRecoveryService.verifyConsistency(snapshotId, currentState)));
+        return ResponseEntity.ok(ApiResponse.ok(backupRecoveryService.verifyConsistency(snapshotId, currentState)));
     }
 
-    public record ApiResponse<T>(boolean success, T data, String error, String errorDescription) {
-        public static <T> ApiResponse<T> success(T data) { return new ApiResponse<>(true, data, null, null); }
-        public static <T> ApiResponse<T> error(String error, String description) { return new ApiResponse<>(false, null, error, description); }
-    }
 }

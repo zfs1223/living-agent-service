@@ -80,6 +80,15 @@ public record EmployeeTaskExecutionOutcome(
             || needsHumanReview;
     }
 
+    // DP1-3: 添加 withNeedsHumanReview 方法，用于审查提交失败时标记
+    public EmployeeTaskExecutionOutcome withNeedsHumanReview(boolean needsHumanReview) {
+        return new EmployeeTaskExecutionOutcome(
+            outcomeId, executionId, employeeCode, status, summary,
+            modelProvider, modelName, artifacts, toolCalls, failureReason,
+            confidence, needsRetry, needsHumanReview, completedAt, metadata
+        );
+    }
+
     public EmployeeExecutionReceipt toReceipt(
             String dispatchId, String assignmentId, String neuronId) {
         ReceiptStatus receiptStatus = switch (status) {

@@ -73,6 +73,9 @@ export default function Login() {
                 phone: form.phone,
                 code: form.code,
             });
+            console.log('[Login] phoneLogin response:', res);
+            console.log('[Login] accessToken:', res.accessToken);
+            console.log('[Login] user:', res.user);
             const user: User = {
                 id: res.user.id,
                 username: res.user.name,
@@ -86,7 +89,9 @@ export default function Login() {
                 is_active: true,
                 created_at: new Date().toISOString(),
             };
+            console.log('[Login] constructed user:', user);
             setAuth(user, res.accessToken);
+            console.log('[Login] setAuth called, navigating to /');
             navigate('/');
         } catch (err: any) {
             const msg = err.message || '';

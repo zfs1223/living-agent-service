@@ -213,3 +213,66 @@
 ---
 
 > 本文档严格对齐 `05-evolution-system.md` 核心框架，定义进化闭环体系的治理规范。
+
+## 9. 自我进化与代码感知（2026-06-15 新增）
+
+### 9.1 代码知识注入
+
+系统启动时自动将架构文档播种到知识库，让大脑能"看到"自己的代码结构：
+
+| 文档 | 知识类型 | 作用域 | key 格式 |
+|------|----------|--------|----------|
+| docs/CODE_STRUCTURE_AND_FILE_GUIDE.md | CODE_STRUCTURE | L3_SHARED | arch:code-structure:{module} |
+| docs/BRAIN_AND_EMPLOYEE_STANDARDS_INDEX.md | STANDARDS | L3_SHARED | arch:standards:{name} |
+| docs/references/API_REFERENCE.md | API_REFERENCE | L3_SHARED | arch:api:{name} |
+| documents/shared/governance/*.md | GOVERNANCE | L3_SHARED | arch:governance:{domain} |
+
+实现：`ArchitectureKnowledgeSeeder`，在 `ApplicationRunner` 中启动时执行。
+
+### 9.2 进化空间与业务空间分离
+
+| 空间 | 目录 | 用途 | 权限 |
+|------|------|------|------|
+| 进化空间 | .living/ | 代码知识、修复补丁、进化知识、升级通知 | 大脑自由读写 |
+| 业务空间 | data/ | 任务、对话、产物、回执 | 员工/执行器读写 |
+
+实现：`EvolutionNamespaceService`，与 `DataNamespaceService` 独立。
+
+### 9.3 代码级自修复
+
+大脑可自主决定代码修复，自毁即自伤的自然约束比硬规则更有效：
+
+| confidence | 行为 |
+|------------|------|
+| >= 0.8 | 直接修复，保存回滚基线 |
+| 0.5~0.8 | 修复但通知人类 |
+| < 0.5 | 不修复，寻求人类帮助 |
+
+修复循环（>=3次）和连续失败（>=5次）强制升级。
+
+实现：`PatchApplicationService` + `PatchProposalService`。
+
+### 9.4 统一升级通知
+
+所有升级通过 `EscalationNotificationService` 统一出口：
+
+| 来源 | 触发条件 | 级别 |
+|------|----------|------|
+| EvolutionExecutor | ESCALATE 策略 | CRITICAL |
+| StandardComplianceTraceService | 边界违规 | WARNING |
+| EvolutionCircuitBreaker | 修复循环/连续失败 | CRITICAL |
+
+升级记录保存到 `.living/escalation/pending/`，解决后移入 `.living/escalation/resolved/`。
+
+### 9.5 代码对齐清单补充
+
+| 组件 | 文件 | 状态 |
+|------|------|------|
+| 进化空间命名空间 | `core/runtime/EvolutionNamespaceService.java` | ✅ |
+| 架构知识播种 | `core/knowledge/professional/ArchitectureKnowledgeSeeder.java` | ✅ |
+| 源码结构索引 | `core/knowledge/professional/SourceTreeIndexer.java` | ✅ |
+| 统一升级通知 | `core/evolution/escalation/EscalationNotificationService.java` | ✅ |
+| 错误代码映射 | `core/evolution/codemapper/ErrorCodeMapper.java` | ✅ |
+| 代码库访问 | `core/evolution/codebase/CodebaseAccessService.java` | ✅ |
+| 补丁提案 | `core/evolution/patch/PatchProposalService.java` | ✅ |
+| 补丁应用 | `core/evolution/patch/PatchApplicationService.java` | ✅ |

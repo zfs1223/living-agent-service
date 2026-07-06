@@ -107,7 +107,7 @@ public class SkillBindingService {
 
     @Scheduled(fixedRate = 300000)
     public void refreshBindings() {
-        log.debug("Refreshing skill bindings...");
+        log.trace("Refreshing skill bindings...");
     }
 
     public void installAndBindSkill(String skillName, String source, String neuronId) {

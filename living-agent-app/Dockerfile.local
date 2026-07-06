@@ -59,6 +59,10 @@ WORKDIR /app
 # 基础镜像已包含 Node.js 18+
 RUN npm config set registry https://registry.npmmirror.com && \
     npm install -g @anthropic-ai/claude-code@2.1.140 && \
+    npm install -g \
+        @modelcontextprotocol/server-filesystem \
+        @modelcontextprotocol/server-memory \
+        @modelcontextprotocol/server-sequential-thinking && \
     claude --version || true
 
 # 复制应用 JAR
@@ -75,6 +79,9 @@ RUN --mount=type=bind,source=image,target=/tmp/image \
 
 # 复制技能目录
 COPY living-agent-skill/src/main/resources/skills /app/skills
+
+# Claude Code 插件目录
+COPY living-agent-app/src/main/resources/claude/plugins /home/livingagent/.claude/plugins
 
 # 解压本地 Python wheels 并安装 (包含基础依赖和 AI 模型依赖)
 # 离线部署: 使用 --no-index 强制只使用本地 wheel，禁止网络下载
@@ -122,6 +129,17 @@ RUN cd /tmp && \
 ENV LLAMA_CPP_PATH=/opt/llama.cpp
 ENV PATH="${LLAMA_CPP_PATH}/build/bin:${PATH}"
 
+# 安装 CodeGraph (语义代码索引 MCP Server)
+# 下载: https://github.com/colbymchenry/codegraph/releases/tag/v1.2.0
+COPY image/codegraph/codegraph-linux-x64.tar.gz /tmp/
+RUN mkdir -p /opt/codegraph && \
+    cd /opt/codegraph && \
+    tar -xzf /tmp/codegraph-linux-x64.tar.gz && \
+    chmod +x /opt/codegraph/codegraph 2>/dev/null || true && \
+    ln -sf /opt/codegraph/codegraph /usr/local/bin/codegraph && \
+    codegraph --version || true && \
+    rm /tmp/codegraph-linux-x64.tar.gz
+
 # 复制模型守护进程脚本
 COPY scripts/python /opt/python_scripts
 
@@ -150,8 +168,8 @@ EXPOSE 8382
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:8382/actuator/health || exit 1
 
-# JVM 选项
-ENV JAVA_OPTS="-Xms512m -Xmx1536m -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8"
+# JVM 选项 (包含 java.library.path 以加载 Rust native 库)
+ENV JAVA_OPTS="-Xms512m -Xmx1536m -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8 -Djava.library.path=/app/lib"
 
 # 启动应用 (使用启动脚本，先启动模型守护进程)
 ENTRYPOINT ["/app/entrypoint.sh"]

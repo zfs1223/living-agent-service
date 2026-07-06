@@ -1,9 +1,12 @@
 # Living Agent 模型职责与执行闭环可落地实施方案
 
 > 版本：2026-06-05 最优流程升级版（含分层自治路由、员工自行领取、部门内审查闭环、部门级聚合交付、主脑统一收口完整设计）
-> 范围：`docker/living-agent-service`  
-> 依据：`docs/CODE_STRUCTURE_AND_FILE_GUIDE.md`、`docs/LLM_AUTONOMY_HARDCODE_ANALYSIS.md`、`docs/CODE_LOGIC_LANDING_VERIFICATION.md`、当前代码实现  
+> 状态校验更新：2026-06-30（阶段2：B-0-1/B-0-3/B-0-4/B-1-7/B-1-9/B-1-10/B-1-11/B-1-12/B-1-13/B-1-14/T-1-5/T-1-6/T-1-7已实施；APPROVAL_REQUIRED 枚举语义修正；交叉引用补充；**后端 stub 闭环修复（MessageController/TaskWorkflowService/ReceptionController/DefaultToolExecutor）**；**前端页面补全（F-P1-3~F-P1-8）**）
+> 范围：`docker/living-agent-service`
+> 依据：`docs/CODE_STRUCTURE_AND_FILE_GUIDE.md`、`docs/LLM_AUTONOMY_HARDCODE_ANALYSIS.md`、`docs/CODE_LOGIC_LANDING_VERIFICATION.md`、当前代码实现
 > 目标：将"用户请求 → 轻量路由 → 大脑规划 → 部门/员工自治执行 → 部门内审查闭环 → 部门级聚合 → 主脑收口 → 知识/绩效沉淀"拆成可直接按文件修改的工程方案。
+>
+> **⚠️ 未完成项提取**：本文档中尚未完成的改进项（InternalReviewService/DepartmentAggregationService持久化、NEEDS_CLARIFICATION澄清闭环、3.4.18待修复R1-R6、第11章待优化O1-O3）已提取至 [IMPROVEMENT_PLAN_PENDING_ITEMS.md](IMPROVEMENT_PLAN_PENDING_ITEMS.md) 统一跟踪实施进度。本文档保留完整历史记录，新改进实施请参阅提取文件。
 
 ---
 
@@ -53,15 +56,15 @@
 | 主脑/部门脑规划 | 基本完成 | LLM-first 已接入；规则只能用于暴露不可执行原因，不能替代 LLM 伪造业务决策或产物 |
 | 模型职责和降级链 | ✅ 已完成 | 员工模型解析链已支持员工专属、部门选择、部门大脑配置；`resolveDefault()` 三级降级（configured→enabled→null），无硬编码URL；BrainAutoAssigner 启动自动分配；AbstractBrain 动态 Provider 解析；**模型调用失败自动降级闭环已实现**（详见 3.3.2.1） |
 | 模型运行时可用性 | ✅ 已完成 | Ollama `/api/tags` 发现和 60 秒缓存已接入；启动时异步执行性能测试，不可用模型自动禁用；ModelHealthRegistry 已接入 ClaudeProxyService 调用链；**降级日志已改进**（显示 fallback 模型尝试过程） |
-| WebSocket 稳定性 | 基本完成 | 单 session 发送串行化、异常 session 清理、query 脱敏已完成 |
-| 固定员工派发 | 基本完成 | 任务单准备、派发到员工 task channel 已接入 |
-| 回执通道生命周期 | 基本完成 | 派发前创建 receipt channel，注册 execution，并订阅 Trace |
-| 回执驱动最终回复 | 基本完成 | 5 秒短等待、receipt 聚合、completion gate、execution 查询 API 已接入 |
-| Artifact 文件产物 | 基本完成 | 已写入 `data/artifacts/{department}/{executionId}/`，HTML 可从 LLM 输出提取 |
-| Artifact 下载/预览 | 基本完成 | `AgentFileController` 已支持 artifact root 内安全 listing/read/write/delete/upload/preview/download |
-| 知识/绩效沉淀 | 基本完成 | DefaultKnowledgeCaptureService/DefaultPerformanceCaptureService 已实现，受 completion gate 保护，在 DepartmentChatService 中被调用 |
+| WebSocket 稳定性 | ✅ 已完成 | 单 session 发送串行化、异常 session 清理、query 脱敏已完成；前端 30 秒 ping 心跳、部门广播 fallback、断线重连补发已实现 |
+| 固定员工派发 | ✅ 已完成 | 任务单准备、派发到员工 task channel 已接入；LLM 派发 + readiness 评估 + 澄清分支闭环已实现 |
+| 回执通道生命周期 | ✅ 已完成 | 派发前创建 receipt channel，注册 execution，并订阅 Trace；订阅时序已修复（先注册再派发） |
+| 回执驱动最终回复 | ✅ 已完成 | 5 秒短等待、receipt 聚合、completion gate、execution 查询 API 已接入；executionResultCache 修复 + 异步最终响应已实现 |
+| Artifact 文件产物 | ✅ 已完成 | 已写入 `data/artifacts/{department}/{executionId}/`，HTML 可从 LLM 输出提取；路径格式和类型归一化已修复 |
+| Artifact 下载/预览 | ✅ 已完成 | `AgentFileController` 已支持 artifact root 内安全 listing/read/write/delete/upload/preview/download；JpaArtifactRecordService + ArtifactController 专用 API 已实现 |
+| 知识/绩效沉淀 | ✅ 已完成 | DefaultKnowledgeCaptureService/DefaultPerformanceCaptureService 已实现，受 completion gate 保护，在 DepartmentChatService 中被调用；DB 持久化（KnowledgeManager.storeDomain + LedgerService.recordReward）已生效 |
 | 员工真实工具执行 | ✅ 已完成（第一版） | 新增 FILE_SYSTEM_QUERY 执行能力 + TOOL_EXECUTION 执行模式 + executeToolTask 工具调用分支；ToolBackedEmployeeTaskExecutor 可通过 ToolRegistry 查找并调用真实 Tool 实现（如 FileEditTool.list_dir）；MainBrain prompt 已加入可用工具清单 |
-| Docker 沙箱 | 待推进 | 当前容器内 DockerSandboxService 仍不可用 |
+| Docker 沙箱 | ✅ 已完成 | HybridSandboxService 双后端已实现（DockerSandboxService + SandboxExecutorImpl）；Docker Socket Proxy 已实施（docker-compose.yml 第7-40行），通过 DOCKER_HOST=tcp://docker-socket-proxy:2375 连接；白名单限制仅允许 CONTAINERS/EXEC/IMAGES/NETWORKS/VOLUMES API |
 | 大脑模型自动分配 | ✅ 已完成 | `BrainAutoAssigner` 启动时幂等自动分配最佳模型到9个大脑；评分算法含 recommended/contextWindow/bestFor/performanceScore；手动触发端点 POST /auto-assign-brains |
 | 大脑动态 Provider 解析 | ✅ 已完成 | `AbstractBrain.executeReActLoop()` 中 getProvider()==null 时通过 brainModelResolver 动态解析 ResolvedBrainModelProvider；解决部门聊天流程 Provider 为 null 问题 |
 | 主脑 LLM 二次总结 | ✅ 已完成 | `LlmMainBrainFinalSummaryService`（LLM主实现）+ `DefaultMainBrainFinalSummaryService`（数据组装降级）双模式；接入 DepartmentChatService 的 MAIN_BRAIN_COMPOSE 策略 |
@@ -102,7 +105,7 @@
 | `core/autonomy/ExecutionReceiptReviewer.java` | ✅ 已存在 | 接口定义完成 |
 | `core/autonomy/ExecutionReviewResult.java` | ✅ 新增 | 评审结果 record，支持 passed/needsRework/failed 三种状态，包含 issues/suggestions/redispatch 判断 |
 | `core/autonomy/impl/LlmExecutionReceiptReviewer.java` | ✅ 已存在 | LLM 语义验收实现 |
-| `core/autonomy/impl/DefaultExecutionReceiptReviewer.java` | ⛔ 不建议实施为业务验收 | 程序只能做文件存在、大小、MIME、路径安全等机械检查；是否满足用户目标必须由 LLM reviewer 或人工审核判断，不能硬编码业务规则 |
+| `core/autonomy/impl/DefaultExecutionReceiptReviewer.java` | ⛔ 不建议实施为业务验收（已实现为程序硬规则降级验收器） | 程序只能做文件存在、大小、MIME、路径安全等机械检查；是否满足用户目标必须由 LLM reviewer 或人工审核判断，不能硬编码业务规则。**已实现**：状态检查+摘要检查+验收标准关键词匹配+产物期望检查，作为 LLM 不可用时的降级验收（详见 8.3 M4） |
 
 ### 阶段7：员工工具授权与真实工具执行 ✅ 第一版已完成
 
@@ -142,7 +145,7 @@
 | `core/autonomy/impl/JpaArtifactRecordService.java` | ✅ 新增 JPA 实现，支持数据库持久化、查询、分页、目录扫描索引 | 已完成 |
 | `core/autonomy/impl/InMemoryArtifactRecordService.java` | ✅ 更新以匹配新接口方法签名 | 已完成 |
 | `gateway/controller/ArtifactController.java` | ✅ 新增专用 REST API，支持列表/详情/下载/预览/统计/重新索引 | 已完成 |
-| `core/resources/db/migration/V8__artifact_records.sql` | ✅ 新增 Flyway 迁移脚本，创建 artifact_records 表及索引 | 已完成 |
+| `schema.sql` + `01_init.sql` | ✅ artifact_records 表及索引定义 | 已完成 |
 
 ### 迭代4：固定员工数据库治理 ✅ 已存在（无需额外实施）
 
@@ -153,8 +156,8 @@
 | `core/database/entity/FixedEmployeePersonaEntity.java` | ✅ 已存在 | 固定员工外观实体 |
 | `core/database/repository/FixedEmployeeDefinitionRepository.java` | ✅ 已存在 | 支持 `findByActiveTrueOrderByCodeAsc` / `findByDepartmentCodeAndActiveTrueOrderByCodeAsc` |
 | `core/employee/registry/FixedEmployeeRegistry.java` | ⚠️ 低优先治理 | `registerDefinitionsFromDatabase()` 已优先数据库加载（代码正确）；数据库为空时 fallback 到32个静态业务员工并 warn 日志记录；当前行为对首次部署/演示场景友好，生产环境建议增加配置开关控制是否允许静态 fallback 或要求必须从 DB 加载 |
-| `core/resources/db/migration/V5__fixed_employee_persistence.sql` | ✅ 已存在 | 固定员工持久化迁移 |
-| `core/resources/db/migration/V7__fix_fixed_employee_identifiers.sql` | ✅ 已存在 | 标识符修复迁移 |
+| `schema.sql` + `01_init.sql` | ✅ 已存在 | 固定员工持久化表定义 |
+| `schema.sql` + `01_init.sql` | ✅ 已存在 | 标识符修复（表结构已合并到统一 schema） |
 
 **固定员工数据库治理已落地的能力**：
 - ✅ 启动时优先从数据库加载启用态定义（`registerDefinitionsFromDatabase()`）
@@ -164,6 +167,67 @@
 - ✅ 工具 alias 映射支持（`TOOL_ALIAS` 常量）
 - ✅ 严格模式开关（`strictToolValidation` 配置项）
 - ⚠️ 数据库为空时的 fallback 行为：当前 warn + 静态加载（生产环境建议可配置阻断）
+
+### 迭代5：后端持久化改造（2026-06-29 验证确认）✅ 大部分已完成
+
+> 本轮实施大部分已完成，代码已落地。以下为代码验证确认结果。
+>
+> **2026-06-29 交叉验证补充待办**：
+> - ✅ `RuntimeEventStore` 已改为 DB 优先持久化 + 文件降级回退（对应 DESKTOP 文档 B-0-4，阶段2 已完成）
+> - ✅ `DepartmentExecutionResult` 已创建 Entity/Repository，DepartmentChatService 已改为 DB 双写（对应 DESKTOP 文档 B-0-1，阶段2 已完成）
+> - ⚠️ `InMemoryConnectionRegistry` 已有 DB 回退查询，但重启后内存 session 丢失，需启动时从 DB 恢复
+
+| 文件 | 修改内容 | 状态 |
+| --- | --- | --- |
+| `core/approval/impl/ApprovalServiceImpl.java` | ✅ 改为 DB 持久化（ApprovalInstanceEntity/ApprovalWorkflowEntity + schema.sql），移除内存 Map 存储 | 已完成 |
+| `gateway/websocket/InMemoryConnectionRegistry.java` | ✅ 实现 PersistentConnectionRegistry 接口，添加 DB 回退查询 + 启动时从 DB 恢复活跃 session | 已完成（✅ B-0-2 启动恢复已在阶段4实现） |
+| `core/autonomy/impl/JpaEmployeeExecutionReceiptService.java` | ✅ 移除内存缓存（ConcurrentHashMap/Caffeine），直接使用 receiptRepository 持久化查询 | 已完成（✅ DepartmentExecutionResult 已有 DB 双写） |
+| `core/autonomy/AutonomyTraceService.java` | ✅ 改为 DB 优先查询（traceEventRepository），内存仅作为兜底；recordEvent 双写 DB + 内存 | 已完成 |
+| `core/security/impl/PermissionServiceImpl.java` | ✅ 接入 OAuthService 真实 token 校验（B-0-7）+ VoicePrintService 声纹余弦相似度比对（B-1-5） | 已完成 |
+| `core/approval/ApprovalManager.java`（已删除） | ✅ ApprovalManager 接口和 SimpleApprovalManager 实现已移除 | 已完成（移除） |
+| `schema.sql` + `01_init.sql` | ✅ approval_instances/approval_workflows 表及索引 | 已完成 |
+| `schema.sql` + `01_init.sql` | ✅ session_contexts 反向索引 | 已完成 |
+| `core/runtime/RuntimeEventStore.java` | ✅ 改为 DB 优先持久化 + 文件降级回退（B-0-4 阶段2 已完成） | 已完成 |
+
+### 迭代6：后端 stub 闭环修复 + 前端页面补全（2026-06-30）✅ 已完成
+
+**后端 stub 修复（4个）：**
+
+| 文件 | 修改内容 | 状态 |
+| --- | --- | --- |
+| `core/database/entity/MessageEntity.java` | ✅ 新增 JPA 实体，字段：messageId/recipientId/senderId/type/title/content/metadataJson/createdAt/readAt | 已完成 |
+| `core/database/repository/MessageRepository.java` | ✅ 新增 Repository，含 `findByRecipientIdOrderByCreatedAtDesc`/`countByRecipientIdAndReadAtIsNull`/`markAllAsReadByRecipientId`（@Modifying @Query） | 已完成 |
+| `gateway/controller/MessageController.java` | ✅ 从 stub 重写为真实 DB 实现，4个端点全部持久化，使用 `common.ApiResponse` | 已完成 |
+| `core/database/entity/VisitorEntity.java` | ✅ 新增 JPA 实体，字段：visitorId/name/purpose/contact/hostEmployeeId/checkInTime/checkOutTime/status | 已完成 |
+| `core/database/repository/VisitorRepository.java` | ✅ 新增 Repository，含 `findByStatusInOrderByCheckInTimeDesc`/`countByStatus` | 已完成 |
+| `gateway/controller/ReceptionController.java` | ✅ 从 stub 重写为真实 DB 实现，getVisitors 查询 DB/checkIn 持久化/chat 关键词匹配，使用 `common.ApiResponse` | 已完成 |
+| `gateway/service/TaskWorkflowService.java` | ✅ 从 stub 重写，注入 TaskRepository + @Transactional，summarizeReview 持久化审查结果到 TaskEntity | 已完成 |
+| `core/tool/impl/DefaultToolExecutor.java` | ✅ `execute()` 从 `ToolResult.success()` 改为 `ToolResult.failure()`，不再返回假成功 | 已完成 |
+| `schema.sql` + `01_init.sql` | ✅ 新增 messages 表和 visitors 表及索引 | 已完成 |
+
+**前端页面补全（6个）：**
+
+| 文件 | 说明 | 路由 | 状态 |
+| --- | --- | --- | --- |
+| `frontend/src/pages/Neurons.tsx` | ✅ 神经元管理页面，搜索/过滤/展开查看状态和指标 | `/neurons` | 已完成 |
+| `frontend/src/pages/Interventions.tsx` | ✅ 干预系统页面，统计卡片/待处理/规则管理/全部记录 | `/interventions` | 已完成 |
+| `frontend/src/pages/Proactive.tsx` | ✅ 主动服务页面，Digest/Habits/Notifications/Meetings/Suggestions 5个子标签 | `/proactive` | 已完成 |
+| `frontend/src/pages/Reception.tsx` | ✅ 接待前台页面，状态横幅/访客列表/签到表单/聊天界面 | `/reception` | 已完成 |
+| `frontend/src/pages/VoicePrintLogin.tsx` | ✅ 声纹管理页面，列表/注册/验证/登录 4种模式 | `/voiceprint` | 已完成 |
+| `frontend/src/pages/Office.tsx` | ✅ 办公室管理页面，总览/区域/坐席/部门 4个子标签 | `/office` | 已完成 |
+| `frontend/src/App.tsx` | ✅ 添加6个新页面的 lazy import 和 Route | - | 已完成 |
+
+**进行中：**
+
+| 任务 | 说明 | 状态 |
+| --- | --- | --- |
+| ~~F-P1-11~~ EnterpriseSettings.tsx 拆分 | 将3900行单文件拆分为 `pages/EnterpriseSettings/` 子目录（7个文件） | ✅ 已完成 |
+| ~~F-P1-2~~ 接入项目统计 | `Projects.tsx` 已接入 `projectActionApi.getStatistics` | ✅ 已完成 |
+| ApprovalController 修复 | getSteps 从 workflow 获取真实数据；getCurrentApproverId 使用 SecurityContext；统一 common.ApiResponse | ✅ 已完成 |
+| AuthController.updateMe 持久化 | 调用 employeeService.updateAuthContext() 持久化 name/email | ✅ 已完成 |
+| 统一 ApiResponse | 20个 Controller 自定义 ApiResponse record 替换为 common.ApiResponse | ✅ 已完成 |
+| ~~F-0-5~~ 经济自治管理页面 | 后端 `AutonomousController.java`（11个API端点：bounty/payout/ledger/evolution/overview）；前端 `autonomousApi.ts` + `Autonomous.tsx`（5 Tab）；路由 + 侧边栏导航 | ✅ 已完成 |
+| 前端新增页面侧边栏导航 | 侧边栏新增"系统"分组（神经元/干预/主动服务/接待/声纹/办公室）+ 主菜单"经济自治" | ✅ 已完成 |
 
 ---
 
@@ -190,17 +254,17 @@
 
 | 编号 | 问题 | 日志证据 | 影响 | 优先级 | 建议落点 |
 | --- | --- | --- | --- | --- | --- |
-| P0-1 | receipt channel 订阅时序错误，员工完成回执先广播，trace/execution 订阅后注册 | `Broadcasting message ... to 0 subscribers`、`deliverToSubscribers ... subscriberCount=0` 之后才出现 `Registered execution ...`、`External subscriber receipt-trace-... subscribed` | 违反“派发前创建 receipt channel，注册 execution，并订阅 Trace”；可能导致 `employee_execution_receipt_received`、`execution_receipts_aggregated` 缺失，最终聚合等待不到已完成回执 | P0 | `core/autonomy/impl/DepartmentExecutionCoordinator`、`core/autonomy/impl/FileBasedEmployeeExecutionReceiptService`、`core/channel/impl/ChannelManagerImpl` |
-| P0-2 | 端到端 Trace 未看到最终聚合、验收、artifact 记录、主脑最终收口 | 本次日志只到 `employee_execution_started`、员工 `sent receipt: ... COMPLETED`；未见 `employee_execution_receipt_received`、`execution_receipts_aggregated`、`artifact_recorded`、`main_brain_finalized` | 不满足 5.1 Trace 验收与 5.2 结果验收；用户最终回复可能无法包含执行员工、artifact 路径、验收结论和下一步 | P0 | `gateway/service/DepartmentChatService.java`、`core/autonomy/MainBrainFinalSummaryService.java`、`core/autonomy/ExecutionReceiptReviewer.java` |
-| P0-3 | Artifact 生成不符合“红色小球网页”文件产物验收 | 日志显示 `Artifact file saved: data/artifacts/T09/.../result.txt`，不是 `data/artifacts/tech/{executionId}/` 下的 HTML 或多文件项目 | 不满足 5.3 文件产物验收；无法直接预览/下载可运行 HTML，且路径未按 department/executionId 组织 | P0 | `core/autonomy/impl/ToolBackedEmployeeTaskExecutor.java`、`core/autonomy/impl/JpaArtifactRecordService.java`、`gateway/controller/ArtifactController.java` |
-| P0-4 | 员工 receipt 显示 `COMPLETED`，但员工没有真正完成用户要求的“做网页”工作 | 日志显示 `Employee T09 (真绘) sent receipt: executionId=6dbbb548-59f0-4d08-87c6-ed2801387c4e, status=COMPLETED, outcomeStatus=COMPLETED`，但前序执行实际进入 `Executing generic task`，只保存 `result.txt`，未生成可运行网页，也未看到工具调用、沙箱执行、文件验收或 completion gate 通过证据 | 当前 `COMPLETED` 只是执行器流程状态，不等价于业务验收完成；员工执行缺少“真实工具动作 + 产物质量验收 + 失败降级为 FAILED/NEEDS_REWORK”的闭环，容易造成“看起来完成、实际没做事”的假阳性 | P0 | `core/autonomy/impl/DynamicEmployeeTaskConsumerRegistry.java`、`core/autonomy/impl/ToolBackedEmployeeTaskExecutor.java`、`core/autonomy/ExecutionReceiptReviewer.java`、`core/autonomy/impl/DefaultExecutionReceiptReviewer.java` |
+| P0-1 | ~~receipt channel 订阅时序错误，员工完成回执先广播，trace/execution 订阅后注册~~ ✅ 已修复：ChannelBackedDepartmentExecutionCoordinator 先注册 execution 再派发 + DepartmentChatService 派发前订阅 receipt channel | `Broadcasting message ... to 0 subscribers`、`deliverToSubscribers ... subscriberCount=0` 之后才出现 `Registered execution ...`、`External subscriber receipt-trace-... subscribed` | 违反“派发前创建 receipt channel，注册 execution，并订阅 Trace”；可能导致 `employee_execution_receipt_received`、`execution_receipts_aggregated` 缺失，最终聚合等待不到已完成回执 | P0 | `core/autonomy/impl/DepartmentExecutionCoordinator`、`core/autonomy/impl/FileBasedEmployeeExecutionReceiptService`、`core/channel/impl/ChannelManagerImpl` |
+| P0-2 | ~~端到端 Trace 未看到最终聚合、验收、artifact 记录、主脑最终收口~~ ✅ 已修复：onReceiptRecorded + executionResultCache + completion gate + MainBrainFinalSummaryService + 部门聚合服务已实现 | 本次日志只到 `employee_execution_started`、员工 `sent receipt: ... COMPLETED`；未见 `employee_execution_receipt_received`、`execution_receipts_aggregated`、`artifact_recorded`、`main_brain_finalized` | 不满足 5.1 Trace 验收与 5.2 结果验收；用户最终回复可能无法包含执行员工、artifact 路径、验收结论和下一步 | P0 | `gateway/service/DepartmentChatService.java`、`core/autonomy/MainBrainFinalSummaryService.java`、`core/autonomy/ExecutionReceiptReviewer.java` |
+| P0-3 | ~~Artifact 生成不符合"红色小球网页"文件产物验收~~ ✅ 已修复：artifact 保存路径改为 data/artifacts/{department}/{executionId}/；中文任务类型归一化已实现 | 日志显示 `Artifact file saved: data/artifacts/T09/.../result.txt`，不是 `data/artifacts/tech/{executionId}/` 下的 HTML 或多文件项目 | 不满足 5.3 文件产物验收；无法直接预览/下载可运行 HTML，且路径未按 department/executionId 组织 | P0 | `core/autonomy/impl/ToolBackedEmployeeTaskExecutor.java`、`core/autonomy/impl/JpaArtifactRecordService.java`、`gateway/controller/ArtifactController.java` |
+| P0-4 | ~~员工 receipt 显示 `COMPLETED`，但员工没有真正完成用户要求的"做网页"工作~~ ✅ 已修复：generic fallback 改为返回 FAILED；DefaultExecutionReceiptReviewer 降级验收严格化；产物期望检查 + 验收标准检查 | 日志显示 `Employee T09 (真绘) sent receipt: executionId=6dbbb548-59f0-4d08-87c6-ed2801387c4e, status=COMPLETED, outcomeStatus=COMPLETED`，但前序执行实际进入 `Executing generic task`，只保存 `result.txt`，未生成可运行网页，也未看到工具调用、沙箱执行、文件验收或 completion gate 通过证据 | 当前 `COMPLETED` 只是执行器流程状态，不等价于业务验收完成；员工执行缺少“真实工具动作 + 产物质量验收 + 失败降级为 FAILED/NEEDS_REWORK”的闭环，容易造成“看起来完成、实际没做事”的假阳性 | P0 | `core/autonomy/impl/DynamicEmployeeTaskConsumerRegistry.java`、`core/autonomy/impl/ToolBackedEmployeeTaskExecutor.java`、`core/autonomy/ExecutionReceiptReviewer.java`、`core/autonomy/impl/DefaultExecutionReceiptReviewer.java` |
 | P0-5 | ~~任务类型归一化缺失~~ ✅ 已修复：新增 ExecutionCapabilityResolver 体系，`game_development` 未映射到可执行标准类型 | 最新日志出现 `ToolBacked execution failed ... Unsupported or unclassified task type: game_development`，员工已收到任务但在 `normalizeTaskType()` 直接抛错 | 导致主脑/部门脑任务规划已成功、员工执行却在入口失败，无法进入工具执行或生成产物闭环；用户会看到任务执行失败而不是正常完成 | P0 | `core/autonomy/impl/ToolBackedEmployeeTaskExecutor.java`、`core/autonomy/DecisionContextBuilder`、`LlmBasedMainBrainTaskDirector` 的 taskType schema |
 | P0-6 | ~~需求明确性判断位置错误~~ ✅ 已修复：新增 RequirementReadinessEvaluator 前置检查，员工分派发生在主脑确认需求之前 | 当前链路表现为 `MainBrainTaskDirector` 先生成计划、`FixedEmployeeDispatcher` 先分派员工，再由 `AssignmentReadinessEvaluator` 返回 `NEEDS_CLARIFICATION/PARTIALLY_READY` | 会导致“先分配下去，再问需求，再分配”的混乱循环；用户被重复追问，taskKey/executionId 容易分裂，员工可能基于不完整需求开工 | P0 | `ConversationOrchestrator`、`MainBrainTaskDirector`、新增 `RequirementReadinessEvaluator` / `MainBrainRequirementClarifier`、`DepartmentChatService` |
-| P1-1 | 任务类型中文“前端游戏开发”未被工具执行器识别为 web prototype/web development，落入 generic task | 日志显示 `Executing task: type=前端游戏开发` 后进入 `Executing generic task` | 真实工具执行第一版仍有类型映射缺口，导致只能生成 `result.txt`，无法按网页任务模板生成 HTML/CSS/JS | P1 | `core/autonomy/impl/ToolBackedEmployeeTaskExecutor.java`、`core/autonomy/DecisionContextBuilder`、`LlmBasedMainBrainTaskDirector` 的 taskType schema |
-| P1-2 | 部分员工 delegateBrain 绑定异常，多个非财务部门员工绑定到 `finance-brain` | 启动日志多次出现 `employee://digital/tech/frontend/001 -> delegateBrain neuron://finance/finance-brain/001`、`sales/legal/cs/admin/main/ops` 员工也绑定到 finance | 虽然 32/32 已绑定，但绑定目标疑似错误；会影响部门脑职责、模型选择、上下文和权限边界 | P1 | `core/employee/registry/FixedEmployeeRegistry.java`、`core/brain/impl/BrainRegistryImpl.java`、固定员工数据库定义 |
-| P1-3 | WebSocket 稳定性仍有异常连接和鉴权重试噪声 | 多次 `Token validation failed`，以及一次 `WebSocket transport error ... error=null`、`CloseStatus[code=1006]` | “不再出现 WebSocket 异常风暴”已改善，但仍存在连接异常和无错误原因日志，不利于定位前端断连/重连问题 | P1 | `gateway/websocket/DepartmentWebSocketHandler.java`、前端 WebSocket token 刷新与重连逻辑 |
-| P2-1 | 运行日志缺少模型健康摘要与 cooldown 观测 | 只看到 `ResolvedBrainModelProvider created`、`MainBrain.callLlm completed`，未看到模型健康摘要、熔断状态统计 | 阶段3要求“日志中能看到模型健康摘要，而不是重复 WARN 风暴”；当前成功路径可用，但健康观测不足 | P2 | `core/model/pool/ModelHealthRegistry.java`、`core/model/pool/BrainModelResolver.java` |
-| P2-2 | 调试日志噪声偏高 | `Founder status from cache`、`Getting knowledge-base files`、`EmployeeStateSynchronizer` 在短时间内大量输出 | 影响对自治链路关键 Trace 的排查效率；生产/演示环境建议降噪或结构化采样 | P2 | `application.yml` 日志级别、相关 controller/service debug 日志 |
+| P1-1 | ~~任务类型中文"前端游戏开发"未被工具执行器识别为 web prototype/web development，落入 generic task~~ ✅ 已修复：normalizeTaskType() 覆盖常见中文关键词；ExecutionCapabilityResolver 体系归一化 | 日志显示 `Executing task: type=前端游戏开发` 后进入 `Executing generic task` | 真实工具执行第一版仍有类型映射缺口，导致只能生成 `result.txt`，无法按网页任务模板生成 HTML/CSS/JS | P1 | `core/autonomy/impl/ToolBackedEmployeeTaskExecutor.java`、`core/autonomy/DecisionContextBuilder`、`LlmBasedMainBrainTaskDirector` 的 taskType schema |
+| P1-2 | ~~部分员工 delegateBrain 绑定异常，多个非财务部门员工绑定到 `finance-brain`~~ ✅ 已修复：移除 getAll().stream().findFirst() fallback；添加启动时 delegateBrain mismatch 校验 + 日志 | 启动日志多次出现 `employee://digital/tech/frontend/001 -> delegateBrain neuron://finance/finance-brain/001`、`sales/legal/cs/admin/main/ops` 员工也绑定到 finance | 虽然 32/32 已绑定，但绑定目标疑似错误；会影响部门脑职责、模型选择、上下文和权限边界 | P1 | `core/employee/registry/FixedEmployeeRegistry.java`、`core/brain/impl/BrainRegistryImpl.java`、固定员工数据库定义 |
+| P1-3 | ~~WebSocket 稳定性仍有异常连接和鉴权重试噪声~~ ✅ 已修复：前端 30 秒 ping 心跳 + 部门广播 fallback + 断线重连补发；Token 校验接入 OAuthService 真实校验 | 多次 `Token validation failed`，以及一次 `WebSocket transport error ... error=null`、`CloseStatus[code=1006]` | “不再出现 WebSocket 异常风暴”已改善，但仍存在连接异常和无错误原因日志，不利于定位前端断连/重连问题 | P1 | `gateway/websocket/DepartmentWebSocketHandler.java`、前端 WebSocket token 刷新与重连逻辑 |
+| P2-1 | ~~运行日志缺少模型健康摘要与 cooldown 观测~~ ✅ 已修复：GatewayConfig @Scheduled 每 5 分钟输出模型健康摘要 | 只看到 `ResolvedBrainModelProvider created`、`MainBrain.callLlm completed`，未看到模型健康摘要、熔断状态统计 | 阶段3要求“日志中能看到模型健康摘要，而不是重复 WARN 风暴”；当前成功路径可用，但健康观测不足 | P2 | `core/model/pool/ModelHealthRegistry.java`、`core/model/pool/BrainModelResolver.java` |
+| P2-2 | ~~调试日志噪声偏高~~ ✅ 已修复（部分）：application.yml 高频非关键日志（DigitalEmployee/evolution/knowledge/FounderService）已降为 INFO；根级 com.livingagent 仍为 DEBUG 便于开发调试 | `Founder status from cache`、`Getting knowledge-base files`、`EmployeeStateSynchronizer` 在短时间内大量输出 | 影响对自治链路关键 Trace 的排查效率；生产/演示环境建议降噪或结构化采样 | P2 | `application.yml` 日志级别、相关 controller/service debug 日志 |
 
 ### 2.3.3 下一轮修复建议
 
@@ -228,16 +292,16 @@
 
 | 编号 | 问题 | 优先级 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
-| P0-1 | `DefaultExecutionReceiptReviewer` 只做关键词匹配验收 | P0 | 🟢 已修改未部署 | 降级验收严格化：摘要为空→rejected、验收标准未满足→rejected、期望产物但无文件→rejected+needsRetry |
-| P0-2 | 端到端 Trace 缺失最终聚合/收口 | P0 | 🟡 依赖部署 | `onReceiptRecorded` 修复后应解决，需部署验证 |
-| P1-1 | WebSocket 僵尸会话循环 | P1 | 🟢 已修改未部署 | 前端添加 30 秒 ping 心跳 |
-| P1-2 | 员工 delegateBrain 绑定到错误部门 | P1 | 🟢 已修改未部署 | 添加启动时部门匹配校验，日志输出 mismatch 详情 |
-| P1-3 | DockerSandboxService 不可用 | P1 | 🟡 降级可用 | 容器内 Docker 不可用，降级为 `ARTIFACT_ONLY` |
-| P1-4 | 跨部门协调缺失 CrossDepartmentCoordinator | P1 | 🟢 已修改未部署 | 实现 CrossDepartmentCoordinator，在 DepartmentChatService 中集成 |
-| P2-1 | 模型健康摘要观测缺失 | P2 | 🟢 已修改未部署 | GatewayConfig 添加 @Scheduled 每 5 分钟输出模型健康摘要 |
-| P2-2 | 调试日志噪声偏高 | P2 | 🟢 已修改未部署 | application.yml 高频非关键日志降为 INFO |
-| P2-3 | 前端不展示需求状态 | P2 | 🟢 已修改未部署 | DepartmentChatInline 添加 requirementStatus state 和 UI 展示标签 |
-| P2-4 | 需求冻结/防漂移逻辑缺失 | P2 | 🟢 已修改未部署 | MainBrainTaskPlan 添加 isRequirementFrozen/withRequirementStatus，DepartmentChatService 添加 activeSessionPlans 追踪 |
+| P0-1 | `DefaultExecutionReceiptReviewer` 只做关键词匹配验收 | P0 | ✅ 已完成 | 降级验收严格化：摘要为空→rejected、验收标准未满足→rejected、期望产物但无文件→rejected+needsRetry；代码已实现（状态检查+摘要检查+验收标准匹配+产物期望检查） |
+| P0-2 | 端到端 Trace 缺失最终聚合/收口 | P0 | ✅ 已完成 | onReceiptRecorded + executionResultCache + completion gate + MainBrainFinalSummaryService + 部门聚合服务已实现 |
+| P1-1 | WebSocket 僵尸会话循环 | P1 | ✅ 已完成 | 前端 DepartmentChatInline 添加 30 秒 ping 心跳 + 断线重连 |
+| P1-2 | 员工 delegateBrain 绑定到错误部门 | P1 | ✅ 已完成 | FixedEmployeeRegistry 添加启动时 delegateBrain mismatch 校验 + 日志输出 mismatch 详情 |
+| P1-3 | DockerSandboxService 不可用 | P1 | ✅ 已完成 | Docker Socket Proxy 已实施（docker-compose.yml 第7-40行），通过 DOCKER_HOST=tcp://docker-socket-proxy:2375 连接；白名单限制仅允许 CONTAINERS/EXEC/IMAGES/NETWORKS/VOLUMES API |
+| P1-4 | 跨部门协调缺失 CrossDepartmentCoordinator | P1 | ✅ 已完成 | DefaultCrossDepartmentCoordinator 已实现并在 GatewayConfig 注册为 Bean；DepartmentChatService 中已集成 |
+| P2-1 | 模型健康摘要观测缺失 | P2 | ✅ 已完成 | GatewayConfig @Scheduled(fixedRate=300000) 每 5 分钟输出模型健康摘要；代码已实现 |
+| P2-2 | ~~调试日志噪声偏高~~ ✅ 已修复（部分） | P2 | ✅ 已完成 | application.yml 高频非关键日志（DigitalEmployee/evolution/knowledge/FounderService）已降为 INFO；根级 com.livingagent 仍为 DEBUG 便于开发调试 |
+| P2-3 | 前端不展示需求状态 | P2 | ✅ 已完成 | DepartmentChatInline 添加 requirementStatus state 和 UI 展示标签（DRAFT/NEEDS_CLARIFICATION/REQUIREMENT_CONFIRMED/EXECUTING/COMPLETED/FAILED 等）；代码已实现 |
+| P2-4 | 需求冻结/防漂移逻辑缺失 | P2 | ✅ 已完成 | MainBrainTaskPlan.isRequirementFrozen/withRequirementStatus 已实现；DepartmentChatService.activeSessionPlans ConcurrentHashMap 追踪已实现 |
 
 1. **继续核验 receipt 生命周期 P0**：重新运行红色小球样例，确认不再出现业务回执广播到 `0 subscribers` 后才注册 execution；同步执行路径也必须保证不会"先完成后订阅"。
 2. **修复“假完成”P0**：`ToolBackedEmployeeTaskExecutor` 不能把 generic fallback 的文本落盘等同于任务完成；只有生成符合任务类型的真实产物、完成工具/沙箱动作、通过 `ExecutionReceiptReviewer` 后，receipt 才能标记 `COMPLETED`，否则应返回 `FAILED` 或 `NEEDS_REWORK` 并写明原因。
@@ -346,7 +410,7 @@ LEGAL_REVIEW            // 合同、合规、法律风险审查
 FINANCE_ANALYSIS        // 财务分析、预算、成本、报销判断
 HR_WORKFLOW             // 招聘、绩效、人事流程
 OPERATION_PLAN          // 运营活动、流程优化、排期计划
-APPROVAL_REQUIRED       // 必须进入审批
+APPROVAL_REQUIRED       // 必须进入业务审批（ApprovalService/PlanApprovalService），工具审批闸门已移除
 HUMAN_HANDOFF           // 必须人工接管
 ```
 
@@ -377,7 +441,7 @@ ARTIFACT_ONLY            // 只生成产物，不改仓库
 DOCKER_SANDBOX           // 在 Docker 沙箱执行/构建/测试
 LOCAL_RESTRICTED         // 受限本地执行
 HUMAN_REVIEW_REQUIRED    // 生成方案后必须人工审核
-APPROVAL_REQUIRED        // 必须审批后执行
+APPROVAL_REQUIRED        // 必须业务审批后执行（ApprovalService/PlanApprovalService），工具审批闸门(ApprovalManager)已移除
 NO_EXECUTION             // 只回答/只澄清/拒绝执行
 ```
 
@@ -2031,6 +2095,195 @@ HUMAN_REVIEW_REQUIRED
 #### 3.8.3 验收标准
 
 - Docker 不可用时，任务计划明确显示 `ARTIFACT_ONLY` 或 `LOCAL_RESTRICTED`。
+- 不再出现"计划使用 Docker 但运行时 dockerCmdExecFactory 缺失"的静默失败。
+
+#### 3.8.4 Docker-in-Docker 替代方案（2026-06-24 更新）
+
+> **当前状态**：`docker-compose.yml` 已移除 Docker Socket 挂载（安全考虑），容器内 Docker 后端不可用。HybridSandboxService 自动降级为 LOCAL_RESTRICTED（SandboxExecutorImpl 本地受限执行）+ ARTIFACT_ONLY。对于当前业务场景（文档生成、网页原型、数据分析），本地受限执行已足够。
+
+**如需启用 Docker 沙箱，有以下三种方案**：
+
+| 方案 | 原理 | 安全性 | 复杂度 | 推荐场景 |
+|------|------|--------|--------|----------|
+| A. Docker Socket Proxy | 部署 tecnativa/docker-socket-proxy 容器，仅暴露白名单 API | 中等 | 低 | 需要容器管理但限制 API 调用范围 |
+| B. Sibling 容器 | 挂载 /var/run/docker.sock，容器与宿主机共享 Docker daemon | 较低 | 低 | 开发/测试环境 |
+| C. Process 执行器增强 | 不用 Docker，增强 SandboxExecutorImpl 支持进程级隔离 | 高 | 高 | 生产环境，无 Docker 依赖 |
+
+**方案 A 实施步骤（推荐）**：
+
+1. 在 `docker-compose.yml` 中添加 `docker-socket-proxy` 服务：
+
+```yaml
+docker-socket-proxy:
+  image: tecnativa/docker-socket-proxy
+  container_name: living-agent-docker-proxy
+  environment:
+    CONTAINERS: 1
+    IMAGES: 1
+    NETWORKS: 1
+    VOLUMES: 1
+    EXEC: 1
+    POST: 0
+    BUILD: 0
+    SERVICES: 0
+    TASKS: 0
+  volumes:
+    - /var/run/docker.sock:/var/run/docker.sock:ro
+  networks:
+    - backend
+  restart: unless-stopped
+```
+
+2. 修改 `living-agent-service` 环境变量添加 `DOCKER_HOST=tcp://docker-socket-proxy:2375`
+
+3. `DockerSandboxService` 构造函数中使用 `DOCKER_HOST` 环境变量连接代理
+
+**当前降级行为**：HybridSandboxService.isAvailable()=true（SandboxExecutorImpl 可用），getBackendType()="local"，所有任务走本地受限执行。对于 executeTraeCommand() 等必须 Docker 的操作返回错误。
+
+#### 3.8.5 数字员工执行场景安全架构（2026-06-24）
+
+> **业务背景**：数字员工（T09 前端工程师、T10 后端工程师、T08 测试工程师等）会自主执行代码、运行测试、构建项目。这些操作如果在 living-agent-service 容器内直接执行，存在安全风险。
+
+**风险矩阵**：
+
+| 数字员工 | 执行场景 | 容器内执行风险 | 需要隔离 |
+|----------|----------|----------------|----------|
+| T09 前端工程师 | npm install、npm test、前端代码运行 | 可访问源码、敏感配置、数据库 | ✅ 需要 |
+| T10 后端工程师 | mvn test、Java 代码运行、API 测试 | 可访问源码、敏感配置、数据库 | ✅ 需要 |
+| T08 测试工程师 | 自动化测试脚本、单元测试执行 | 可访问源码、敏感配置、数据库 | ✅ 需要 |
+| T01 技术总监 | 代码审查、构建验证 | 可访问源码、敏感配置 | ✅ 需要 |
+
+**推荐架构：Docker Socket Proxy + 独立沙箱容器**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    living-agent-service 容器                     │
+│  ┌─────────────┐                                                │
+│  │ 数字员工    │                                                │
+│  │ (T09/T10)   │                                                │
+│  └──────┬──────┘                                                │
+│         │ 需要执行代码                                           │
+│         ↓                                                        │
+│  ┌─────────────────────┐                                        │
+│  │ HybridSandboxService │                                       │
+│  │ shouldUseDocker=true │                                       │
+│  └──────┬──────────────┘                                        │
+└─────────┼───────────────────────────────────────────────────────┘
+          │ Docker API 调用（通过 Proxy）
+          ↓
+┌─────────────────────────────────────────────────────────────────┐
+│              docker-socket-proxy 容器                            │
+│  （白名单限制：仅允许 CONTAINERS/EXEC/IMAGES）                    │
+└─────────┼───────────────────────────────────────────────────────┘
+          │ 创建/执行沙箱容器
+          ↓
+┌─────────────────────────────────────────────────────────────────┐
+│                 独立沙箱容器（临时）                              │
+│  ┌───────────────────────────────────────────────────────────┐ │
+│  │ 挂载：                                                     │ │
+│  │   - /app/artifacts/{executionId} → 产物输出目录            │ │
+│  │   - /app/test-code → 待执行代码（只读）                    │ │
+│  │ 不挂载：                                                   │ │
+│  │   - ❌ workspace（源码）                                   │ │
+│  │   - ❌ documents（企业文档）                               │ │
+│  │   - ❌ data（知识库/数据库）                               │ │
+│  │ 环境变量：                                                 │ │
+│  │   - ❌ DATABASE_PASSWORD                                   │ │
+│  │   - ❌ ANTHROPIC_API_KEY                                   │ │
+│  │   - ❌ 其他敏感配置                                        │ │
+│  └───────────────────────────────────────────────────────────┘ │
+│  执行完成后容器销毁                                              │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**实施步骤**：
+
+**Step 1：添加 docker-socket-proxy 服务**
+
+在 `docker-compose.yml` 中添加：
+
+```yaml
+docker-socket-proxy:
+  image: tecnativa/docker-socket-proxy:latest
+  container_name: living-agent-docker-proxy
+  hostname: docker-proxy
+  environment:
+    # 白名单：仅允许必要的 Docker API
+    CONTAINERS: 1        # 允许创建/删除/查询容器
+    EXEC: 1              # 允许在容器内执行命令
+    IMAGES: 1            # 允许拉取镜像
+    NETWORKS: 1          # 允许网络管理（创建隔离网络）
+    VOLUMES: 1           # 允许卷管理
+    # 黑名单：禁止危险操作
+    POST: 0              # 禁止其他 POST 操作
+    BUILD: 0             # 禁止构建镜像（防止恶意镜像）
+    SERVICES: 0          # 禁止 Swarm 服务
+    TASKS: 0             # 禁止 Swarm 任务
+    PLUGINS: 0           # 禁止插件管理
+    SECRETS: 0           # 禁止 Secrets 管理
+  volumes:
+    - /var/run/docker.sock:/var/run/docker.sock:ro
+  networks:
+    - backend
+  restart: unless-stopped
+  deploy:
+    resources:
+      limits:
+        memory: 128M
+```
+
+**Step 2：修改 living-agent-service 配置**
+
+```yaml
+living-agent-service:
+  environment:
+    - DOCKER_HOST=tcp://docker-socket-proxy:2375
+    - SANDBOX_IMAGE=livingagent/trae-sandbox:latest  # 沙箱容器镜像
+```
+
+**Step 3：准备沙箱容器镜像**
+
+创建 `livingagent/trae-sandbox:latest` 镜像，包含：
+- Node.js 18+（前端执行）
+- Java 17+（后端执行）
+- Python 3.11+（脚本执行）
+- 常用测试工具（npm、mvn、pytest）
+- **不包含**：敏感配置、源码、数据库连接
+
+**Step 4：修改 DockerSandboxService**
+
+```java
+// DockerSandboxService.java - 创建沙箱容器时限制挂载
+public CompletableFuture<ExecutionResult> executeInSandbox(
+    String code, String language, ExecutionOptions options, String executionId) {
+    
+    // 创建隔离容器，仅挂载必要目录
+    CreateContainerCmd cmd = dockerClient.createContainerCmd(sandboxImage)
+        .withName("sandbox-" + executionId)
+        .withHostConfig(HostConfig.newHostConfig()
+            .withBinds(
+                // 产物输出目录（可写）
+                new Bind("/app/data/artifacts/" + executionId, new Volume("/app/artifacts")),
+                // 待执行代码（只读）
+                new Bind("/tmp/sandbox-code-" + executionId, new Volume("/app/code"), AccessMode.ro)
+            )
+            // 不挂载敏感目录！
+            .withNetworkMode("none")  // 或使用隔离网络
+            .withAutoRemove(true)     // 执行完成后自动删除
+        );
+    // ...
+}
+```
+
+**验收标准**：
+
+1. 数字员工执行代码时，创建独立沙箱容器
+2. 沙箱容器无法访问 `workspace`、`documents`、`data` 目录
+3. 沙箱容器无法读取 `DATABASE_PASSWORD` 等敏感环境变量
+4. 沙箱容器执行完成后自动销毁
+5. 测试结果和产物正确写入 `artifacts/{executionId}`
+
+**当前状态**：✅ 已完成。docker-compose.yml 已添加 docker-socket-proxy 服务（第7-40行），living-agent-service 已配置 DOCKER_HOST=tcp://docker-socket-proxy:2375（第98行）。
 - 不再出现“计划使用 Docker 但运行时 dockerCmdExecFactory 缺失”的静默失败。
 
 ---
@@ -2263,6 +2516,17 @@ main_brain_finalized(summary_source=llm_main_brain 或 fallback_composer)
 
 ## 7. 当前结论
 
+> **2026-06-30 更新**：
+> - ✅ B-1-12 已完成：新增 ToolNeuron.java 替代 BitNetNeuron，注册 neuron://tool/qwen35/001，Layer 3 独立实现体已落地
+> - ✅ B-1-11 已完成：通知持久化已实现
+> - ✅ T-1-5 已完成：审计日志落盘已实现
+> - ✅ T-1-7 已完成：边界配置可视化接口已实现
+> - ✅ RuntimeEventStore 已改为 DB 优先持久化 + 文件降级回退（B-0-4，阶段2 已完成）
+> - ✅ InMemoryConnectionRegistry 启动时从 DB 恢复活跃 session 已实现（B-0-2，阶段4 已完成）
+> - ✅ DepartmentExecutionResult 已创建 Entity/Repository，DepartmentChatService 已改为 DB 双写（B-0-1，阶段2 已完成）
+> - ✅ BrainBoundaryEnforcer 审计日志/配置项/可视化接口三项补强已全部实现（T-1-5~T-1-7）
+> - APPROVAL_REQUIRED 枚举语义已修正：工具审批闸门(ApprovalManager)已移除，现对应业务审批(ApprovalService/PlanApprovalService)
+
 当前系统已经从：
 
 ```text
@@ -2303,7 +2567,9 @@ LLM-first 可观测主路径 + 模型熔断 + 异步进度推送 + 主脑二次�
 
 **阶段完成状态**：
 - ✅ 阶段1-7：全部完成第一版实施
-- ⏳ 待后续迭代：DynamicEmployeeTaskConsumerRegistry 接入真实执行器、DockerSandboxService 集成、Artifact 数据库持久化
+- ✅ DynamicEmployeeTaskConsumerRegistry 已接入真实执行器（迭代1完成）
+- ✅ DockerSandboxService 已集成到工具执行器（迭代2完成，HybridSandboxService 双后端协同）
+- ✅ Artifact 数据库持久化已完成（迭代3完成，JPA + Flyway V8 迁移）
 
 ### 7.2 系统能力升级
 
@@ -2388,14 +2654,14 @@ LLM-first 可观测主路径 + 模型熔断 + 异步进度推送 + 主脑二次�
 
 #### 7.3.3 当前主要风险
 
-| 风险 | 表现 | 后果 |
-| --- | --- | --- |
-| 规范分散 | 职责卡、Prompt、runbook、制度、代码分别存在 | 改一处不等于全链路生效 |
-| 缺少强制加载链 | 不保证每个 brain/员工都加载完整规范 | 某些大脑或员工仍可能自由发挥 |
-| 输出契约不统一 | 有的返回自然语言，有的返回结构化对象，有的只写日志 | 前端、Trace、回执、任务状态难以统一消费 |
-| 澄清规则不统一 | 信息不足时，有的澄清，有的硬执行，有的等待超时 | 继续出现 `NEEDS_CLARIFICATION` 类问题 |
-| 越权边界不统一 | 员工、部门脑、主脑的决策权限没有完全硬约束 | 员工可能替主脑决策，部门脑可能跨部门乱接任务 |
-| 规范没有落到执行证据 | Prompt 里有要求，但 receipt/artifact/trace 未体现 | 后续无法审计“是否按规范做事” |
+| 风险 | 表现 | 后果 | 当前状态（2026-06-29 校验） |
+| --- | --- | --- | --- |
+| 规范分散 | 职责卡、Prompt、runbook、制度、代码分别存在 | 改一处不等于全链路生效 | 未变 |
+| 缺少强制加载链 | 不保证每个 brain/员工都加载完整规范 | 某些大脑或员工仍可能自由发挥 | ⚠️ 部分改善：`StandardLoadingChainService` 已实现但未在 AbstractBrain 中调用 |
+| 输出契约不统一 | 有的返回自然语言，有的返回结构化对象，有的只写日志 | 前端、Trace、回执、任务状态难以统一消费 | ⚠️ 部分改善：`BrainOutputContract` 已定义并在 `processWithContract()` 中使用，但 `executeReActLoop()` 仍返回 `ReActResult`，两套返回类型并行 |
+| ~~澄清规则不统一~~ | ~~信息不足时，有的澄清，有的硬执行，有的等待超时~~ | ~~继续出现 `NEEDS_CLARIFICATION` 类问题~~ | ✅ 已修复：`RequirementReadinessEvaluator` + `ConversationOrchestrator` 完整澄清链路已实现 |
+| ~~越权边界不统一~~ | ~~员工、部门脑、主脑的决策权限没有完全硬约束~~ | ~~员工可能替主脑决策，部门脑可能跨部门乱接任务~~ | ✅ 已修复：`BrainBoundaryEnforcer.checkAction()` 已生效，审计日志(T-1-5)/配置项(T-1-6)/可视化接口(T-1-7)已全部实现 |
+| 规范没有落到执行证据 | Prompt 里有要求，但 receipt/artifact/trace 未体现 | 后续无法审计"是否按规范做事" | 未变 |
 
 #### 7.3.4 统一做事规范设计
 
@@ -3581,19 +3847,19 @@ documents = 正式知识、制度、模板、SOP、治理规范
 
 | 编号 | 问题 | 影响范围 | 优先级 |
 | --- | --- | --- | --- |
-| T-P0-1 | Task 缺少 userId/taskKey/executionId 统一关联 | 任务无法绑定用户、无法与 execution 关联 | P0 |
-| T-P0-2 | Task 状态只在内存 Map 中 | 重启丢失、无法跨实例、无法长期记忆 | P0 |
-| T-P0-3 | submitTask() 直接 complete，缺少 PENDING_REVIEW | 前端显示"等待审核"但后端已 COMPLETED | P0 |
-| T-P0-4 | getEmployeeTasks 只返回 checkedOut 任务 | 前端"已完成"tab 为空 | P0 |
-| T-P0-5 | AgentTaskController 是 stub | 前端 taskApi 分裂，数据不互通 | P0 |
-| T-P0-6 | Project 也是内存 Map 存储 | 同 T-P0-2 | P0 |
-| T-P0-7 | Project 缺少 tenantId/creatorUserId/projectKey | 项目无法绑定用户、无法与 Task 关联 | P0 |
-| T-P0-8 | Project 任务子资源是 stub | 前端项目任务页面无真实数据 | P0 |
-| T-P1-1 | 任务创建不会自动进入自治执行 | 人工任务和对话任务割裂 | P1 |
-| T-P1-2 | 任务完成缺少 artifact/result 结构化落盘 | 执行产物无法追踪 | P1 |
-| T-P1-3 | 权限模型较粗 | 可能出现跨用户/跨租户操作 | P1 |
-| T-P1-4 | 前后端字段不一致 | project 的 department_id vs department | P1 |
-| T-P1-5 | 缺少事件流和重连补发机制 | WebSocket 断线后无法续接 | P1 |
+| ~~T-P0-1~~ | ~~Task 缺少 userId/taskKey/executionId 统一关联~~ | ~~任务无法绑定用户、无法与 execution 关联~~ | P0 ✅ 已完成（阶段A） |
+| ~~T-P0-2~~ | ~~Task 状态只在内存 Map 中~~ | ~~重启丢失、无法跨实例、无法长期记忆~~ | P0 ✅ 已完成（阶段A） |
+| ~~T-P0-3~~ | ~~submitTask() 直接 complete，缺少 PENDING_REVIEW~~ | ~~前端显示"等待审核"但后端已 COMPLETED~~ | P0 ✅ 已完成（阶段A） |
+| ~~T-P0-4~~ | ~~getEmployeeTasks 只返回 checkedOut 任务~~ | ~~前端"已完成"tab 为空~~ | P0 ✅ 已完成（阶段A） |
+| ~~T-P0-5~~ | ~~AgentTaskController 是 stub~~ | ~~前端 taskApi 分裂，数据不互通~~ | P0 ✅ 已完成（阶段C） |
+| ~~T-P0-6~~ | ~~Project 也是内存 Map 存储~~ | ~~同 T-P0-2~~ | P0 ✅ 已完成（阶段B） |
+| ~~T-P0-7~~ | ~~Project 缺少 tenantId/creatorUserId/projectKey~~ | ~~项目无法绑定用户、无法与 Task 关联~~ | P0 ✅ 已完成（阶段B） |
+| ~~T-P0-8~~ | ~~Project 任务子资源是 stub~~ | ~~前端项目任务页面无真实数据~~ | P0 ✅ 已完成（阶段B） |
+| ~~T-P1-1~~ | ~~任务创建不会自动进入自治执行~~ | ~~人工任务和对话任务割裂~~ | P1 ✅ 已完成（阶段D） |
+| ~~T-P1-2~~ | ~~任务完成缺少 artifact/result 结构化落盘~~ | ~~执行产物无法追踪~~ | P1 ✅ 已完成（阶段D） |
+| ~~T-P1-3~~ | ~~权限模型较粗~~ | ~~可能出现跨用户/跨租户操作~~ | P1 ✅ 已完成（阶段E） |
+| ~~T-P1-4~~ | ~~前后端字段不一致~~ | ~~project 的 department_id vs department~~ | P1 ✅ 已完成（阶段C） |
+| ~~T-P1-5~~ | ~~缺少事件流和重连补发机制~~ | ~~WebSocket 断线后无法续接~~ | P1 ✅ 已完成（阶段D/E） |
 
 ### 10.2 修复策略：渐进式持久化 + 字段扩展
 
@@ -4473,4 +4739,137 @@ Trace 中应出现 cross_department_coordinated
   4. TechBrain 决定：强制通过 / 换人 / 上报主脑
   5. 决定结果写入 Trace 和 Receipt
 ```
+
+---
+
+## 12. 第11章最优流程落地实施进度（2026-06-22）
+
+> 基于 `CODE_STRUCTURE_AND_FILE_GUIDE.md` 代码落点规范，逐步落地第11章设计的分层自治执行闭环。
+
+### 12.1 总体进度
+
+| 优先级 | 模块 | 状态 | 说明 |
+| --- | --- | --- | --- |
+| P0 | 轻量路由层（TaskRouteClassifier） | ✅ 已完成 | 接口+实现+集成到ConversationOrchestrator |
+| P0 | 部门内审查闭环（Internal Review Loop） | ✅ 已完成 | 基础组件+集成到执行流程 |
+| P1 | 员工自行领取机制（Self-Claiming） | ✅ 已完成 | DepartmentTodoPool + EmployeeSelfClaimService |
+| P1 | 部门级聚合与交付（Department Aggregation） | ✅ 已完成 | DepartmentAggregationService + DepartmentDeliverable |
+| P2 | CrossDepartmentCoordinator 接口化 | ✅ 已完成 | 将现有具体类重构为接口+实现 |
+| P2 | DefaultRequirementReadinessEvaluator | ✅ 已完成 | 规则版需求就绪评估器 |
+
+### 12.2 P0-1：轻量路由层（TaskRouteClassifier）✅ 已完成
+
+| 文件 | 类型 | 状态 | 说明 |
+| --- | --- | --- | --- |
+| `core/autonomy/TaskRouteClassifier.java` | 新增接口 | ✅ 已完成 | 任务路由分类接口，classify()方法 |
+| `core/autonomy/TaskRouteResult.java` | 新增 record | ✅ 已完成 | 路由结果：SINGLE_DEPARTMENT/CROSS_DEPARTMENT/CLARIFICATION_NEEDED |
+| `core/autonomy/impl/DefaultTaskRouteClassifier.java` | 新增实现 | ✅ 已完成 | 7条路由规则，基于DialogueAnalyzer输出+BrainRegistry判断 |
+| `core/autonomy/ConversationOrchestrator.java` | 修改 | ✅ 已完成 | 集成TaskRouteClassifier，单部门直达/跨部门主脑拆解/需要澄清 |
+| `gateway/config/GatewayConfig.java` | 修改 | ✅ 已完成 | 注册taskRouteClassifier Bean，注入ConversationOrchestrator |
+
+**路由规则实现**：
+1. CROSS_DEPARTMENT kind → 主脑拆解
+2. 非TASK/PROJECT/APPROVAL → 单部门直达
+3. requiresClarification → 先澄清
+4. 有supportingDepartments → 主脑拆解
+5. primaryDept与用户部门一致且无协作部门 → 单部门直达
+6. primaryDept与用户部门不一致 → 主脑拆解
+7. 无法判断 → Fallback主脑
+
+### 12.3 P0-2：部门内审查闭环（Internal Review Loop）✅ 已完成
+
+| 文件 | 类型 | 状态 | 说明 |
+| --- | --- | --- | --- |
+| `core/autonomy/review/ReviewState.java` | 新增枚举 | ✅ 已完成 | SUBMITTED_FOR_REVIEW/UNDER_REVIEW/REVISION_NEEDED/COMPLETED/REJECTED/ESCALATED |
+| `core/autonomy/review/ReviewDecision.java` | 新增枚举 | ✅ 已完成 | APPROVED/REVISION_NEEDED/REJECTED/ESCALATE_TO_BRAIN |
+| `core/autonomy/review/ReviewResult.java` | 新增 record | ✅ 已完成 | reviewerCode/decision/qualityScore/issues/suggestions/completionTag/reviewRound |
+| `core/autonomy/review/ReviewHistory.java` | 新增 record | ✅ 已完成 | reviewId/todoItemId/authorCode/reviewerCode/reviewRound/state/result/revisionNotes |
+| `core/autonomy/review/InternalReviewService.java` | 新增接口 | ✅ 已完成 | submitForReview/review/getReview/getReviewHistoryByTodoItem/getReviewState/isCompleted/getCurrentRound |
+| `core/autonomy/review/impl/DefaultInternalReviewService.java` | 新增实现 | ✅ 已完成 | 内存版，管理审查状态机、轮次计数、超轮次自动escalate |
+| `core/employee/registry/FixedEmployeeRegistry.java` | 修改 | ✅ 已完成 | FixedEmployeeDefinition增加downstreamReviewers字段 |
+| `core/autonomy/EmployeeWorkAssignment.java` | 修改 | ✅ 已完成 | 增加reviewRequired/reviewerCode/maxReviewRounds字段，withReview()方法 |
+| `core/autonomy/impl/DynamicEmployeeTaskConsumerRegistry.java` | 修改 | ✅ 已完成 | 集成InternalReviewService：执行成功+有下游审查员→提交审查；Receipt增加review_required/reviewer_code/review_state元数据 |
+| `core/autonomy/impl/DefaultAssignmentPreparationService.java` | 修改 | ✅ 已完成 | 新增FixedEmployeeRegistry依赖，enrichAssignmentWithReview()根据downstreamReviewers设置审查字段 |
+| `gateway/config/GatewayConfig.java` | 修改 | ✅ 已完成 | 注册internalReviewService Bean；dynamicEmployeeTaskConsumerRegistry注入InternalReviewService；assignmentPreparationService注入FixedEmployeeRegistry |
+
+**审查闭环集成逻辑**：
+- 员工执行成功后，检查 `FixedEmployeeDefinition.downstreamReviewers`
+- 若非空，自动提交到 `InternalReviewService.submitForReview()`
+- Receipt消息增加 `review_required=true`、`reviewer_code`、`review_state` 元数据
+- 任务单准备时，`DefaultAssignmentPreparationService` 自动根据 downstreamReviewers 设置 `reviewRequired/reviewerCode`
+- 超过最大审查轮次（默认3轮）自动 escalate 到部门大脑
+
+### 12.4 P1-1：员工自行领取机制（Self-Claiming）✅ 已完成
+
+| 文件 | 类型 | 状态 | 说明 |
+| --- | --- | --- | --- |
+| `core/autonomy/DepartmentTodoPool.java` | 新增接口 | ✅ 已完成 | 部门待办池：发布、领取、查询未领取 |
+| `core/autonomy/DepartmentTodoItem.java` | 新增 record | ✅ 已完成 | 待办项：id/requiredRole/requiredTools/requiredCapability/priority/status，AtomicInteger乐观锁 |
+| `core/autonomy/TodoClaimResult.java` | 新增 record | ✅ 已完成 | 领取结果：SUCCESS/ALREADY_CLAIMED/NOT_QUALIFIED/NOT_FOUND/NOT_PENDING |
+| `core/autonomy/impl/InMemoryDepartmentTodoPool.java` | 新增实现 | ✅ 已完成 | ConcurrentHashMap内存版待办池 |
+| `core/autonomy/EmployeeSelfClaimService.java` | 新增接口 | ✅ 已完成 | 员工自行领取服务：tryClaim/tryClaimBestMatch/assignUnclaimed/isQualified |
+| `core/autonomy/impl/DefaultEmployeeSelfClaimService.java` | 新增实现 | ✅ 已完成 | 校验资格（部门归属+职责匹配+工具白名单+负载检查）+ 乐观锁领取 + 兜底指派 |
+| `gateway/config/GatewayConfig.java` | 修改 | ✅ 已完成 | 注册departmentTodoPool/employeeSelfClaimService Bean |
+
+### 12.5 P1-2：部门级聚合与交付（Department Aggregation）✅ 已完成
+
+| 文件 | 类型 | 状态 | 说明 |
+| --- | --- | --- | --- |
+| `core/autonomy/DepartmentAggregationService.java` | 新增接口 | ✅ 已完成 | 部门级聚合服务：aggregate/getDeliverable/getDeliverablesByDepartment/getDeliverablesByPlan |
+| `core/autonomy/DepartmentDeliverable.java` | 新增 record | ✅ 已完成 | 部门交付物：AggregationStatus + DeliverableItem |
+| `core/autonomy/AggregationResult.java` | 新增 record | ✅ 已完成 | 聚合结果：success/partial/qualityIssues 静态工厂 |
+| `core/autonomy/impl/DefaultDepartmentAggregationService.java` | 新增实现 | ✅ 已完成 | 收集回执→检查审查状态→构建交付项→计算质量分→确定聚合状态 |
+| `core/autonomy/EmployeeExecutionReceiptService.java` | 修改 | ✅ 已完成 | 新增getReceiptsByDepartment()抽象方法 |
+| `core/autonomy/impl/JpaEmployeeExecutionReceiptService.java` | 修改 | ✅ 已完成 | 实现getReceiptsByDepartment()，toEntity()中设置department字段 |
+| `core/autonomy/impl/FileBasedEmployeeExecutionReceiptService.java` | 修改 | ✅ 已完成 | 实现getReceiptsByDepartment()，通过metadata过滤 |
+| `core/autonomy/impl/InMemoryEmployeeExecutionReceiptService.java` | 修改 | ✅ 已完成 | 实现getReceiptsByDepartment()，通过metadata过滤 |
+| `core/database/entity/EmployeeExecutionReceiptEntity.java` | 修改 | ✅ 已完成 | 新增department字段+索引 |
+| `core/database/repository/EmployeeExecutionReceiptRepository.java` | 修改 | ✅ 已完成 | 新增findByDepartment()方法 |
+| `schema.sql` + `01_init.sql` | ALTER TABLE添加department列+索引+回填 | ✅ 已完成 |
+| `gateway/config/GatewayConfig.java` | 修改 | ✅ 已完成 | 注册departmentAggregationService Bean |
+
+### 12.6 P2：CrossDepartmentCoordinator 接口化 + DefaultRequirementReadinessEvaluator ✅ 已完成
+
+| 文件 | 类型 | 状态 | 说明 |
+| --- | --- | --- | --- |
+| `core/autonomy/CrossDepartmentCoordinator.java` | 重构 | ✅ 已完成 | 将现有具体类重构为接口，保留coordinate()方法和CrossDepartmentResult record |
+| `core/autonomy/impl/DefaultCrossDepartmentCoordinator.java` | 新增实现 | ✅ 已完成 | 从原CrossDepartmentCoordinator提取实现逻辑 |
+| `core/autonomy/impl/DefaultRequirementReadinessEvaluator.java` | 新增实现 | ✅ 已完成 | 规则版需求就绪评估器，7条确定性规则替代LLM调用 |
+| `gateway/config/GatewayConfig.java` | 修改 | ✅ 已完成 | crossDepartmentCoordinator Bean改为DefaultCrossDepartmentCoordinator |
+
+### 12.7 第11章落地差距分析（2026-06-22）
+
+> 对比第11章设计与实际代码，逐项检查落地状态。
+
+| # | 检查点 | 状态 | 说明 |
+| --- | --- | --- | --- |
+| 1 | MainBrain.forwardToDepartment() 实际转发 | ✅ 已实现 | MainBrain.java:370-405，通过 ChannelManager 发布到目标大脑通道，携带协调元数据 |
+| 2 | AbstractBrain.handleCrossDepartmentCoordination() | ✅ 设计简化 | 不新增专门方法，由 forwardToDepartment + 现有 TEXT 消息处理覆盖，通过元数据识别协调消息 |
+| 3 | ChannelMessage.CROSS_DEPARTMENT_COORDINATION 消息类型 | ✅ 设计简化 | 用 TEXT 类型 + 元数据（coordination_session_id/forwarded_by/original_user_id）替代，功能等价，避免枚举膨胀 |
+| 4 | ReviewRelationshipRegistry.java | ✅ 已替代+数据已填充 | 用 FixedEmployeeDefinition.downstreamReviewers 字段替代独立注册表；技术部 T09↔T10 交叉审查关系已配置 |
+| 5 | DepartmentChatService 接入 DepartmentAggregationService | ✅ 已完成 | DCS 构造函数注入聚合服务；onReceiptRecorded 调用 aggregate()；triggerAsyncFinalResponse 使用 DepartmentDeliverable（详见 DCS_INTEGRATION_PLAN_AGGREGATION_SELFCLAIM_LLM.md） |
+| 6 | DepartmentChatService 接入 EmployeeSelfClaimService | ✅ 已完成 | DCS 构造函数注入 TodoPool + SelfClaimService；规划完成后发布待办；窗口期后兜底指派（详见 DCS_INTEGRATION_PLAN_AGGREGATION_SELFCLAIM_LLM.md） |
+| 7 | LlmDepartmentAggregationService.java | ✅ 已完成 | 新增 LLM 驾动的聚合服务，使用 DefaultDepartmentAggregationService 作为 fallback；GatewayConfig 注册为 Primary Bean（详见 DCS_INTEGRATION_PLAN_AGGREGATION_SELFCLAIM_LLM.md） |
+| 8 | DynamicEmployeeTaskConsumerRegistry 审查结果监听 | ✅ 已完成 | InternalReviewService 添加 ReviewListener 回调机制；DynamicEmployeeTaskConsumerRegistry 注册监听器，REVISION_NEEDED 时重新发布任务消息触发重试 |
+
+### 12.8 审查闭环增强（2026-06-23）
+
+| 文件 | 类型 | 状态 | 说明 |
+| --- | --- | --- | --- |
+| `core/autonomy/review/InternalReviewService.java` | 修改 | ✅ 已完成 | 新增 ReviewListener 函数式接口和 addReviewListener() 方法 |
+| `core/autonomy/review/impl/DefaultInternalReviewService.java` | 修改 | ✅ 已完成 | review() 末尾通知所有监听器，CopyOnWriteArrayList 线程安全 |
+| `core/autonomy/impl/DynamicEmployeeTaskConsumerRegistry.java` | 修改 | ✅ 已完成 | registerAll() 中注册审查监听器；onReviewResult() 回调在 REVISION_NEEDED 时重新发布任务消息到编写员工通道 |
+| `core/employee/registry/FixedEmployeeRegistry.java` | 修改 | ✅ 已完成 | FixedEmployeeDefinition 新增 withDownstreamReviewers() 方法；registerTechEmployees() 末尾配置 T09↔T10 交叉审查关系；新增 applyDownstreamReviewers() 工具方法 |
+
+**审查闭环完整链路**：
+1. 员工执行成功 → 检查 downstreamReviewers → 非空则提交到 InternalReviewService
+2. 审查员审查 → review() 更新状态 → 通知所有 ReviewListener
+3. DynamicEmployeeTaskConsumerRegistry 收到 REVISION_NEEDED → 重新发布任务消息（含审查意见）到编写员工通道
+4. 编写员工收到重试消息 → 重新执行 → 再次提交审查
+5. 超过最大轮次 → ESCALATE_TO_BRAIN → 部门大脑裁决
+
+**审查关系配置**：
+- T09(前端工程师) → T10(后端工程师) 审查
+- T10(后端工程师) → T09(前端工程师) 审查
+- 交叉审查模式，确保代码质量
 

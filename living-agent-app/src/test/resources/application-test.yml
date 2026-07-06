@@ -1,0 +1,90 @@
+# ===========================================
+# Living Agent Service - 测试配置
+# ===========================================
+# 用于单元测试和集成测试
+# ===========================================
+
+server:
+  port: 8382
+
+spring:
+  application:
+    name: living-agent-service
+  profiles:
+    active: test
+
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    open-in-view: false
+    show-sql: false
+
+  h2:
+    console:
+      enabled: false
+
+# ===========================================
+# Service Admin 配置（测试环境启用）
+# ===========================================
+service-admin:
+  enabled: true
+
+# ===========================================
+# Tool 配置（测试环境）
+# ===========================================
+tool:
+  claude-cli:
+    enabled: false
+  openproject:
+    base-url: http://openproject:8080
+    api-token: test-openproject-token
+  gitlab:
+    base-url: http://gitlab:8929
+    access-token: test-gitlab-token
+  jenkins:
+    base-url: http://jenkins:8080
+    username: test-user
+    api-token: test-jenkins-token
+
+# ===========================================
+# LLM 配置（测试环境禁用）
+# ===========================================
+living-agent:
+  llm:
+    default-model: mock
+
+# ===========================================
+# Redis 配置（测试环境禁用）
+# ===========================================
+  redis:
+    host: localhost
+    port: 6379
+
+# ===========================================
+# Kafka 配置（测试环境禁用）
+# ===========================================
+  kafka:
+    enabled: false
+
+# ===========================================
+# Qdrant 配置（测试环境禁用）
+# ===========================================
+  qdrant:
+    host: localhost
+    port: 6333
+
+# ===========================================
+# 日志配置（测试环境）
+# ===========================================
+logging:
+  level:
+    root: WARN
+    com.livingagent: DEBUG
+    com.livingagent.core.tool.impl.admin: DEBUG
+    com.livingagent.core.config: DEBUG

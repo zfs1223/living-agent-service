@@ -2,6 +2,7 @@ package com.livingagent.core.model.pool;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -15,6 +16,12 @@ import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
+/**
+ * 模型健康探测器
+ * 定时检查禁用的模型是否恢复可用
+ * 
+ * 优化策略：只有在可用模型数量低于阈值时才执行检查，避免频繁探测
+ */
 @Component
 public class ModelHealthProber {
 
@@ -38,6 +45,15 @@ public class ModelHealthProber {
 
     private static final String PROBE_PROMPT = "{\"model\":\"%s\",\"messages\":[{\"role\":\"user\",\"content\":\"Hi, reply with OK\"}],\"max_tokens\":10,\"temperature\":0.1}";
 
+    /**
+     * 可用模型数量阈值
+     * 当可用模型数量 >= 此阈值时，跳过健康探测（避免频繁检查）
+     * 当可用模型数量 < 此阈值时，才执行探测（尝试恢复禁用模型）
+     * 默认值：3（建议至少保持3个可用模型）
+     */
+    @Value("${model.health-prober.min-available-threshold:3}")
+    private int minAvailableThreshold;
+
     public ModelHealthProber(LlmModelRepository modelRepo,
                              ProviderConfigRepository providerRepo,
                              ModelHealthRegistry healthRegistry,
@@ -55,9 +71,23 @@ public class ModelHealthProber {
             return;
         }
 
+        // 先检查可用模型数量：如果足够，跳过探测
+        List<LlmModel> enabledModels = modelRepo.findByEnabledTrue();
+        int availableCount = enabledModels.size();
+
+        if (availableCount >= minAvailableThreshold) {
+            // 模型充足时跳过探测，改为TRACE级别避免频繁日志
+            log.trace("ModelHealthProber: {} available models >= threshold {}, skipping probe (sufficient models)",
+                availableCount, minAvailableThreshold);
+            return;
+        }
+
+        log.info("ModelHealthProber: only {} available models < threshold {}, starting probe to recover disabled models",
+            availableCount, minAvailableThreshold);
+
         List<LlmModel> disabledModels = modelRepo.findByEnabledFalse();
         if (disabledModels.isEmpty()) {
-            log.debug("ModelHealthProber: no disabled models to probe");
+            log.info("ModelHealthProber: no disabled models to probe (all {} models are enabled)", availableCount);
             return;
         }
 
@@ -75,7 +105,8 @@ public class ModelHealthProber {
             return;
         }
 
-        log.info("ModelHealthProber: probing {} disabled models (total disabled: {})", candidates.size(), disabledModels.size());
+        log.info("ModelHealthProber: probing {} disabled models (total disabled: {}, available: {})",
+            candidates.size(), disabledModels.size(), availableCount);
 
         for (LlmModel model : candidates) {
             activeProbes.incrementAndGet();

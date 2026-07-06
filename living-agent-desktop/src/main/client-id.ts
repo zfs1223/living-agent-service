@@ -19,7 +19,7 @@ import { app } from 'electron';
 import { writeFile, readFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
-import { hostname, platform, userInfo } from 'os';
+import { hostname, platform, userInfo, networkInterfaces } from 'os';
 import { randomUUID } from 'crypto';
 
 export interface ClientInfo {
@@ -27,6 +27,7 @@ export interface ClientInfo {
   hostname: string;
   platform: NodeJS.Platform;
   osUser: string;
+  macAddress: string;  // 主网卡 MAC 地址（硬件指纹）
   appVersion: string;
   createdAt: string;
 }
@@ -35,6 +36,27 @@ let cached: ClientInfo | null = null;
 
 function getClientIdPath(): string {
   return join(app.getPath('userData'), 'client-id.json');
+}
+
+/**
+ * 获取主网卡 MAC 地址（硬件指纹）
+ * 用于设备唯一性验证，确保同一台机器只能有一个 clientId
+ */
+function getPrimaryMacAddress(): string {
+  const nets = networkInterfaces();
+  for (const name of Object.keys(nets)) {
+    // 跳过虚拟网卡
+    if (name.toLowerCase().includes('virtual') || name.toLowerCase().includes('vmware') || name.toLowerCase().includes('vbox')) {
+      continue;
+    }
+    for (const net of nets[name] || []) {
+      // 选择第一个非内部、IPv4 接口
+      if (!net.internal && net.family === 'IPv4') {
+        return net.mac || '';
+      }
+    }
+  }
+  return '';
 }
 
 /**
@@ -62,6 +84,7 @@ export async function getOrCreateClientId(): Promise<ClientInfo> {
     hostname: hostname(),
     platform: platform(),
     osUser: userInfo().username,
+    macAddress: getPrimaryMacAddress(),  // 硬件指纹
     appVersion: app.getVersion(),
     createdAt: new Date().toISOString()
   };
@@ -78,6 +101,11 @@ export async function getOrCreateClientId(): Promise<ClientInfo> {
 /** 同步获取（仅在已加载过时可用） */
 export function getCachedClientId(): string | null {
   return cached?.clientId ?? null;
+}
+
+/** 同步获取完整设备信息（仅在已加载过时可用） */
+export function getCachedClientInfo(): ClientInfo | null {
+  return cached;
 }
 
 /**

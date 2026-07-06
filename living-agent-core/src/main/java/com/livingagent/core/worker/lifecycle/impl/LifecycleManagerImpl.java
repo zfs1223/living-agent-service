@@ -212,12 +212,13 @@ public class LifecycleManagerImpl implements LifecycleManager {
 
     @Scheduled(fixedRateString = "${lifecycle.health-check-interval:300000}")
     public void performHealthCheckAll() {
-        log.debug("Performing health check for all workers");
-        
+        // 周期性健康检查，改为TRACE级别减少日志噪音
+        log.trace("Performing health check for all workers");
+
         for (String workerId : states.keySet()) {
             performHealthCheck(workerId);
         }
-        
+
         if (autoTerminate) {
             List<String> idleWorkers = getIdleWorkers(maxIdleTime);
             for (String workerId : idleWorkers) {

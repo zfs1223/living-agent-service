@@ -41,6 +41,10 @@ public class PersonalityMutation {
     public static PersonalityMutation decreaseRisk(String reason) {
         return new PersonalityMutation("riskTolerance", -0.1, reason);
     }
+
+    public static PersonalityMutation increaseRisk(String reason) {
+        return new PersonalityMutation("riskTolerance", 0.05, reason);
+    }
     
     public static PersonalityMutation increaseObedience(String reason) {
         return new PersonalityMutation("obedience", 0.1, reason);

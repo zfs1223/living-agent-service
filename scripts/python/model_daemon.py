@@ -49,6 +49,9 @@ QWEN35_MODEL_FILE = os.environ.get('QWEN35_MODEL_FILE',
     '/app/ai-models/Qwen3.5-2B-GGUF/Qwen3.5-2B-Q4_K_M.gguf')
 MELOTTS_MODEL_DIR = os.environ.get('MELOTTS_MODEL_DIR', 
     '/app/ai-models/MeloTTS')
+# MeloTTS 支持的语言列表，可按需裁剪以节省内存 (默认全部加载)
+# 例如内存不足时设置 MELOTTS_LANGUAGES=zh,en,fr,es,kr 跳过 jp
+MELOTTS_LANGUAGES = os.environ.get('MELOTTS_LANGUAGES', 'zh,en,fr,es,jp,kr').split(',')
 CAM_MODEL_DIR = os.environ.get('CAM_MODEL_DIR',
     '/app/ai-models/cam')
 SPEAKER_DATA_FILE = os.environ.get('SPEAKER_DATA_FILE',
@@ -691,7 +694,7 @@ class ModelManager:
             sys.path.insert(0, str(melotts_dir / "MeloTTS"))
             from melo.api import TTS
             
-            supported_languages = ['zh', 'en', 'fr', 'es', 'jp', 'kr']
+            supported_languages = [lang.strip() for lang in MELOTTS_LANGUAGES if lang.strip()]
             language_map = {'zh': 'ZH', 'en': 'EN', 'fr': 'FR', 'es': 'ES', 'jp': 'JP', 'kr': 'KR'}
             
             loaded_languages = []

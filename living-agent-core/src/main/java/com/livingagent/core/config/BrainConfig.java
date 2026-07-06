@@ -47,15 +47,16 @@ public class BrainConfig {
 
     // P2-1: 部门-工具部门映射，定义每个大脑可以访问哪些部门的工具
     // key = 大脑部门, value = 允许访问的工具部门集合
+    // "skill" 部门包含技能发现与安装工具(find_skills)，作为基础能力对所有大脑开放
     private static final Map<String, Set<String>> BRAIN_TOOL_DEPARTMENT_MAPPING = Map.of(
-        "tech", Set.of("tech", "devops", "project", "core", "comm", "cross_dept", "search", "data", "productivity", "information"),
-        "hr", Set.of("hr", "human_resources", "core", "comm", "cross_dept", "search", "data", "productivity", "information"),
-        "finance", Set.of("finance", "core", "comm", "cross_dept", "search", "data", "productivity", "information"),
-        "sales", Set.of("sales", "core", "comm", "cross_dept", "search", "data", "productivity", "information"),
-        "cs", Set.of("cs", "core", "comm", "cross_dept", "search", "data", "productivity", "information"),
-        "admin", Set.of("admin", "enterprise_management", "core", "comm", "cross_dept", "search", "data", "productivity", "information"),
-        "legal", Set.of("legal", "core", "comm", "cross_dept", "search", "data", "productivity", "information"),
-        "ops", Set.of("ops", "devops", "core", "comm", "cross_dept", "search", "data", "productivity", "information")
+        "tech", Set.of("tech", "devops", "project", "core", "comm", "cross_dept", "search", "data", "productivity", "information", "skill"),
+        "hr", Set.of("hr", "human_resources", "core", "comm", "cross_dept", "search", "data", "productivity", "information", "skill"),
+        "finance", Set.of("finance", "core", "comm", "cross_dept", "search", "data", "productivity", "information", "skill"),
+        "sales", Set.of("sales", "core", "comm", "cross_dept", "search", "data", "productivity", "information", "skill"),
+        "cs", Set.of("cs", "core", "comm", "cross_dept", "search", "data", "productivity", "information", "skill"),
+        "admin", Set.of("admin", "enterprise_management", "core", "comm", "cross_dept", "search", "data", "productivity", "information", "skill"),
+        "legal", Set.of("legal", "core", "comm", "cross_dept", "search", "data", "productivity", "information", "skill"),
+        "ops", Set.of("ops", "devops", "core", "comm", "cross_dept", "search", "data", "productivity", "information", "skill")
     );
 
     /**

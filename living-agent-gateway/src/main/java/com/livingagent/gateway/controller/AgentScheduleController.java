@@ -1,6 +1,7 @@
 package com.livingagent.gateway.controller;
 
 import com.livingagent.core.security.AccessGateService;
+import com.livingagent.gateway.controller.common.ApiResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -27,7 +28,7 @@ public class AgentScheduleController {
             @PathVariable String agentId,
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.debug("Listing schedules for agent: {}", agentId);
 
@@ -41,7 +42,7 @@ public class AgentScheduleController {
                 Instant.now()
         ));
 
-        return ResponseEntity.ok(ApiResponse.success(schedules));
+        return ResponseEntity.ok(ApiResponse.ok(schedules));
     }
 
     @PostMapping
@@ -51,7 +52,7 @@ public class AgentScheduleController {
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.info("Creating schedule for agent: {}", agentId);
 
@@ -64,7 +65,7 @@ public class AgentScheduleController {
                 Instant.now()
         );
 
-        return ResponseEntity.ok(ApiResponse.success(schedule));
+        return ResponseEntity.ok(ApiResponse.ok(schedule));
     }
 
     @PatchMapping("/{scheduleId}")
@@ -75,7 +76,7 @@ public class AgentScheduleController {
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.info("Updating schedule: {} for agent: {}", scheduleId, agentId);
 
@@ -88,7 +89,7 @@ public class AgentScheduleController {
                 Instant.now()
         );
 
-        return ResponseEntity.ok(ApiResponse.success(schedule));
+        return ResponseEntity.ok(ApiResponse.ok(schedule));
     }
 
     @DeleteMapping("/{scheduleId}")
@@ -98,11 +99,11 @@ public class AgentScheduleController {
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.info("Deleting schedule: {} for agent: {}", scheduleId, agentId);
 
-        return ResponseEntity.ok(ApiResponse.success(Map.of("status", "deleted", "id", scheduleId)));
+        return ResponseEntity.ok(ApiResponse.ok(Map.of("status", "deleted", "id", scheduleId)));
     }
 
     @PostMapping("/{scheduleId}/run")
@@ -112,11 +113,11 @@ public class AgentScheduleController {
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.info("Running schedule: {} for agent: {}", scheduleId, agentId);
 
-        return ResponseEntity.ok(ApiResponse.success(Map.of("status", "triggered", "id", scheduleId)));
+        return ResponseEntity.ok(ApiResponse.ok(Map.of("status", "triggered", "id", scheduleId)));
     }
 
     @GetMapping("/{scheduleId}/history")
@@ -126,7 +127,7 @@ public class AgentScheduleController {
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(403).body(ApiResponse.error("forbidden", "Access denied before routing"));
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.debug("Getting history for schedule: {} of agent: {}", scheduleId, agentId);
 
@@ -138,22 +139,7 @@ public class AgentScheduleController {
                 Instant.now()
         ));
 
-        return ResponseEntity.ok(ApiResponse.success(history));
-    }
-
-    public record ApiResponse<T>(
-            boolean success,
-            T data,
-            String error,
-            String errorDescription
-    ) {
-        public static <T> ApiResponse<T> success(T data) {
-            return new ApiResponse<>(true, data, null, null);
-        }
-
-        public static <T> ApiResponse<T> error(String error, String description) {
-            return new ApiResponse<>(false, null, error, description);
-        }
+        return ResponseEntity.ok(ApiResponse.ok(history));
     }
 
     public record ScheduleInfo(

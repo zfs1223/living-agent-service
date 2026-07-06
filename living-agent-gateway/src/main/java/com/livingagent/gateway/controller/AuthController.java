@@ -1,11 +1,13 @@
 package com.livingagent.gateway.controller;
 
 import com.livingagent.core.security.AccessGateService;
+import com.livingagent.core.security.AccessLevel;
 import com.livingagent.core.security.AuthContext;
 import com.livingagent.core.security.auth.OAuthService;
 import com.livingagent.core.security.auth.UnifiedAuthService;
 import com.livingagent.core.security.auth.UnifiedAuthService.AuthResult;
 import com.livingagent.core.security.auth.UnifiedAuthService.AuthSession;
+import com.livingagent.core.security.client.ClientUserBindingService;
 import com.livingagent.core.security.service.EnterpriseEmployeeService;
 import com.livingagent.gateway.controller.common.ApiResponse;
 import jakarta.servlet.http.HttpServletResponse;
@@ -50,6 +52,8 @@ public class AuthController {
     private final Map<String, OAuthService> oauthServices;
     private final AccessGateService accessGateService;
     private final EnterpriseEmployeeService employeeService;
+    private final ClientUserBindingService clientUserBindingService;
+    private final TenantController tenantController;
 
     /** 是否启用 Cookie 的 Secure 标志（生产环境 true，开发环境 false） */
     @Value("${auth.cookie.secure:true}")
@@ -59,7 +63,9 @@ public class AuthController {
             UnifiedAuthService unifiedAuthService,
             List<OAuthService> oauthServiceList,
             AccessGateService accessGateService,
-            EnterpriseEmployeeService employeeService
+            EnterpriseEmployeeService employeeService,
+            ClientUserBindingService clientUserBindingService,
+            TenantController tenantController
     ) {
         this.unifiedAuthService = unifiedAuthService;
         this.oauthServices = new HashMap<>();
@@ -70,6 +76,8 @@ public class AuthController {
         }
         this.accessGateService = accessGateService;
         this.employeeService = employeeService;
+        this.clientUserBindingService = clientUserBindingService;
+        this.tenantController = tenantController;
     }
 
     @GetMapping("/oauth/{provider}/url")
@@ -153,12 +161,51 @@ public class AuthController {
         } else {
             employeeService.createAuthContext(authContext);
             log.info("Created new user in database: {}", authContext.getName());
+
+            // 如果有 inviteCode,自动加入公司
+            if (request.inviteCode() != null && !request.inviteCode().isBlank()) {
+                try {
+                    // 构造 joinTenant 请求
+                    TenantController.TenantJoinRequest joinRequest =
+                        new TenantController.TenantJoinRequest(request.inviteCode());
+
+                    // 调用 tenantController.joinTenant
+                    ResponseEntity<com.livingagent.gateway.controller.common.ApiResponse<TenantController.TenantJoinResult>> joinResult =
+                        tenantController.joinTenant(joinRequest, "Bearer " + result.session().sessionId(), null);
+
+                    if (joinResult.getStatusCode().is2xxSuccessful() && joinResult.getBody() != null) {
+                        TenantController.TenantJoinResult joinData = joinResult.getBody().data();
+                        authContext.setTenantId(joinData.tenant_id());  // 注意字段名是 tenant_id
+                        log.info("Auto-joined user {} to tenant {} via invite code {}",
+                            authContext.getName(), joinData.tenant_id(), request.inviteCode());
+                    } else {
+                        log.warn("Failed to auto-join user {} with invite code {}: {}",
+                            authContext.getName(), request.inviteCode(),
+                            joinResult.getBody() != null ? joinResult.getBody().error() : "unknown error");
+                    }
+                } catch (Exception e) {
+                    log.error("Error auto-joining user {} with invite code {}: {}",
+                        authContext.getName(), request.inviteCode(), e.getMessage());
+                }
+            }
         }
 
         AuthSession session = result.session();
 
         // 设置 HttpOnly Cookie
         setTokenCookies(response, session.sessionId(), session.sessionId());
+
+        // 绑定 clientId 与 userId（如果请求中包含 clientId）
+        String clientId = request.clientId();
+        if (clientId != null && !clientId.isBlank()) {
+            clientUserBindingService.bindOnLogin(
+                clientId,
+                authContext.getEmployeeId(),
+                authContext.getAccessLevel() != null ? authContext.getAccessLevel().getLevel() : 0,
+                authContext.getDepartment(),
+                authContext.getTenantId()
+            );
+        }
 
         LoginResponse loginResponse = new LoginResponse(
                 session.sessionId(),
@@ -230,14 +277,33 @@ public class AuthController {
         log.info("Updating user info for session: {}", sessionId);
 
         AuthContext authContext = sessionOpt.get().authContext();
+
+        // Apply requested changes to auth context
+        if (request.name() != null) {
+            authContext.setName(request.name());
+        }
+        if (request.email() != null) {
+            authContext.setEmail(request.email());
+        }
+
+        // Persist changes to database
+        try {
+            authContext = employeeService.updateAuthContext(authContext);
+        } catch (Exception e) {
+            log.warn("Failed to persist profile update for {}: {}", authContext.getEmployeeId(), e.getMessage());
+        }
+
+        String avatar = request.avatar() != null ? request.avatar() : convertToUserInfo(authContext).avatar();
+
         UserInfo userInfo = new UserInfo(
                 authContext.getEmployeeId(),
-                request.email() != null ? request.email() : authContext.getEmail(),
-                request.name() != null ? request.name() : authContext.getName(),
-                request.avatar(),
+                authContext.getEmail(),
+                authContext.getName(),
+                avatar,
                 authContext.getDepartment(),
                 authContext.getIdentity().name(),
                 authContext.getAccessLevel().name(),
+                "member",
                 authContext.isFounder(),
                 authContext.getTenantId(),
                 new ArrayList<>(authContext.getAllowedBrains()),
@@ -383,6 +449,13 @@ public class AuthController {
     }
 
     private UserInfo convertToUserInfo(AuthContext authContext) {
+        // 根据 accessLevel 推断 role
+        String role = "member";
+        if (authContext.getAccessLevel() == AccessLevel.FULL) {
+            role = "org_admin";
+        } else if (authContext.getAccessLevel() == AccessLevel.DEPARTMENT) {
+            role = "agent_admin";
+        }
         return new UserInfo(
                 authContext.getEmployeeId(),
                 authContext.getEmail(),
@@ -391,6 +464,7 @@ public class AuthController {
                 authContext.getDepartment(),
                 authContext.getIdentity().name(),
                 authContext.getAccessLevel().name(),
+                role,
                 authContext.isFounder(),
                 authContext.getTenantId(),
                 new ArrayList<>(authContext.getAllowedBrains()),
@@ -401,7 +475,7 @@ public class AuthController {
 
     public record OAuthUrlResponse(String redirectUrl, String state) {}
 
-    public record OAuthCallbackRequest(String code, String redirectUri, String state) {}
+    public record OAuthCallbackRequest(String code, String redirectUri, String state, String clientId, String inviteCode) {}
 
     public record LoginResponse(
             String accessToken,
@@ -417,6 +491,7 @@ public class AuthController {
             String department,
             String identity,
             String accessLevel,
+            String role,
             boolean founder,
             String tenantId,
             List<String> allowedBrains,

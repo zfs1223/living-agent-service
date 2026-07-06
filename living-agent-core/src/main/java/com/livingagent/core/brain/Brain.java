@@ -40,6 +40,8 @@ public interface Brain {
     default void injectSessionHistory(String sessionId, List<Provider.ChatMessage> history) {
     }
 
+    BrainContext getContext();
+
     enum BrainState {
         INITIALIZING,
         RUNNING,

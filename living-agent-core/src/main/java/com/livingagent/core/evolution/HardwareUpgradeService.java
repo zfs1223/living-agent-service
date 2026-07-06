@@ -15,6 +15,34 @@ public interface HardwareUpgradeService {
     void recordTierChange(String employeeId, EvolutionManager.EvolutionTier fromTier,
                          EvolutionManager.EvolutionTier toTier, int balanceCents);
 
+    /**
+     * P25: 回滚硬件升级（当 ROI 极差时自动执行）。
+     * @param upgradeId 升级 ID
+     * @param employeeId 员工 ID
+     * @return 回滚结果
+     */
+    HardwareRollbackResult rollbackUpgrade(String upgradeId, String employeeId);
+
+    record HardwareRollbackResult(
+        String upgradeId,
+        boolean success,
+        String message,
+        int refundedCents,
+        Instant rolledBackAt
+    ) {
+        public static HardwareRollbackResult success(String upgradeId, int refunded) {
+            return new HardwareRollbackResult(upgradeId, true, "Rollback completed", refunded, Instant.now());
+        }
+
+        public static HardwareRollbackResult failed(String upgradeId, String reason) {
+            return new HardwareRollbackResult(upgradeId, false, reason, 0, Instant.now());
+        }
+
+        public static HardwareRollbackResult notFound(String upgradeId) {
+            return new HardwareRollbackResult(upgradeId, false, "Upgrade not found", 0, Instant.now());
+        }
+    }
+
     record HardwareUpgradeResult(
         String upgradeId,
         boolean success,

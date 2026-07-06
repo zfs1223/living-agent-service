@@ -22,6 +22,8 @@ public class DefaultPerformanceStatsService implements PerformanceStatsService {
     private final LedgerService ledgerService;
     private final FixedEmployeeRegistry employeeRegistry;
 
+    private final java.util.concurrent.ConcurrentHashMap<String, Double> dispatchWeights = new java.util.concurrent.ConcurrentHashMap<>();
+
     public DefaultPerformanceStatsService(LedgerService ledgerService,
                                            FixedEmployeeRegistry employeeRegistry) {
         this.ledgerService = ledgerService;
@@ -89,5 +91,22 @@ public class DefaultPerformanceStatsService implements PerformanceStatsService {
             .sorted(Comparator.comparingDouble(EmployeePerformanceStats::normalizedScore).reversed())
             .limit(limit > 0 ? limit : 10)
             .toList();
+    }
+
+    @Override
+    public void adjustWeight(String employeeCode, double delta) {
+        double current = dispatchWeights.getOrDefault(employeeCode, 1.0);
+        double updated = Math.max(0.0, current + delta);
+        dispatchWeights.put(employeeCode, updated);
+        if (updated <= 0.0) {
+            log.warn("Employee {} dispatch weight dropped to 0, may need human review", employeeCode);
+        } else if (updated < 0.3) {
+            log.info("Employee {} has low dispatch weight: {:.2f}", employeeCode, updated);
+        }
+    }
+
+    @Override
+    public double getDispatchWeight(String employeeCode) {
+        return dispatchWeights.getOrDefault(employeeCode, 1.0);
     }
 }

@@ -25,6 +25,8 @@ import com.livingagent.core.model.ModelSession;
 import com.livingagent.core.model.ModelResponse;
 import com.livingagent.core.model.ModelRequest;
 import com.livingagent.core.model.ModelStatus;
+import com.livingagent.core.diagnosis.AppModeUtil;
+import com.livingagent.core.diagnosis.DegradedTrafficCanary;
 
 public class NamedPipeModelClient implements ModelClient {
     
@@ -41,6 +43,19 @@ public class NamedPipeModelClient implements ModelClient {
     private final String daemonPath;
     private final int timeoutMs;
     private final Object controlPipeLock = new Object();
+
+    // P20-C: 熔断器
+    private enum CircuitState { CLOSED, OPEN, HALF_OPEN }
+    private volatile CircuitState circuitState = CircuitState.CLOSED;
+    private volatile int consecutiveFailures = 0;
+    private volatile long circuitOpenedAtMs = 0;
+    private static final int FAILURE_THRESHOLD = 5;
+    private static final long CIRCUIT_OPEN_DURATION_MS = 30_000;
+    private static final int HALF_OPEN_MAX_PROBES = 1;
+    private volatile int halfOpenProbeCount = 0;
+
+    // P27-A: 降级小流量Canary
+    private volatile DegradedTrafficCanary canary;
     
     public NamedPipeModelClient() {
         this("/opt/dialogue-service", DEFAULT_TIMEOUT_MS, "/tmp");
@@ -68,6 +83,10 @@ public class NamedPipeModelClient implements ModelClient {
     
     public String getControlResponsePipe() {
         return controlResponsePipe;
+    }
+
+    public void setCanary(DegradedTrafficCanary canary) {
+        this.canary = canary;
     }
     
     @Override
@@ -134,16 +153,37 @@ public class NamedPipeModelClient implements ModelClient {
                 ModelResponse.failure("Session not found: " + sessionId)
             );
         }
-        
+
+        // P20-C: 熔断检查
+        if (!allowRequest()) {
+            return CompletableFuture.completedFuture(
+                ModelResponse.failure("Circuit breaker OPEN: model daemon unreachable"));
+        }
+
+        // P27-A: Canary路由判断
+        if (canary != null && !canary.shouldRouteToComponent("model_daemon")) {
+            return CompletableFuture.completedFuture(
+                ModelResponse.failure("Canary probing: traffic not yet promoted"));
+        }
+
         session.touch();
-        
+
         return CompletableFuture.supplyAsync(() -> {
             String requestPipe = "/tmp/dialogue_daemon_request_" + sessionId;
             String responsePipe = "/tmp/dialogue_daemon_response_" + sessionId;
-            
+
             try {
-                return writeToPipe(requestPipe, responsePipe, request);
+                ModelResponse response = writeToPipe(requestPipe, responsePipe, request);
+                recordSuccess();
+                if (canary != null && canary.isProbing("model_daemon")) {
+                    canary.recordProbeSuccess("model_daemon");
+                }
+                return response;
             } catch (Exception e) {
+                recordFailure();
+                if (canary != null && canary.isProbing("model_daemon")) {
+                    canary.recordProbeFailure("model_daemon");
+                }
                 log.error("Error sending request to session {}: {}", sessionId, e.getMessage());
                 return ModelResponse.failure("Communication error: " + e.getMessage());
             }
@@ -152,10 +192,37 @@ public class NamedPipeModelClient implements ModelClient {
     
     @Override
     public CompletableFuture<ModelResponse> sendControlRequest(ModelRequest request) {
+        if (AppModeUtil.isDegraded()) {
+            log.debug("P12-C: Skipping NamedPipe request in degraded mode");
+            return CompletableFuture.completedFuture(
+                ModelResponse.failure("Service in degraded mode, model daemon unavailable"));
+        }
+
+        // P20-C: 熔断检查
+        if (!allowRequest()) {
+            return CompletableFuture.completedFuture(
+                ModelResponse.failure("Circuit breaker OPEN: model daemon unreachable (consecutive failures=" + consecutiveFailures + ")"));
+        }
+
+        // P27-A: Canary路由判断
+        if (canary != null && !canary.shouldRouteToComponent("model_daemon")) {
+            return CompletableFuture.completedFuture(
+                ModelResponse.failure("Canary probing: traffic not yet promoted"));
+        }
+
         return CompletableFuture.supplyAsync(() -> {
             try {
-                return writeControlRequest(request);
+                ModelResponse response = writeControlRequest(request);
+                recordSuccess();
+                if (canary != null && canary.isProbing("model_daemon")) {
+                    canary.recordProbeSuccess("model_daemon");
+                }
+                return response;
             } catch (Exception e) {
+                recordFailure();
+                if (canary != null && canary.isProbing("model_daemon")) {
+                    canary.recordProbeFailure("model_daemon");
+                }
                 log.error("Error sending control request: {}", e.getMessage());
                 return ModelResponse.failure("Control communication error: " + e.getMessage());
             }
@@ -363,6 +430,56 @@ public class NamedPipeModelClient implements ModelClient {
         });
     }
     
+    // P20-C: 熔断器方法
+
+    private boolean allowRequest() {
+        if (circuitState == CircuitState.CLOSED) {
+            return true;
+        }
+        if (circuitState == CircuitState.OPEN) {
+            if (System.currentTimeMillis() - circuitOpenedAtMs > CIRCUIT_OPEN_DURATION_MS) {
+                circuitState = CircuitState.HALF_OPEN;
+                halfOpenProbeCount = 0;
+                log.info("P20-C: Circuit breaker HALF_OPEN, probing model daemon");
+                return true;
+            }
+            return false;
+        }
+        // HALF_OPEN: allow limited probes
+        return halfOpenProbeCount < HALF_OPEN_MAX_PROBES;
+    }
+
+    private void recordSuccess() {
+        consecutiveFailures = 0;
+        if (circuitState != CircuitState.CLOSED) {
+            circuitState = CircuitState.CLOSED;
+            connected.set(true);
+            log.info("P20-C: Circuit breaker CLOSED, model daemon recovered");
+        }
+    }
+
+    private void recordFailure() {
+        consecutiveFailures++;
+        connected.set(false);
+        if (circuitState == CircuitState.HALF_OPEN) {
+            circuitState = CircuitState.OPEN;
+            circuitOpenedAtMs = System.currentTimeMillis();
+            log.warn("P20-C: Circuit breaker re-OPENED (half-open probe failed)");
+        } else if (circuitState == CircuitState.CLOSED && consecutiveFailures >= FAILURE_THRESHOLD) {
+            circuitState = CircuitState.OPEN;
+            circuitOpenedAtMs = System.currentTimeMillis();
+            log.warn("P20-C: Circuit breaker OPENED after {} consecutive failures", consecutiveFailures);
+        }
+    }
+
+    public CircuitState getCircuitState() {
+        return circuitState;
+    }
+
+    public int getConsecutiveFailures() {
+        return consecutiveFailures;
+    }
+
     @Override
     public void close() {
         for (String sessionId : sessions.keySet()) {

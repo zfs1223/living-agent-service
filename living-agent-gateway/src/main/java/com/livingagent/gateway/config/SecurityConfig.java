@@ -53,14 +53,17 @@ public class SecurityConfig {
                     "/api/auth/oauth/**",
                     "/api/auth/providers",
                     "/api/public/**",
+                    "/api/tasks/public",       // 公开任务列表（桌面端无需登录即可查看）
                     "/api/tenants/registration-config",
                     "/api/auth/sms/send",
                     "/api/auth/phone/login",
                     "/api/version",
                     "/api/notifications/unread-count",
                     "/api/messages/unread-count",
+                    "/api/enterprise/settings/notification_bar/public",  // 公开公告栏（登录前显示）
                     "/api/monitoring/health",
-                    "/api/enterprise/settings/notification_bar/public",
+                    "/api/health",               // 健康检查（桌面端连接检测用）
+                    "/api/health/**",            // P12-B: liveness/readiness 探针
                     "/ws/**",
                     "/login",
                     "/error",

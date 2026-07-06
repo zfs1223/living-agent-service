@@ -30,4 +30,20 @@ public interface ChannelManager {
     List<String> getChannelIds();
 
     int count();
+
+    /**
+     * P11-B: 获取通道健康摘要（用于监控闭环）
+     */
+    ChannelHealthSummary getHealthSummary();
+
+    /**
+     * P11-B: 通道健康摘要
+     */
+    record ChannelHealthSummary(
+        int totalChannels,
+        int activeChannels,
+        int emptyChannels,
+        int totalSubscribers,
+        long totalMessages
+    ) {}
 }

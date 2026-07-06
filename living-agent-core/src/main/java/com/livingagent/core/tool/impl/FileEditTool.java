@@ -1,5 +1,7 @@
 package com.livingagent.core.tool.impl;
 
+import com.livingagent.core.autonomy.ArtifactRecord;
+import com.livingagent.core.autonomy.ArtifactRecordService;
 import com.livingagent.core.security.SecurityPolicy;
 import com.livingagent.core.tool.*;
 import org.slf4j.Logger;
@@ -9,8 +11,12 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -20,9 +26,10 @@ import java.util.stream.Stream;
  * <p>支持的操作：
  * <ul>
  *   <li>read_file — 读取文件内容</li>
- *   <li>write_file — 写入文件（需审批）</li>
+ *   <li>write_file — 写入文件（整文件覆写）</li>
+ *   <li>edit_file — 精确编辑文件（old_string→new_string 替换）</li>
  *   <li>list_dir — 列出目录内容</li>
- *   <li>search_code — 在文件中搜索文本模式</li>
+ *   <li>search_code — 在文件中搜索文本模式（支持正则）</li>
  * </ul>
  *
  * <p>安全约束：
@@ -34,18 +41,25 @@ import java.util.stream.Stream;
  *
  * <p>工作区路径支持热配置：通过 {@link #setWorkspaceRoot(String)} 可在运行时修改，
  * 前端可通过系统设置 API 动态调整。
+ *
+ * <p>产物记录：当数字员工通过 write_file 创建文件时，自动记录到 ArtifactRecordService，
+ * 包含数字员工代码、神经元 ID、部门等信息，以便进行考核统计。
+ * 产物保存路径遵循规范：data/artifacts/{department}/{executionId}/
  */
 public class FileEditTool implements Tool {
 
     private static final Logger log = LoggerFactory.getLogger(FileEditTool.class);
 
     private static final String NAME = "file_edit";
-    private static final String DESCRIPTION = "源码文件编辑工具，支持读取、写入、列出目录和搜索代码。所有路径相对于工作区根目录。";
-    private static final String VERSION = "1.0.0";
+    private static final String DESCRIPTION = "源码文件编辑工具，支持读取、写入、精确编辑、列出目录和搜索代码（支持正则）。所有路径相对于工作区根目录。";
+    private static final String VERSION = "1.2.0";
     private static final String DEPARTMENT = "tech";
 
     private static final String WORKSPACE_ROOT_PROPERTY = "livingagent.workspace.root";
     private static final String DEFAULT_WORKSPACE_ROOT = "/app/workspace";
+
+    private static final String ARTIFACT_DIR_PROPERTY = "livingagent.artifact.dir";
+    private static final String DEFAULT_ARTIFACT_DIR = "data/artifacts";
 
     private static final Set<String> FORBIDDEN_PATTERNS = Set.of(
         ".env", ".credentials", ".secret", ".key", ".pem", ".p12", ".jks"
@@ -53,18 +67,37 @@ public class FileEditTool implements Tool {
 
     /** 工作区根路径，支持运行时热配置 */
     private volatile Path workspaceRoot;
+    /** 产物目录根路径 */
+    private volatile Path artifactRoot;
+    /** 产物记录服务（可选注入） */
+    private volatile ArtifactRecordService artifactRecordService;
     private ToolStats stats = ToolStats.empty(NAME);
 
     public FileEditTool() {
         this.workspaceRoot = Path.of(
             System.getProperty(WORKSPACE_ROOT_PROPERTY, DEFAULT_WORKSPACE_ROOT)
         ).toAbsolutePath().normalize();
-        log.info("FileEditTool initialized with workspace root: {}", workspaceRoot);
+        this.artifactRoot = Path.of(
+            System.getProperty(ARTIFACT_DIR_PROPERTY, DEFAULT_ARTIFACT_DIR)
+        ).toAbsolutePath().normalize();
+        log.info("FileEditTool initialized with workspace root: {}, artifact root: {}", workspaceRoot, artifactRoot);
     }
 
     public FileEditTool(String workspaceRoot) {
         this.workspaceRoot = Path.of(workspaceRoot).toAbsolutePath().normalize();
-        log.info("FileEditTool initialized with workspace root: {}", workspaceRoot);
+        this.artifactRoot = Path.of(
+            System.getProperty(ARTIFACT_DIR_PROPERTY, DEFAULT_ARTIFACT_DIR)
+        ).toAbsolutePath().normalize();
+        log.info("FileEditTool initialized with workspace root: {}, artifact root: {}", workspaceRoot, artifactRoot);
+    }
+
+    /**
+     * 注入 ArtifactRecordService，用于在 write_file 后自动记录产物。
+     * 通过 ToolConfig 或 @PostConstruct 注入。
+     */
+    public void setArtifactRecordService(ArtifactRecordService artifactRecordService) {
+        this.artifactRecordService = artifactRecordService;
+        log.info("FileEditTool: ArtifactRecordService injected");
     }
 
     /**
@@ -101,10 +134,13 @@ public class FileEditTool implements Tool {
         return ToolSchema.builder()
                 .name(NAME)
                 .description(DESCRIPTION)
-                .parameter("action", "string", "操作类型: read_file, write_file, list_dir, search_code", true)
+                .parameter("action", "string", "操作类型: read_file, write_file, edit_file, list_dir, search_code", true)
                 .parameter("path", "string", "文件或目录路径（相对于工作区根目录）", true)
                 .parameter("content", "string", "写入文件的内容（仅 write_file 操作需要）", false)
-                .parameter("pattern", "string", "搜索文本模式（仅 search_code 操作需要）", false)
+                .parameter("old_string", "string", "被替换的原始字符串（仅 edit_file 操作需要）", false)
+                .parameter("new_string", "string", "替换后的新字符串（仅 edit_file 操作需要）", false)
+                .parameter("pattern", "string", "搜索文本模式，支持正则表达式（仅 search_code 操作需要）", false)
+                .parameter("regex", "boolean", "是否使用正则表达式搜索（默认false）", false)
                 .parameter("max_results", "integer", "搜索最大返回结果数（默认50）", false)
                 .build();
     }
@@ -132,9 +168,11 @@ public class FileEditTool implements Tool {
         try {
             Object result = switch (action.toLowerCase()) {
                 case "read_file" -> readFile(path);
-                case "write_file" -> writeFile(path, params.getString("content"));
+                case "write_file" -> writeFile(path, params.getString("content"), context);
+                case "edit_file" -> editFile(path, params.getString("old_string"), params.getString("new_string"), context);
                 case "list_dir" -> listDir(path);
                 case "search_code" -> searchCode(path, params.getString("pattern"),
+                    params.getBoolean("regex") != null && params.getBoolean("regex"),
                     params.getInteger("max_results") != null ? params.getInteger("max_results") : 50);
                 default -> throw new IllegalArgumentException("不支持的操作: " + action);
             };
@@ -172,6 +210,15 @@ public class FileEditTool implements Tool {
 
         if ("write_file".equalsIgnoreCase(action) && params.getString("content") == null) {
             throw new IllegalArgumentException("write_file 操作需要 content 参数");
+        }
+
+        if ("edit_file".equalsIgnoreCase(action)) {
+            if (params.getString("old_string") == null) {
+                throw new IllegalArgumentException("edit_file 操作需要 old_string 参数");
+            }
+            if (params.getString("new_string") == null) {
+                throw new IllegalArgumentException("edit_file 操作需要 new_string 参数");
+            }
         }
 
         if ("search_code".equalsIgnoreCase(action) && params.getString("pattern") == null) {
@@ -214,7 +261,7 @@ public class FileEditTool implements Tool {
         return result;
     }
 
-    private Map<String, Object> writeFile(String relativePath, String content) throws IOException {
+    private Map<String, Object> writeFile(String relativePath, String content, ToolContext context) throws IOException {
         Path target = resolveAndValidate(relativePath);
         validateWritePath(target);
 
@@ -223,13 +270,69 @@ public class FileEditTool implements Tool {
         Files.writeString(target, contentValue, StandardCharsets.UTF_8,
             StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
 
-        log.info("File written: {} ({} bytes)", relativePath, contentValue.length());
+        long fileSize = contentValue.length();
+        log.info("File written: {} ({} bytes)", relativePath, fileSize);
+
+        // 当有数字员工上下文时，自动记录产物
+        recordArtifactIfNeeded(relativePath, target, fileSize, context);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("path", relativePath);
-        result.put("size", contentValue.length());
+        result.put("size", fileSize);
         result.put("lines", contentValue.split("\n").length);
         result.put("status", "written");
+        return result;
+    }
+
+    /**
+     * 精确编辑文件：将文件中 old_string 的首次出现替换为 new_string。
+     * 类似 Claude Code 的 Edit 操作，支持行级精确修改而无需覆写整个文件。
+     */
+    private Map<String, Object> editFile(String relativePath, String oldString, String newString, ToolContext context) throws IOException {
+        if (oldString == null || oldString.isBlank()) {
+            throw new IllegalArgumentException("old_string 不能为空");
+        }
+
+        Path target = resolveAndValidate(relativePath);
+        validateWritePath(target);
+        if (!Files.exists(target)) {
+            throw new NoSuchFileException(relativePath);
+        }
+
+        String content = Files.readString(target, StandardCharsets.UTF_8);
+        int index = content.indexOf(oldString);
+        if (index < 0) {
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("path", relativePath);
+            result.put("status", "not_found");
+            result.put("error", "old_string 未在文件中找到，请确认原始内容是否匹配");
+            return result;
+        }
+
+        // 检查是否有多处匹配（提醒但不阻止）
+        int secondIndex = content.indexOf(oldString, index + 1);
+        boolean multipleMatches = secondIndex >= 0;
+
+        String newContent = content.substring(0, index) + newString + content.substring(index + oldString.length());
+        Files.writeString(target, newContent, StandardCharsets.UTF_8,
+            StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+
+        long fileSize = newContent.length();
+        log.info("File edited: {} (replaced {} chars with {} chars, multipleMatches={})",
+            relativePath, oldString.length(), newString.length(), multipleMatches);
+
+        recordArtifactIfNeeded(relativePath, target, fileSize, context);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("path", relativePath);
+        result.put("size", fileSize);
+        result.put("lines", newContent.split("\n").length);
+        result.put("replaced_chars", oldString.length());
+        result.put("new_chars", newString.length());
+        result.put("status", "edited");
+        if (multipleMatches) {
+            result.put("warning", "old_string 存在多处匹配，仅替换了第一处");
+        }
         return result;
     }
 
@@ -267,7 +370,7 @@ public class FileEditTool implements Tool {
         return result;
     }
 
-    private Map<String, Object> searchCode(String relativePath, String pattern, int maxResults) throws IOException {
+    private Map<String, Object> searchCode(String relativePath, String pattern, boolean useRegex, int maxResults) throws IOException {
         if (pattern == null || pattern.isBlank()) {
             throw new IllegalArgumentException("搜索模式不能为空");
         }
@@ -278,11 +381,21 @@ public class FileEditTool implements Tool {
         }
 
         List<Map<String, Object>> matches = new ArrayList<>();
-        searchInPath(target, pattern, maxResults, matches);
+        if (useRegex) {
+            try {
+                Pattern regex = Pattern.compile(pattern);
+                searchInPathRegex(target, regex, maxResults, matches);
+            } catch (PatternSyntaxException e) {
+                throw new IllegalArgumentException("正则表达式语法错误: " + e.getMessage());
+            }
+        } else {
+            searchInPath(target, pattern, maxResults, matches);
+        }
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("path", relativePath);
         result.put("pattern", pattern);
+        result.put("regex", useRegex);
         result.put("matches", matches);
         result.put("count", matches.size());
         result.put("truncated", matches.size() >= maxResults);
@@ -312,6 +425,36 @@ public class FileEditTool implements Tool {
                         }
                     } catch (IOException e) {
                         log.debug("Skip file during search: {}", e.getMessage());
+                    }
+                });
+        }
+    }
+
+    private void searchInPathRegex(Path dir, Pattern regex, int maxResults, List<Map<String, Object>> matches) throws IOException {
+        if (matches.size() >= maxResults) return;
+
+        try (Stream<Path> stream = Files.walk(dir, 10)) {
+            stream.filter(Files::isRegularFile)
+                .filter(this::isSearchableFile)
+                .limit(1000)
+                .forEach(file -> {
+                    if (matches.size() >= maxResults) return;
+                    try {
+                        String content = Files.readString(file, StandardCharsets.UTF_8);
+                        String[] lines = content.split("\n");
+                        for (int i = 0; i < lines.length && matches.size() < maxResults; i++) {
+                            Matcher m = regex.matcher(lines[i]);
+                            if (m.find()) {
+                                Map<String, Object> match = new LinkedHashMap<>();
+                                match.put("file", workspaceRoot.relativize(file).toString().replace("\\", "/"));
+                                match.put("line", i + 1);
+                                match.put("content", lines[i].trim());
+                                match.put("match", m.group());
+                                matches.add(match);
+                            }
+                        }
+                    } catch (IOException e) {
+                        log.debug("Skip file during regex search: {}", e.getMessage());
                     }
                 });
         }
@@ -358,5 +501,157 @@ public class FileEditTool implements Tool {
         if (name.contains("target")) return false;
         if (name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".ico")) return false;
         return true;
+    }
+
+    // ==================== 产物记录 ====================
+
+    /**
+     * 当有数字员工上下文时，将创建的文件记录到 ArtifactRecordService。
+     * 产物保存路径遵循规范 §3.3：
+     *   - 数字员工产物：data/artifacts/by-employee/{employeeCode}/{executionId}/
+     *   - 部门产物：    data/artifacts/{department}/{executionId}/
+     *
+     * <p>同时保留 workspace 内的工作文件（LLM 在工作区中操作），
+     * 并将文件复制到产物目录作为持久化归档。
+     */
+    private void recordArtifactIfNeeded(String relativePath, Path filePath, long fileSize, ToolContext context) {
+        if (artifactRecordService == null) {
+            return;
+        }
+        if (context == null || context.employeeCode() == null || context.employeeCode().isBlank()) {
+            return;
+        }
+
+        try {
+            // 确定执行 ID（优先从 sessionId 提取，否则生成）
+            String executionId = extractExecutionId(context.sessionId());
+            String fileName = filePath.getFileName().toString();
+            String artifactType = inferArtifactType(fileName);
+
+            // 构建规范产物路径：data/artifacts/by-employee/{employeeCode}/{executionId}/
+            // 同时也保存到部门目录：data/artifacts/{department}/{executionId}/
+            Path employeeArtifactDir = artifactRoot.resolve("by-employee")
+                .resolve(context.employeeCode())
+                .resolve(executionId);
+            Path deptArtifactDir = artifactRoot.resolve(DEPARTMENT).resolve(executionId);
+
+            Files.createDirectories(employeeArtifactDir);
+            Path artifactFile = employeeArtifactDir.resolve(fileName);
+            // 复制文件到产物目录（持久化归档）
+            Files.copy(filePath, artifactFile, StandardCopyOption.REPLACE_EXISTING);
+
+            // 同时保存到部门目录（软链接优先，失败则复制）
+            try {
+                Files.createDirectories(deptArtifactDir);
+                Path deptArtifactFile = deptArtifactDir.resolve(fileName);
+                if (!Files.exists(deptArtifactFile)) {
+                    Files.copy(filePath, deptArtifactFile, StandardCopyOption.REPLACE_EXISTING);
+                }
+            } catch (Exception deptEx) {
+                log.debug("Skip dept artifact copy for {}: {}", fileName, deptEx.getMessage());
+            }
+
+            // 计算 SHA-256
+            String sha256 = computeSha256(artifactFile);
+
+            // 构建产物记录（path 指向产物目录，符合规范）
+            ArtifactRecord artifact = new ArtifactRecord(
+                UUID.randomUUID().toString(),
+                executionId,
+                DEPARTMENT,
+                context.employeeCode(),
+                context.neuronId(),
+                artifactType,
+                artifactFile.toString(),
+                fileName,
+                "FileEditTool 工具创建: " + relativePath,
+                fileSize,
+                sha256,
+                null,
+                null,
+                List.of("file_edit", DEPARTMENT),
+                Instant.now(),
+                Map.of(
+                    "sourceWorkspacePath", filePath.toString(),
+                    "relativePath", relativePath,
+                    "clientId", context.clientId() != null ? context.clientId() : "",
+                    "sessionId", context.sessionId() != null ? context.sessionId() : ""
+                )
+            );
+
+            artifactRecordService.recordArtifact(artifact);
+            log.info("Artifact recorded: id={}, file={}, employee={}, execution={}, size={}bytes, sha256={}",
+                artifact.artifactId(), fileName, context.employeeCode(), executionId, fileSize, sha256);
+        } catch (Exception e) {
+            // 产物记录失败不应影响文件写入操作
+            log.warn("Failed to record artifact for file {}: {}", relativePath, e.getMessage());
+        }
+    }
+
+    /**
+     * 计算文件的 SHA-256 校验值。
+     */
+    private String computeSha256(Path file) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] data = Files.readAllBytes(file);
+            byte[] hash = digest.digest(data);
+            StringBuilder hex = new StringBuilder();
+            for (byte b : hash) {
+                hex.append(String.format("%02x", b));
+            }
+            return hex.toString();
+        } catch (Exception e) {
+            log.debug("Failed to compute SHA-256 for {}: {}", file, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 从 sessionId 提取 executionId。
+     * sessionId 格式通常为 "execution-{uuid}" 或直接是 UUID。
+     */
+    private String extractExecutionId(String sessionId) {
+        if (sessionId != null && !sessionId.isBlank()) {
+            // 如果以 "execution-" 开头，直接使用
+            if (sessionId.startsWith("execution-") || sessionId.startsWith("exec-")) {
+                return sessionId;
+            }
+            // 如果看起来像 UUID，返回 session 作为 executionId
+            if (sessionId.length() >= 32) {
+                return sessionId;
+            }
+        }
+        return UUID.randomUUID().toString();
+    }
+
+    /**
+     * 根据文件扩展名推断产物类型。
+     */
+    private String inferArtifactType(String fileName) {
+        if (fileName == null || fileName.isBlank()) return "OTHER";
+        String lower = fileName.toLowerCase();
+        if (lower.endsWith(".java") || lower.endsWith(".py") || lower.endsWith(".ts") || lower.endsWith(".tsx")
+            || lower.endsWith(".js") || lower.endsWith(".jsx") || lower.endsWith(".go") || lower.endsWith(".rs")
+            || lower.endsWith(".cpp") || lower.endsWith(".c") || lower.endsWith(".h") || lower.endsWith(".kt")
+            || lower.endsWith(".scala") || lower.endsWith(".rb")) return "CODE";
+        if (lower.endsWith(".md") || lower.endsWith(".docx") || lower.endsWith(".pdf")) return "DOCUMENT";
+        if (lower.endsWith(".html") || lower.endsWith(".htm")) return "HTML";
+        if (lower.endsWith(".css") || lower.endsWith(".scss") || lower.endsWith(".less")) return "CSS";
+        if (lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+            || lower.endsWith(".gif") || lower.endsWith(".svg") || lower.endsWith(".ico")
+            || lower.endsWith(".webp") || lower.endsWith(".bmp")) return "IMAGE";
+        if (lower.endsWith(".json") || lower.endsWith(".csv") || lower.endsWith(".xlsx")
+            || lower.endsWith(".xml") || lower.endsWith(".yaml") || lower.endsWith(".yml")
+            || lower.endsWith(".toml") || lower.endsWith(".properties")) {
+            // 配置文件 vs 数据文件：如果路径包含 config/ 或 resources/ 则是 CONFIG
+            return "CONFIG";
+        }
+        if (lower.endsWith(".sh") || lower.endsWith(".bat") || lower.endsWith(".ps1")) return "SCRIPT";
+        if (lower.endsWith(".log") || lower.endsWith(".txt")) return "LOG";
+        if (lower.endsWith(".zip") || lower.endsWith(".tar") || lower.endsWith(".gz")) return "ARCHIVE";
+        if (lower.endsWith(".jar") || lower.endsWith(".exe") || lower.endsWith(".dll")) return "BUILD";
+        if (lower.endsWith(".sql")) return "CODE";
+        return "OTHER";
     }
 }

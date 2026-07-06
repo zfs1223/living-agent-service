@@ -1,5 +1,6 @@
 package com.livingagent.core.config;
 
+import com.livingagent.core.autonomy.ArtifactRecordService;
 import com.livingagent.core.security.bash.BashSecurityValidator;
 import com.livingagent.core.employee.claim.TaskClaimService;
 import com.livingagent.core.planner.dag.TaskDagService;
@@ -39,12 +40,13 @@ import com.livingagent.core.tool.impl.TraeTool;
 import com.livingagent.core.tool.impl.ClaudeCliTool;
 import com.livingagent.core.tool.impl.WeatherTool;
 import com.livingagent.core.tool.impl.WindowsAppTool;
+import com.livingagent.core.tool.impl.WindowsAutomationTool;
 import com.livingagent.core.tool.impl.enterprise.JiraTool;
 import com.livingagent.core.tool.impl.enterprise.GitLabTool;
 import com.livingagent.core.tool.impl.enterprise.JenkinsTool;
 import com.livingagent.core.tool.impl.enterprise.OpenProjectTool;
-import com.livingagent.core.security.ApprovalManager;
 import com.livingagent.core.database.repository.WindowsAutomationNodeRepository;
+import com.livingagent.core.websocket.WindowsAutomationClientGateway;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -63,7 +65,8 @@ public class ToolConfig {
                                      TraeExecutionGateway traeExecutionGateway,
                                      ClaudeExecutionGateway claudeExecutionGateway,
                                      WindowsAutomationNodeRepository nodeRepository,
-                                     ApprovalManager approvalManager,
+                                     WindowsAutomationClientGateway winAutomationGateway,
+                                     ArtifactRecordService artifactRecordService,
                                      @Value("${tool.claude-cli.enabled:false}") boolean claudeCliEnabled,
                                      @Value("${tavily.api.key:}") String tavilyApiKey,
                                      @Value("${notion.api.key:}") String notionApiKey,
@@ -185,15 +188,15 @@ public class ToolConfig {
             log.warn("WindowsAppTool: NodeRepository injection skipped: {}", e.getMessage());
         }
 
-        // 注入 ApprovalManager 以支持高风险操作审批
+        // ========== 通用 Windows 系统控制工具（借鉴 Windows-MCP 技术栈） ==========
+        // 通过 WebSocket 转发到桌面端内嵌 Python 服务执行
+        // 支持 UIA/PowerShell/注册表/文件系统/进程管理等通用操作
+        // 详细设计：docs/WINDOWS_MCP_INTEGRATION_PLAN.md
         try {
-            var toolOpt = registry.get("windows_app_automation");
-            if (toolOpt.isPresent() && toolOpt.get() instanceof WindowsAppTool windowsAppTool) {
-                windowsAppTool.setApprovalManager(approvalManager);
-                log.info("WindowsAppTool: ApprovalManager injected, high-risk operations will be approved");
-            }
+            registry.register(new WindowsAutomationTool(winAutomationGateway));
+            log.info("Registered win_automation tool (WebSocket-based generic Windows control)");
         } catch (Exception e) {
-            log.warn("WindowsAppTool: ApprovalManager injection skipped: {}", e.getMessage());
+            log.warn("WindowsAutomationTool registration failed: {}", e.getMessage());
         }
 
         // ========== 技术部工具 ==========
@@ -202,6 +205,17 @@ public class ToolConfig {
 
         registry.register(new FileEditTool());
         log.info("Registered file_edit tool (workspace source code access)");
+
+        // 注入 ArtifactRecordService，使 FileEditTool 在 write_file 后自动记录产物
+        try {
+            var fileEditOpt = registry.get("file_edit");
+            if (fileEditOpt.isPresent() && fileEditOpt.get() instanceof FileEditTool fileEditTool) {
+                fileEditTool.setArtifactRecordService(artifactRecordService);
+                log.info("FileEditTool: ArtifactRecordService injected, will auto-record artifacts on write_file");
+            }
+        } catch (Exception e) {
+            log.warn("FileEditTool: ArtifactRecordService injection skipped: {}", e.getMessage());
+        }
 
         registry.register(new BuildTool());
         log.info("Registered build tool (compile/build/restart)");
@@ -280,11 +294,34 @@ public class ToolConfig {
 
         DockerSandboxService dockerSandboxService;
         try {
-            com.github.dockerjava.core.DefaultDockerClientConfig dockerConfig =
-                com.github.dockerjava.core.DefaultDockerClientConfig.createDefaultConfigBuilder().build();
+            // 读取 DOCKER_HOST 环境变量（Docker Socket Proxy 地址）
+            String dockerHost = System.getenv("DOCKER_HOST");
+            
+            com.github.dockerjava.core.DefaultDockerClientConfig.Builder configBuilder =
+                com.github.dockerjava.core.DefaultDockerClientConfig.createDefaultConfigBuilder();
+            
+            // 如果设置了 DOCKER_HOST，使用它作为连接地址
+            if (dockerHost != null && !dockerHost.isEmpty()) {
+                log.info("Using DOCKER_HOST from environment: {}", dockerHost);
+                configBuilder.withDockerHost(dockerHost);
+            }
+            
+            com.github.dockerjava.core.DefaultDockerClientConfig dockerConfig = configBuilder.build();
+            
+            // 使用新的 DockerHttpClient API (docker-java 3.3.x)
+            com.github.dockerjava.httpclient5.ApacheDockerHttpClient httpClient =
+                new com.github.dockerjava.httpclient5.ApacheDockerHttpClient.Builder()
+                    .dockerHost(dockerConfig.getDockerHost())
+                    .sslConfig(dockerConfig.getSSLConfig())
+                    .maxConnections(100)
+                    .connectionTimeout(java.time.Duration.ofSeconds(30))
+                    .responseTimeout(java.time.Duration.ofSeconds(45))
+                    .build();
+            
             com.github.dockerjava.api.DockerClient dockerClient =
-                com.github.dockerjava.core.DockerClientImpl.getInstance(dockerConfig);
+                com.github.dockerjava.core.DockerClientImpl.getInstance(dockerConfig, httpClient);
             dockerSandboxService = new DockerSandboxService(dockerClient);
+            log.info("Docker sandbox service initialized successfully");
         } catch (Exception e) {
             log.warn("Docker sandbox init failed, fallback to local sandbox only: {}", e.getMessage());
             dockerSandboxService = null;
@@ -300,9 +337,12 @@ public class ToolConfig {
     }
 
     @Bean
-    public ClaudeExecutionGateway claudeExecutionGateway(SandboxService sandboxService, ClaudeCliProperties claudeCliProperties) {
-        log.info("Initializing ClaudeExecutionGateway");
-        return new ClaudeExecutionGateway(sandboxService, claudeCliProperties);
+    public ClaudeExecutionGateway claudeExecutionGateway(SandboxService sandboxService, ClaudeCliProperties claudeCliProperties,
+                                                          org.springframework.context.ApplicationEventPublisher eventPublisher) {
+        log.info("Initializing ClaudeExecutionGateway with EventPublisher");
+        ClaudeExecutionGateway gateway = new ClaudeExecutionGateway(sandboxService, claudeCliProperties);
+        gateway.setEventPublisher(eventPublisher);
+        return gateway;
     }
 
     @Bean

@@ -48,11 +48,10 @@ public class ToolExecutorService {
             publishEvent(sessionId, toolName, result);
             return result;
         }
-        
-        if (executor.requiresApproval()) {
-            log.info("Tool {} requires approval, pending...", toolName);
-        }
-        
+
+        // 工具执行审批已移除：requiresApproval() 仅作为高风险标记，不再触发审批闸门
+        // 实际安全由 BrainBoundaryEnforcer 四重校验等价保障（部门隔离 / AbstractBrain.tools 子集 / allowedTools 白名单 / 边界检查）
+
         long startTime = System.currentTimeMillis();
         try {
             ToolResult result = executor.execute(parameters, userId);

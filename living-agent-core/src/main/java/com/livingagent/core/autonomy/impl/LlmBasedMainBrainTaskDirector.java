@@ -372,12 +372,13 @@ public class LlmBasedMainBrainTaskDirector implements MainBrainTaskDirector {
         }
     }
 
+    // P0-5 改进：默认值改为 NEEDS_CLARIFICATION（更安全）
     private RequirementStatus parseRequirementStatus(String statusStr) {
-        if (statusStr == null || statusStr.isBlank()) return RequirementStatus.REQUIREMENT_CONFIRMED;
+        if (statusStr == null || statusStr.isBlank()) return RequirementStatus.NEEDS_CLARIFICATION;
         try {
             return RequirementStatus.valueOf(statusStr);
         } catch (IllegalArgumentException e) {
-            return RequirementStatus.REQUIREMENT_CONFIRMED;
+            return RequirementStatus.NEEDS_CLARIFICATION;
         }
     }
 
@@ -423,8 +424,8 @@ public class LlmBasedMainBrainTaskDirector implements MainBrainTaskDirector {
         sb.append("复杂度: ").append(intake.roughComplexity()).append("\n");
         sb.append("可能需要跨部门: ").append(intake.likelyCrossDepartment()).append("\n");
         if (decision.riskLevel() > 3) sb.append("风险等级: ").append(decision.riskLevel()).append("\n");
-        if (decision.requiresClarification() && decision.clarificationQuestion() != null)
-            sb.append("需要追问: ").append(decision.clarificationQuestion()).append("\n");
+        if (decision.requiresClarification() && decision.clarificationQuestions() != null && !decision.clarificationQuestions().isEmpty())
+            sb.append("需要追问: ").append(String.join("；", decision.clarificationQuestions())).append("\n");
         sb.append("用户消息: ").append(userMessage);
         return sb.toString();
     }

@@ -7,6 +7,7 @@ import com.livingagent.core.database.entity.TaskEntity;
 import com.livingagent.core.database.repository.TaskRepository;
 import com.livingagent.core.security.AccessGateService;
 import com.livingagent.core.task.TaskStatus;
+import com.livingagent.gateway.controller.common.ApiResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -262,17 +263,28 @@ public class ApprovalController {
 
         return approvalService.getApproval(instanceId)
                 .map(a -> {
-                    // 从workflow获取steps
                     List<ApprovalStepDetail> steps = new ArrayList<>();
-                    steps.add(new ApprovalStepDetail(
-                            "step_1",
-                            "第一步",
-                            List.of("user1"),
-                            a.getStatus().name(),
-                            a.getCurrentStep() > 0 ? "user1" : null,
-                            null,
-                            null
-                    ));
+                    approvalService.getWorkflow(a.getWorkflowId())
+                            .ifPresent(workflow -> {
+                                List<ApprovalRecord> records = approvalService.getHistory(instanceId);
+                                for (int i = 0; i < workflow.getSteps().size(); i++) {
+                                    ApprovalStep ws = workflow.getSteps().get(i);
+                                    ApprovalRecord record = i < records.size() ? records.get(i) : null;
+                                    steps.add(new ApprovalStepDetail(
+                                            ws.getStepId(),
+                                            ws.getName(),
+                                            ws.getApprovers(),
+                                            i < a.getCurrentStep() ? "APPROVED" :
+                                                    i == a.getCurrentStep() ? a.getStatus().name() : "PENDING",
+                                            record != null ? record.getApproverId() : null,
+                                            record != null ? record.getComment() : null,
+                                            record != null ? record.getDecidedAt() : null
+                                    ));
+                                }
+                            });
+                    if (steps.isEmpty()) {
+                        steps.add(new ApprovalStepDetail("step_1", "审批", List.of(), a.getStatus().name(), null, null, null));
+                    }
                     return ResponseEntity.ok(ApiResponse.ok(steps));
                 })
                 .orElse(ResponseEntity.status(404)
@@ -363,7 +375,11 @@ public class ApprovalController {
     }
 
     private String getCurrentApproverId() {
-        return "current_user";
+        var auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.getName() != null && !auth.getName().equals("anonymousUser")) {
+            return auth.getName();
+        }
+        return "system";
     }
 
     private ApprovalSummary toSummary(ApprovalInstance instance) {
@@ -430,21 +446,6 @@ public class ApprovalController {
                 workflow.isEnabled(),
                 workflow.getCreatedAt()
         );
-    }
-
-    public record ApiResponse<T>(
-            boolean success,
-            T data,
-            String error,
-            String errorDescription
-    ) {
-        public static <T> ApiResponse<T> ok(T data) {
-            return new ApiResponse<>(true, data, null, null);
-        }
-
-        public static <T> ApiResponse<T> err(String error, String description) {
-            return new ApiResponse<>(false, null, error, description);
-        }
     }
 
     public record ApprovalSummary(
@@ -583,7 +584,7 @@ public class ApprovalController {
             return;
         }
         try {
-            taskRepository.findByExecutionId(executionId).ifPresent(task -> {
+            taskRepository.findByExecutionId(executionId).stream().findFirst().ifPresent(task -> {
                 String currentStatus = task.getStatus();
                 if (TaskStatus.NEEDS_HUMAN_REVIEW.getDbValue().equalsIgnoreCase(currentStatus)
                         || "NEEDS_APPROVAL".equalsIgnoreCase(currentStatus)
@@ -616,7 +617,7 @@ public class ApprovalController {
             return;
         }
         try {
-            taskRepository.findByExecutionId(executionId).ifPresent(task -> {
+            taskRepository.findByExecutionId(executionId).stream().findFirst().ifPresent(task -> {
                 String currentStatus = task.getStatus();
                 if (TaskStatus.NEEDS_HUMAN_REVIEW.getDbValue().equalsIgnoreCase(currentStatus)
                         || "NEEDS_APPROVAL".equalsIgnoreCase(currentStatus)

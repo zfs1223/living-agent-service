@@ -48,7 +48,7 @@ public class TraceEventEntity {
     @Column(name = "task_key", length = 100)
     private String taskKey;
 
-    @Column(name = "execution_id", length = 100)
+    @Column(name = "execution_id", length = 500)
     private String executionId;
 
     public TraceEventEntity() {

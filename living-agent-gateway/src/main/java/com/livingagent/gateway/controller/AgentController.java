@@ -23,18 +23,8 @@ public class AgentController {
         this.accessGateService = accessGateService;
     }
 
-    @GetMapping("/health")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> health(
-            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
-        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(ApiResponse.err("PERMISSION_DENIED", "权限不足，无法访问健康检查", Map.of()));
-        }
-        Map<String, Object> health = new HashMap<>();
-        health.put("status", "UP");
-        health.put("timestamp", System.currentTimeMillis());
-        return ResponseEntity.ok(ApiResponse.ok(health));
-    }
+    // health 方法已移至 HealthController（P12-B 专用健康检查端点）
+    // HealthController 提供 /api/health, /api/health/live, /api/health/ready
 
     @GetMapping("/status")
     public ResponseEntity<ApiResponse<Map<String, Object>>> status(

@@ -18,51 +18,54 @@ public class LlmBasedFixedEmployeeDispatcher implements FixedEmployeeDispatcher 
     private static final Logger log = LoggerFactory.getLogger(LlmBasedFixedEmployeeDispatcher.class);
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
+    /** P1-2: LLM 响应最小有效长度阈值，低于此值视为异常短响应 */
+    private static final int MIN_VALID_RESPONSE_LENGTH = 20;
+
     private static final String DISPATCH_SYSTEM_PROMPT = """
         你是企业主大脑，负责根据任务需求从可用员工中选择最合适的执行团队。
-        
-        你需要：
-        1. 分析任务目标和部门计划
-        2. 评估每位候选员工的能力匹配度
-        3. 考虑员工负载和历史表现
-        4. 选择最合适的员工组合
-        5. 为每位员工分配明确的角色和职责
-        
-        你必须只输出一个合法的JSON对象，不要包含任何其他文字。
-        JSON结构如下：
-        {
-          "assignments": [
-            {
-              "employeeCode": "T02",
-              "role": "架构设计",
-              "reason": "系统架构设计能力匹配，且当前负载较低",
-              "confidence": 0.9
-            },
-            {
-              "employeeCode": "T09",
-              "role": "前端实现",
-              "reason": "前端开发能力匹配，UI交互经验丰富",
-              "confidence": 0.85
-            }
-          ]
-        }
-        
-        如果没有合适的员工，返回空数组：{"assignments": []}
+
+        ## 输出格式要求（严格遵守）
+
+        你必须只输出一个合法的 JSON 对象，不要包含任何其他文字、解释或 markdown 标记。
+        直接输出 JSON，不要用 ```json 包裹。
+
+        JSON 结构：
+        {"assignments": [{"employeeCode": "员工代码", "role": "分配角色", "reason": "选择理由", "confidence": 0.9}]}
+
+        ## 选择原则
+
+        1. 优先选择能力与任务匹配的员工
+        2. 考虑员工负载和历史表现
+        3. 如果没有合适员工，返回 {"assignments": []}
+
+        ## 示例输出
+
+        {"assignments": [{"employeeCode": "T09", "role": "前端实现", "reason": "前端开发能力匹配", "confidence": 0.85}]}
         """;
 
     private final FixedEmployeeRegistry fixedEmployeeRegistry;
     private final BrainRegistry brainRegistry;
     private final RegistryBackedFixedEmployeeDispatcher fallbackDispatcher;
     private final AutonomyTraceService traceService;
+    private final PerformanceStatsService performanceStatsService;
 
     public LlmBasedFixedEmployeeDispatcher(
             FixedEmployeeRegistry fixedEmployeeRegistry,
             BrainRegistry brainRegistry,
             AutonomyTraceService traceService) {
+        this(fixedEmployeeRegistry, brainRegistry, traceService, null);
+    }
+
+    public LlmBasedFixedEmployeeDispatcher(
+            FixedEmployeeRegistry fixedEmployeeRegistry,
+            BrainRegistry brainRegistry,
+            AutonomyTraceService traceService,
+            PerformanceStatsService performanceStatsService) {
         this.fixedEmployeeRegistry = fixedEmployeeRegistry;
         this.brainRegistry = brainRegistry;
         this.fallbackDispatcher = new RegistryBackedFixedEmployeeDispatcher(fixedEmployeeRegistry);
         this.traceService = traceService;
+        this.performanceStatsService = performanceStatsService;
     }
 
     @Override
@@ -94,10 +97,33 @@ public class LlmBasedFixedEmployeeDispatcher implements FixedEmployeeDispatcher 
 
         try {
             String userPrompt = buildDispatchPrompt(mainBrainTaskPlan, departmentTaskPlan);
+            log.debug("LLM dispatch prompt for department {}: promptLength={} chars",
+                departmentTaskPlan.department(), userPrompt.length());
+
             String llmResponse = mainBrain.callLlm(DISPATCH_SYSTEM_PROMPT, userPrompt);
 
+            // 增加 LLM 返回内容的日志诊断
+            log.info("LLM dispatch response for department {}: responseLength={} chars, content={}",
+                departmentTaskPlan.department(),
+                llmResponse != null ? llmResponse.length() : 0,
+                llmResponse != null ? (llmResponse.length() > 200 ? llmResponse.substring(0, 200) + "..." : llmResponse) : "null");
+
+            // P1-2: 检测异常短响应，重试一次
+            if (llmResponse != null && llmResponse.length() < MIN_VALID_RESPONSE_LENGTH) {
+                log.warn("LLM returned abnormally short response ({} chars): '{}', retrying once",
+                    llmResponse.length(), llmResponse);
+                traceService.recordEvent(AutonomyTraceEvent.of(
+                    requestId, "llm_dispatch_retry", "LlmBasedFixedEmployeeDispatcher",
+                    "LLM returned short response, retrying",
+                    Map.of("shortResponse", llmResponse, "length", String.valueOf(llmResponse.length()))
+                ));
+                llmResponse = mainBrain.callLlm(DISPATCH_SYSTEM_PROMPT, userPrompt);
+                log.info("LLM dispatch retry response: responseLength={} chars",
+                    llmResponse != null ? llmResponse.length() : 0);
+            }
+
             if (llmResponse == null || llmResponse.isBlank()) {
-                log.debug("LLM returned empty for employee dispatch, using rule-based fallback");
+                log.warn("LLM returned empty for employee dispatch, using rule-based fallback");
                 return fallbackWithTrace(
                     fallbackDispatcher.planAssignments(mainBrainTaskPlan, departmentTaskPlan, sessionId, userId),
                     requestId, "LLM returned empty, using rule-based fallback");
@@ -227,8 +253,26 @@ public class LlmBasedFixedEmployeeDispatcher implements FixedEmployeeDispatcher 
         sb.append("验收标准: ").append(String.join("；", departmentTaskPlan.acceptanceCriteria())).append("\n");
         sb.append("建议角色: ").append(String.join("、", departmentTaskPlan.suggestedRoles())).append("\n");
 
+        // 添加任务需要的工具信息，让 LLM 知道需要选择有对应工具的员工
+        List<String> requiredTools = mainBrainTaskPlan.requiredTools();
+        if (requiredTools != null && !requiredTools.isEmpty()) {
+            sb.append("所需工具: ").append(String.join("、", requiredTools)).append("\n");
+            sb.append("\n**重要提示**: 必须选择拥有以上所需工具的员工，否则任务无法执行。\n");
+        }
+
         List<FixedEmployeeRegistry.FixedEmployeeDefinition> candidates =
             fixedEmployeeRegistry.getDefinitionsByDepartment(departmentTaskPlan.department());
+
+        // P28-A: 获取员工绩效数据
+        Map<String, PerformanceStatsService.EmployeePerformanceStats> statsMap = Map.of();
+        if (performanceStatsService != null && !candidates.isEmpty()) {
+            try {
+                List<String> codes = candidates.stream().map(FixedEmployeeRegistry.FixedEmployeeDefinition::code).toList();
+                statsMap = performanceStatsService.getStatsBatch(codes);
+            } catch (Exception e) {
+                log.debug("Failed to get performance stats for dispatch prompt: {}", e.getMessage());
+            }
+        }
 
         sb.append("\n可用员工:\n");
         for (FixedEmployeeRegistry.FixedEmployeeDefinition def : candidates) {
@@ -236,8 +280,19 @@ public class LlmBasedFixedEmployeeDispatcher implements FixedEmployeeDispatcher 
               .append("（").append(def.title()).append("）")
               .append(" 能力: ").append(String.join("、", def.capabilities()))
               .append(" 技能: ").append(def.requiredSkills() != null ? String.join("、", def.requiredSkills()) : "无")
-              .append(" 工具: ").append(String.join("、", def.tools()))
-              .append("\n");
+              .append(" 工具: ").append(String.join("、", def.tools()));
+
+            // P28-A: 注入绩效评分和分派权重
+            PerformanceStatsService.EmployeePerformanceStats stats = statsMap.get(def.code());
+            if (stats != null) {
+                double dispatchWeight = performanceStatsService.getDispatchWeight(def.code());
+                sb.append(" 绩效评分: ").append(String.format("%.1f", stats.normalizedScore()));
+                sb.append(" 分派权重: ").append(String.format("%.2f", dispatchWeight));
+                if (dispatchWeight < 0.3) {
+                    sb.append(" [低绩效-慎重选择]");
+                }
+            }
+            sb.append("\n");
         }
 
         sb.append("\n请从以上员工中选择最合适的执行团队。");
@@ -341,19 +396,39 @@ public class LlmBasedFixedEmployeeDispatcher implements FixedEmployeeDispatcher 
     private String extractJson(String response) {
         if (response == null) return null;
         String trimmed = response.trim();
+
+        log.debug("extractJson input: length={}, first50={}",
+            trimmed.length(), trimmed.length() > 50 ? trimmed.substring(0, 50) : trimmed);
+
         if (trimmed.startsWith("```json")) {
             int start = trimmed.indexOf("\n") + 1;
             int end = trimmed.lastIndexOf("```");
-            if (start > 0 && end > start) return trimmed.substring(start, end).trim();
+            if (start > 0 && end > start) {
+                String extracted = trimmed.substring(start, end).trim();
+                log.debug("extractJson: extracted from ```json block, length={}", extracted.length());
+                return extracted;
+            }
         }
         if (trimmed.startsWith("```")) {
             int start = trimmed.indexOf("\n") + 1;
             int end = trimmed.lastIndexOf("```");
-            if (start > 0 && end > start) return trimmed.substring(start, end).trim();
+            if (start > 0 && end > start) {
+                String extracted = trimmed.substring(start, end).trim();
+                log.debug("extractJson: extracted from ``` block, length={}", extracted.length());
+                return extracted;
+            }
         }
         int braceStart = trimmed.indexOf('{');
         int braceEnd = trimmed.lastIndexOf('}');
-        if (braceStart >= 0 && braceEnd > braceStart) return trimmed.substring(braceStart, braceEnd + 1);
+        if (braceStart >= 0 && braceEnd > braceStart) {
+            String extracted = trimmed.substring(braceStart, braceEnd + 1);
+            log.debug("extractJson: extracted from braces, length={}", extracted.length());
+            return extracted;
+        }
+
+        // LLM 可能返回了非 JSON 格式（如 "无"、"好的" 等），记录警告
+        log.warn("extractJson: no JSON found in response, content={}",
+            trimmed.length() > 100 ? trimmed.substring(0, 100) + "..." : trimmed);
         return null;
     }
 }

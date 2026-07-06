@@ -3,6 +3,7 @@ package com.livingagent.gateway.controller;
 import com.livingagent.core.security.AccessGateService;
 import com.livingagent.core.security.AccessLevel;
 import com.livingagent.core.security.AuthContext;
+import com.livingagent.gateway.controller.common.ApiResponse;
 import com.livingagent.core.security.auth.UnifiedAuthService;
 import com.livingagent.core.security.auth.UnifiedAuthService.AuthSession;
 import com.livingagent.core.tool.ToolRegistry;
@@ -555,18 +556,4 @@ public class SystemSettingsController {
             String link
     ) {}
 
-    public record ApiResponse<T>(
-            boolean success,
-            T data,
-            String error,
-            String errorDescription
-    ) {
-        public static <T> ApiResponse<T> ok(T data) {
-            return new ApiResponse<>(true, data, null, null);
-        }
-
-        public static <T> ApiResponse<T> err(String error, String description) {
-            return new ApiResponse<>(false, null, error, description);
-        }
-    }
 }

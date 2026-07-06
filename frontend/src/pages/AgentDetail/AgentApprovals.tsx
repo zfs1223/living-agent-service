@@ -1,7 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getToken } from '../../stores';
 import { fetchAuth } from './utils';
 
 interface AgentApprovalsProps {
@@ -21,10 +20,8 @@ export default function AgentApprovals({ agentId }: AgentApprovalsProps) {
 
     const resolveMut = useMutation({
         mutationFn: async ({ approvalId, action }: { approvalId: string; action: string }) => {
-            const token = getToken();
-            return fetch(`/api/agents/${encodeURIComponent(agentId!)}/approvals/${approvalId}/resolve`, {
+            return fetchAuth(`/agents/${encodeURIComponent(agentId!)}/approvals/${approvalId}/resolve`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
                 body: JSON.stringify({ action }),
             });
         },

@@ -12,7 +12,6 @@ import com.livingagent.core.database.repository.EnterpriseEmployeeRepository;
 import com.livingagent.core.employee.EmployeeService;
 import com.livingagent.core.employee.impl.JpaEmployeeServiceImpl;
 import com.livingagent.core.neuron.NeuronRegistry;
-import com.livingagent.core.security.ApprovalManager;
 import com.livingagent.core.security.PermissionService;
 import com.livingagent.core.security.impl.PermissionServiceImpl;
 import com.livingagent.core.security.service.EnterpriseEmployeeService;
@@ -43,6 +42,10 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @Configuration
 @EnableAsync
 @EnableScheduling
+@org.springframework.boot.context.properties.EnableConfigurationProperties({
+    com.livingagent.core.evolution.orchestrator.SelfHealingProperties.class,
+    com.livingagent.core.evolution.orchestrator.SelfGovernanceProperties.class
+})
 @Import({
     BrainConfig.class,
     ToolConfig.class,
@@ -77,15 +80,41 @@ public class LivingAgentCoreConfig {
     @Bean
     public PermissionService permissionService(com.livingagent.core.security.EmployeeAuthService securityEmployeeService,
                                                 com.livingagent.core.security.service.EnterpriseEmployeeService enterpriseEmployeeService,
-                                                com.livingagent.core.database.repository.AccessAuditLogRepository auditLogRepository) {
-        log.info("Initializing PermissionService");
-        return new PermissionServiceImpl(securityEmployeeService, enterpriseEmployeeService, auditLogRepository);
+                                                com.livingagent.core.database.repository.AccessAuditLogRepository auditLogRepository,
+                                                java.util.List<com.livingagent.core.security.auth.OAuthService> oauthServices,
+                                                com.livingagent.core.security.voiceprint.VoicePrintService voicePrintService,
+                                                org.springframework.context.ApplicationEventPublisher eventPublisher) {
+        log.info("Initializing PermissionService with {} OAuth providers",
+            oauthServices == null ? 0 : oauthServices.size());
+        PermissionServiceImpl impl = new PermissionServiceImpl(securityEmployeeService, enterpriseEmployeeService, auditLogRepository,
+            oauthServices != null ? oauthServices : java.util.Collections.emptyList(), voicePrintService);
+        impl.setEventPublisher(eventPublisher);
+        return impl;
+    }
+
+    /**
+     * B-1-4: LLM 异步任务专用线程池，用于 @Async("llmTaskExecutor")。
+     * 避免使用默认 SimpleAsyncTaskExecutor（无界创建线程）。
+     */
+    @Bean("llmTaskExecutor")
+    public org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor llmTaskExecutor() {
+        org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor executor =
+            new org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(4);
+        executor.setMaxPoolSize(10);
+        executor.setQueueCapacity(50);
+        executor.setThreadNamePrefix("llm-async-");
+        executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
+        executor.initialize();
+        log.info("Initialized llmTaskExecutor: core=4, max=10, queue=50");
+        return executor;
     }
 
     @Bean
-    public com.livingagent.core.security.voiceprint.VoicePrintService voicePrintService() {
-        log.info("Initializing VoicePrintService");
-        return new com.livingagent.core.security.voiceprint.impl.VoicePrintServiceImpl(null);
+    public com.livingagent.core.security.voiceprint.VoicePrintService voicePrintService(
+            com.livingagent.core.service.voice.SpeakerVerificationService speakerVerificationService) {
+        log.info("Initializing VoicePrintService with SpeakerVerificationService for real embedding extraction");
+        return new com.livingagent.core.security.voiceprint.impl.VoicePrintServiceImpl(null, 0.85, speakerVerificationService);
     }
 
     @Bean

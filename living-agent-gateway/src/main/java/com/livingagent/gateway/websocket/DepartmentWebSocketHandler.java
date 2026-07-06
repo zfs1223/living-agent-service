@@ -10,10 +10,17 @@ import com.livingagent.core.session.EventQueueService;
 import com.livingagent.gateway.service.AgentService;
 import com.livingagent.gateway.service.DepartmentChatService;
 import com.livingagent.gateway.service.DepartmentChatService.DepartmentChatResult;
+import com.livingagent.gateway.proactive.ProactiveOrchestrator;
+import com.livingagent.gateway.proactive.ProactiveOrchestrator.OrchestrationResult;
+import com.livingagent.core.security.client.ClientDeviceRegistryService;
+import com.livingagent.core.security.client.ClientDeviceInfo;
+import com.livingagent.core.database.entity.ClientDeviceEntity;
 import com.livingagent.core.session.ConnectionContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import com.livingagent.core.security.PermissionChangeEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
@@ -61,6 +68,10 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
     private final DepartmentChatService departmentChatService;
     private final ConnectionRegistry connectionRegistry;
     private final DepartmentAccessService departmentAccessService;
+    private final ClientDeviceRegistryService deviceRegistryService;
+    private final WebSocketRateLimiter rateLimiter;
+    private final ProactiveOrchestrator proactiveOrchestrator;  // PR-1: 主动汇报编排器
+    private final com.livingagent.core.websocket.WindowsAutomationClientGateway winAutomationGateway;
 
     private final Map<String, Set<WebSocketSession>> departmentChannels = new ConcurrentHashMap<>();
     private final Map<String, String> sessionToDepartment = new ConcurrentHashMap<>();
@@ -74,8 +85,10 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
     private final Map<String, ReentrantLock> sessionSendLocks = new ConcurrentHashMap<>();
 
     private final Map<String, Instant> sessionLastActive = new ConcurrentHashMap<>();
+    private final Map<String, Boolean> sessionProactiveReported = new ConcurrentHashMap<>();  // PR-9: 标记本次会话已汇报
     private static final long HEARTBEAT_INTERVAL_MS = 30_000;
-    private static final long HEARTBEAT_TIMEOUT_MS = 60_000;
+    // 移除心跳超时：客户端持续连接不应被切断，连接只在客户端主动断开时关闭
+    // sessionLastActive 仅用于记录最后活动时间，不再用于 zombie 检测
     private static final int MAX_GLOBAL_CONNECTIONS = 500;
     private static final int MAX_DEPARTMENT_CONNECTIONS = 50;
     private volatile java.util.concurrent.ScheduledFuture<?> heartbeatTask;
@@ -91,13 +104,21 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
     public DepartmentWebSocketHandler(UnifiedAuthService authService, ObjectMapper objectMapper,
                                        AgentService agentService, DepartmentChatService departmentChatService,
                                        ConnectionRegistry connectionRegistry,
-                                       DepartmentAccessService departmentAccessService) {
+                                       DepartmentAccessService departmentAccessService,
+                                       ClientDeviceRegistryService deviceRegistryService,
+                                       WebSocketRateLimiter rateLimiter,
+                                       ProactiveOrchestrator proactiveOrchestrator,
+                                       com.livingagent.core.websocket.WindowsAutomationClientGateway winAutomationGateway) {
         this.authService = authService;
         this.objectMapper = objectMapper;
         this.agentService = agentService;
         this.departmentChatService = departmentChatService;
         this.connectionRegistry = connectionRegistry;
         this.departmentAccessService = departmentAccessService;
+        this.deviceRegistryService = deviceRegistryService;
+        this.rateLimiter = rateLimiter;
+        this.proactiveOrchestrator = proactiveOrchestrator;
+        this.winAutomationGateway = winAutomationGateway;
         startHeartbeat();
     }
 
@@ -111,24 +132,11 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
         heartbeatTask = heartbeatScheduler.scheduleAtFixedRate(() -> {
             try {
                 Instant now = Instant.now();
-                for (Map.Entry<String, Instant> entry : sessionLastActive.entrySet()) {
-                    String sessionId = entry.getKey();
-                    Instant lastActive = entry.getValue();
-                    if (lastActive != null && now.toEpochMilli() - lastActive.toEpochMilli() > HEARTBEAT_TIMEOUT_MS) {
-                        WebSocketSession session = sessionIndex.get(sessionId);
-                        if (session != null && session.isOpen()) {
-                            log.warn("Closing zombie WebSocket session: sessionId={}, idleMs={}",
-                                sessionId, now.toEpochMilli() - lastActive.toEpochMilli());
-                            try {
-                                session.close(CloseStatus.SERVER_ERROR);
-                            } catch (Exception e) {
-                                log.debug("Failed to close zombie session: {}", e.getMessage());
-                            }
-                        }
-                    }
-                }
-
-                // Cleanup expired recentAuthFailures entries
+                
+                // 不再主动关闭连接（移除 zombie 检测）
+                // 客户端持续连接不应被切断，连接只在客户端主动断开时关闭
+                
+                // 仅清理 expired recentAuthFailures entries
                 Instant authFailureThreshold = now.minusSeconds(AUTH_FAILURE_CLEANUP_TTL_SECONDS);
                 recentAuthFailures.entrySet().removeIf(e -> e.getValue().isBefore(authFailureThreshold));
             } catch (Exception e) {
@@ -179,6 +187,53 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
 
         String userId = ctx.getEmployeeId() != null ? ctx.getEmployeeId() : "visitor_" + session.getId();
         AccessLevel accessLevel = ctx.getAccessLevel() != null ? ctx.getAccessLevel() : AccessLevel.CHAT_ONLY;
+        
+        // 解析 clientId 和设备信息（从 URL 查询参数）
+        String clientId = extractQueryParam(session.getUri(), "clientId");
+        String hostname = extractQueryParam(session.getUri(), "hostname");
+        String macAddress = extractQueryParam(session.getUri(), "macAddress");
+        String platform = extractQueryParam(session.getUri(), "platform");
+        String osUser = extractQueryParam(session.getUri(), "osUser");
+        String applications = extractQueryParam(session.getUri(), "applications");
+        
+        // 设备注册：确保 clientId 与设备指纹绑定
+        if (clientId != null && !clientId.isBlank() && hostname != null && !hostname.isBlank()) {
+            try {
+                ClientDeviceInfo deviceInfo = new ClientDeviceInfo(
+                    clientId, hostname, platform, osUser, macAddress,
+                    session.getRemoteAddress() != null ? session.getRemoteAddress().getAddress().getHostAddress() : null,
+                    null, null, applications
+                );
+                ClientDeviceEntity device = deviceRegistryService.registerOrUpdate(deviceInfo);
+                
+                // 保存应用列表（如果提供了）
+                if (applications != null && !applications.isBlank()) {
+                    deviceRegistryService.updateApplications(clientId, applications);
+                    log.info("Device applications updated: clientId={}, apps={}", clientId, applications);
+                }
+                
+                // 使用服务器返回的 clientId（可能是找回的原 clientId）
+                if (!device.getClientId().equals(clientId)) {
+                    log.info("Device clientId recovered: original={}, recovered={}", clientId, device.getClientId());
+                    clientId = device.getClientId();
+                    // 通知客户端使用新的 clientId
+                    sendJson(session, Map.of(
+                        "type", "device_registered",
+                        "clientId", device.getClientId(),
+                        "message", "设备已注册，使用原 clientId: " + device.getClientId()
+                    ));
+                }
+            } catch (Exception e) {
+                log.warn("Device registration failed: clientId={}, hostname={}, error={}", clientId, hostname, e.getMessage());
+            }
+        }
+        
+        if (clientId != null && !clientId.isBlank()) {
+            log.info("Department WebSocket clientId bound: sessionId={}, clientId={}, dept={}", 
+                session.getId(), clientId, department);
+            // 注册到 Windows 自动化网关，供 win_automation 工具查找客户端
+            winAutomationGateway.registerSession(clientId, session);
+        }
         
         departmentChannels.computeIfAbsent(department, k -> ConcurrentHashMap.newKeySet())
             .add(session);
@@ -251,18 +306,50 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
 
         broadcastSystemMessage(department, new SystemMessage("USER_JOINED", userId, ctx.getName(), department));
         sendOnlineUsers(department);
+
+        // PR-1: 登录时触发主动汇报（仅首次连接，非重连）
+        if (proactiveOrchestrator != null && sessionProactiveReported.get(session.getId()) == null) {
+            try {
+                OrchestrationResult proactiveResult = proactiveOrchestrator.runForUser(userId);
+                if (proactiveResult != null && !proactiveResult.suggestions().isEmpty()) {
+                    Map<String, Object> proactiveMsg = new HashMap<>();
+                    proactiveMsg.put("type", "proactive_report");
+                    proactiveMsg.put("userId", userId);
+                    proactiveMsg.put("suggestions", proactiveResult.suggestions());
+                    proactiveMsg.put("alerts", proactiveResult.alerts());
+                    proactiveMsg.put("metadata", proactiveResult.metadata());
+                    proactiveMsg.put("timestamp", Instant.now().toString());
+                    sendJson(session, proactiveMsg);
+                    sessionProactiveReported.put(session.getId(), true);
+                    log.info("Proactive report sent to user {} on login: {} suggestions, {} alerts",
+                        userId, proactiveResult.suggestions().size(), proactiveResult.alerts().size());
+                }
+            } catch (Exception e) {
+                log.debug("Failed to generate proactive report for user {}: {}", userId, e.getMessage());
+            }
+        }
     }
 
     @Override
     protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
-        sessionLastActive.put(session.getId(), Instant.now());
-        String department = sessionToDepartment.get(session.getId());
+        String sessionId = session.getId();
+        
+        // 消息频率限制检查
+        if (!rateLimiter.tryAcquire(sessionId)) {
+            sendJson(session, Map.of("type", "error", "code", "RATE_LIMITED",
+                "message", "消息发送过于频繁，请稍后再试"));
+            log.warn("Rate limit exceeded: sessionId={}", sessionId);
+            return;
+        }
+        
+        sessionLastActive.put(sessionId, Instant.now());
+        String department = sessionToDepartment.get(sessionId);
         if (department == null) {
             session.close(CloseStatus.NOT_ACCEPTABLE);
             return;
         }
 
-        String userId = sessionToUser.get(session.getId());
+        String userId = sessionToUser.get(sessionId);
         String payload = message.getPayload();
 
         connectionRegistry.updateLastActivity(session.getId());
@@ -273,18 +360,56 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
         try {
             Map<String, Object> msg = objectMapper.readValue(payload, Map.class);
             String type = (String) msg.getOrDefault("type", "CHAT");
-            
-            switch (type.toUpperCase()) {
-                case "CHAT" -> handleChatMessage(session, department, userId, msg);
-                case "TYPING" -> handleTypingIndicator(department, userId, msg);
-                case "PING" -> sendPong(session);
-                default -> handleChatMessage(session, department, userId, msg);
+
+            switch (type) {
+                case "CHAT", "chat" -> handleChatMessage(session, department, userId, msg);
+                case "TYPING", "typing" -> handleTypingIndicator(department, userId, msg);
+                case "PING", "ping" -> sendPong(session);
+                case "win_automation_response" -> handleWinAutomationResponse(msg);
+                default -> {
+                    if (type.equalsIgnoreCase("CHAT")) {
+                        handleChatMessage(session, department, userId, msg);
+                    } else if (type.equalsIgnoreCase("TYPING")) {
+                        handleTypingIndicator(department, userId, msg);
+                    } else if (type.equalsIgnoreCase("PING")) {
+                        sendPong(session);
+                    } else if (type.equalsIgnoreCase("win_automation_response")) {
+                        handleWinAutomationResponse(msg);
+                    } else {
+                        handleChatMessage(session, department, userId, msg);
+                    }
+                }
             }
         } catch (Exception e) {
             log.warn("Failed to parse WebSocket message: {}", e.getMessage());
-            handleChatMessage(session, department, userId, 
+            handleChatMessage(session, department, userId,
                 Map.of("content", payload, "timestamp", Instant.now().toString()));
         }
+    }
+
+    /**
+     * 处理 Windows 自动化工具响应
+     * 消息格式：{"type":"win_automation_response","data":{"id":<long>,"success":<bool>,"result":<any>,"error":<string>}}
+     */
+    private void handleWinAutomationResponse(Map<String, Object> msg) {
+        Object dataObj = msg.get("data");
+        if (dataObj == null || !(dataObj instanceof Map)) {
+            log.warn("Invalid win_automation_response: missing data");
+            return;
+        }
+        Map<String, Object> data = (Map<String, Object>) dataObj;
+        Long requestId = data.get("id") instanceof Number
+            ? ((Number) data.get("id")).longValue() : null;
+        if (requestId == null) {
+            log.warn("Invalid win_automation_response: missing id");
+            return;
+        }
+        Boolean success = (Boolean) data.getOrDefault("success", false);
+        Object result = data.get("result");
+        String error = (String) data.get("error");
+
+        winAutomationGateway.handleResponse(requestId, success, result, error);
+        log.debug("WinAutomation response processed: requestId={}, success={}", requestId, success);
     }
 
     private void handleChatMessage(WebSocketSession session, String department, String userId, 
@@ -355,17 +480,34 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
             }
             return;
         }
+
+        // 将 clientId 和 accessLevel 设置到 brain context 中（供 win_automation 等工具使用）
+        com.livingagent.core.brain.Brain brain = brainOpt.get();
+        if (brain.getContext() != null) {
+            String clientId = extractQueryParam(session.getUri(), "clientId");
+            AccessLevel accessLevel = sessionAccessLevel.getOrDefault(sessionId, AccessLevel.CHAT_ONLY);
+            // ConcurrentHashMap 不允许 null value，只有 clientId 非空时才设置
+            if (clientId != null && !clientId.isBlank()) {
+                brain.getContext().setClientId(clientId);
+            }
+            brain.getContext().setAccessLevel(accessLevel.getLevel());
+            log.debug("Brain context updated: clientId={}, accessLevel={}", clientId, accessLevel);
+        }
         
-        // 提取 executionId（如果存在）
-        String executionId = null;
-        
+        // P2-4: executionId 将从 chatResult 中获取
+
         connectionRegistry.updateLastActivity(sessionId);
 
         departmentChatService.processDepartmentBrainAsync(
                 requestId, department, brainName, brainOpt.get(), content, sessionId, userId, userId, conversationId)
             .thenAccept(chatResult -> {
+                log.info("thenAccept callback triggered: requestId={}, sessionId={}, sessionOpen={}, success={}",
+                    requestId, sessionId, session.isOpen(), chatResult.success());
                 try {
-                    if (!session.isOpen()) return;
+                    if (!session.isOpen()) {
+                        log.warn("Session already closed when trying to send response: sessionId={}, requestId={}", sessionId, requestId);
+                        return;
+                    }
                     
                     if (chatResult.success()) {
                         Map<String, Object> doneMsg = new HashMap<>();
@@ -377,8 +519,9 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
                         doneMsg.put("intent", chatResult.intent());
                         doneMsg.put("neuron", chatResult.neuron());
                         doneMsg.put("accessLevel", sessionAccessLevel.getOrDefault(sessionId, AccessLevel.CHAT_ONLY).name());
-                        if (executionId != null) {
-                            doneMsg.put("executionId", executionId);
+                        // P2-4: 从 chatResult 中获取 executionId
+                        if (chatResult.executionId() != null) {
+                            doneMsg.put("executionId", chatResult.executionId());
                         }
                         if (chatResult.conversationId() != null) {
                             doneMsg.put("conversationId", chatResult.conversationId());
@@ -390,7 +533,13 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
                             });
                         }
 
+                        log.info("Sending done message to session: sessionId={}, requestId={}, contentLength={}",
+                            sessionId, requestId, chatResult.text() != null ? chatResult.text().length() : 0);
                         sendJson(session, doneMsg);
+                        log.info("Done message sent successfully: sessionId={}, requestId={}", sessionId, requestId);
+                        
+                        // 响应发送成功后更新活动时间，防止连接被判定为 zombie
+                        sessionLastActive.put(sessionId, Instant.now());
 
                         // 广播给其他用户（除了发送者）
                         BrainResponse brainResponse = new BrainResponse(
@@ -404,6 +553,8 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
                         broadcastExcept(department, brainResponse, session.getId());
                     } else {
                         // 错误响应：使用统一的错误码
+                        log.warn("Sending error response: sessionId={}, requestId={}, status={}, reason={}",
+                            sessionId, requestId, chatResult.status(), chatResult.reason());
                         Map<String, Object> errorMsg = Map.of(
                             "type", "error",
                             "code", chatResult.status(),
@@ -412,7 +563,8 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
                         sendJson(session, errorMsg);
                     }
                 } catch (Exception e) {
-                    log.error("Failed to process brain result: {}", e.getMessage());
+                    log.error("Failed to process brain result: requestId={}, sessionId={}, error={}",
+                        requestId, sessionId, e.getMessage());
                 }
             })
             .exceptionally(e -> {
@@ -593,7 +745,7 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
 
     private void sendPong(WebSocketSession session) throws Exception {
         Map<String, Object> pong = Map.of(
-            "type", "PONG",
+            "type", "pong",
             "timestamp", Instant.now().toString()
         );
         sendJson(session, pong);
@@ -606,6 +758,9 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
         String userId = sessionToUser.remove(sessionId);
         sessionIndex.remove(sessionId);
         sessionLastActive.remove(sessionId);
+        
+        // 清理限流器
+        rateLimiter.removeSession(sessionId);
         sessionToAuthContext.remove(sessionId);
         sessionConnectTime.remove(sessionId);
         sessionAccessLevel.remove(sessionId);
@@ -613,6 +768,12 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
         authFailureReasons.remove(sessionId);
 
         connectionRegistry.unregister(sessionId);
+
+        // 注销 Windows 自动化网关
+        String closedClientId = extractQueryParam(session.getUri(), "clientId");
+        if (closedClientId != null && !closedClientId.isBlank()) {
+            winAutomationGateway.unregisterSession(closedClientId);
+        }
 
         if (department != null) {
             Set<WebSocketSession> sessions = departmentChannels.get(department);
@@ -778,6 +939,14 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
     }
 
     private Optional<AuthContext> getAuthContext(WebSocketSession session) {
+        // 优先从 session attributes 获取（由 AuthHandshakeInterceptor 设置）
+        AuthContext cachedContext = (AuthContext) session.getAttributes().get("authContext");
+        if (cachedContext != null) {
+            log.debug("WebSocket auth - Using cached authContext from handshake: userId={}", cachedContext.getEmployeeId());
+            return Optional.of(cachedContext);
+        }
+
+        // 兜底：从请求头/URI 获取 token 并验证
         String token = null;
 
         String authorization = session.getHandshakeHeaders().getFirst("Authorization");
@@ -969,6 +1138,9 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
 
     @jakarta.annotation.PreDestroy
     public void destroy() {
+        log.info("DepartmentWebSocketHandler shutting down, closing {} active sessions", sessionIndex.size());
+        
+        // 关闭心跳调度器
         if (heartbeatScheduler != null) {
             heartbeatScheduler.shutdown();
             try {
@@ -980,6 +1152,80 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
                 Thread.currentThread().interrupt();
             }
         }
+        
+        // 优雅关闭所有活跃会话
+        sessionIndex.values().forEach(session -> {
+            try {
+                if (session.isOpen()) {
+                    session.close(new CloseStatus(1001, "Server shutting down"));
+                }
+            } catch (Exception e) {
+                log.debug("Error closing session during shutdown: {}", e.getMessage());
+            }
+        });
+        
+        // 清理所有映射
+        sessionIndex.clear();
+        departmentChannels.clear();
+        sessionToDepartment.clear();
+        sessionToUser.clear();
+        sessionLastActive.clear();
+        sessionToAuthContext.clear();
+        sessionConnectTime.clear();
+        sessionAccessLevel.clear();
+        sessionSendLocks.clear();
+        recentAuthFailures.clear();
+        authFailureReasons.clear();
+        
         log.info("DepartmentWebSocketHandler shutdown complete");
+    }
+
+    /**
+     * P14-B: 监听权限变更事件，实时更新/断连受影响的 WebSocket 连接。
+     */
+    @EventListener
+    public void onPermissionChange(PermissionChangeEvent event) {
+        String employeeId = event.getEmployeeId();
+        AccessLevel newLevel = event.getNewLevel();
+        log.info("P14-B: Permission change received for {}: {} -> {}, isDowngrade={}",
+            employeeId, event.getOldLevel(), newLevel, event.isDowngrade());
+
+        // 查找该用户的所有活跃 session
+        for (Map.Entry<String, String> entry : sessionToUser.entrySet()) {
+            String sessionId = entry.getKey();
+            String userId = entry.getValue();
+
+            if (userId.equals(employeeId)) {
+                // 更新缓存的权限
+                sessionAccessLevel.put(sessionId, newLevel);
+
+                AuthContext ctx = sessionToAuthContext.get(sessionId);
+                if (ctx != null) {
+                    ctx.setAccessLevel(newLevel);
+                }
+
+                // 如果权限降级且用户无权访问当前部门，发送通知后断连
+                if (event.isDowngrade()) {
+                    String department = sessionToDepartment.get(sessionId);
+                    if (department != null && !departmentAccessService.hasDepartmentAccess(
+                        sessionToAuthContext.get(sessionId), department)) {
+                        WebSocketSession wsSession = sessionIndex.get(sessionId);
+                        if (wsSession != null && wsSession.isOpen()) {
+                            try {
+                                String msg = "{\"type\":\"permission_changed\",\"data\":{\"newLevel\":\"" +
+                                    newLevel.name() + "\",\"reason\":\"Access level changed\"}}";
+                                wsSession.sendMessage(new TextMessage(msg));
+                                Thread.sleep(100); // 给客户端一点时间接收通知
+                                wsSession.close(CloseStatus.POLICY_VIOLATION);
+                                log.info("P14-B: Disconnected session {} for user {} due to permission downgrade",
+                                    sessionId, employeeId);
+                            } catch (Exception e) {
+                                log.warn("P14-B: Failed to disconnect session {}: {}", sessionId, e.getMessage());
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }

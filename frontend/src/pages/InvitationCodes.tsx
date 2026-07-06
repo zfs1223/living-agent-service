@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getToken } from '../stores';
+import { fetchJson } from '../services/api';
+import { request } from '../services/apiBase';
 
 export default function InvitationCodes() {
     const { t } = useTranslation();
@@ -13,10 +15,7 @@ export default function InvitationCodes() {
     const [maxUses, setMaxUses] = useState(1);
     const [creating, setCreating] = useState(false);
     const [toast, setToast] = useState('');
-
-    const token = getToken();
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const [usageDetail, setUsageDetail] = useState<{ code: string; usages: any[] } | null>(null);
 
     const loadCodes = useCallback(async (p?: number, q?: string) => {
         const currentPage = p ?? page;
@@ -26,8 +25,7 @@ export default function InvitationCodes() {
             page_size: String(pageSize),
         });
         if (currentSearch) params.set('search', currentSearch);
-        const res = await fetch(`/api/enterprise/invitation-codes?${params}`, { headers });
-        const data = await res.json();
+        const data = await request<any>(`/enterprise/invitation-codes?${params}`);
         setCodes(data.items || []);
         setTotal(data.total || 0);
     }, [page, search]);
@@ -43,8 +41,8 @@ export default function InvitationCodes() {
 
     const createBatch = async () => {
         setCreating(true);
-        await fetch('/api/enterprise/invitation-codes', {
-            method: 'POST', headers, body: JSON.stringify({ count: batchCount, max_uses: maxUses }),
+        await request('/enterprise/invitation-codes', {
+            method: 'POST', body: JSON.stringify({ count: batchCount, max_uses: maxUses }),
         });
         setPage(1);
         setSearch('');
@@ -55,7 +53,7 @@ export default function InvitationCodes() {
     };
 
     const deactivate = async (id: string) => {
-        await fetch(`/api/enterprise/invitation-codes/${id}`, { method: 'DELETE', headers });
+        await request(`/enterprise/invitation-codes/${id}`, { method: 'DELETE' });
         await loadCodes();
     };
 
@@ -165,7 +163,12 @@ export default function InvitationCodes() {
                         gap: '12px', padding: '10px 12px', alignItems: 'center',
                         borderBottom: '1px solid var(--border-subtle)', fontSize: '13px',
                     }}>
-                        <div style={{ fontFamily: 'monospace', fontWeight: 500, letterSpacing: '0.1em' }}>{c.code}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span style={{ fontFamily: 'monospace', fontWeight: 500, letterSpacing: '0.1em' }}>{c.code}</span>
+                            <button onClick={() => { navigator.clipboard.writeText(c.code); setToast(t('enterprise.invites.copied', '已复制')); setTimeout(() => setToast(''), 2000); }}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '12px', color: 'var(--text-tertiary)', padding: '0 2px' }}
+                                title={t('enterprise.invites.copy', '复制')}>📋</button>
+                        </div>
                         <div>
                             <span style={{ fontWeight: 500 }}>{c.used_count}</span>
                             <span style={{ color: 'var(--text-tertiary)' }}> / {c.max_uses}</span>
@@ -188,7 +191,20 @@ export default function InvitationCodes() {
                         <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
                             {c.created_at ? new Date(c.created_at).toLocaleDateString() : '-'}
                         </div>
-                        <div>
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                            {c.used_count > 0 && (
+                                <button className="btn btn-secondary" style={{ padding: '2px 8px', fontSize: '10px' }}
+                                    onClick={async () => {
+                                        try {
+                                            const data: any = await fetchJson(`/invitation-codes/${c.code}/usages`);
+                                            setUsageDetail({ code: c.code, usages: Array.isArray(data) ? data : data?.data || [] });
+                                        } catch {
+                                            setUsageDetail({ code: c.code, usages: [] });
+                                        }
+                                    }}>
+                                    {t('enterprise.invites.usageDetail', '详情')}
+                                </button>
+                            )}
                             {c.is_active && c.used_count < c.max_uses && (
                                 <button className="btn btn-secondary" style={{ padding: '2px 8px', fontSize: '10px' }}
                                     onClick={() => deactivate(c.id)}>
@@ -219,6 +235,39 @@ export default function InvitationCodes() {
                     </div>
                 )}
             </div>
+
+            {/* Usage Detail Modal */}
+            {usageDetail && (
+                <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    onClick={() => setUsageDetail(null)}>
+                    <div style={{ background: 'var(--bg-primary)', borderRadius: '12px', width: '480px', border: '1px solid var(--border-default)', boxShadow: '0 16px 48px rgba(0,0,0,0.2)' }}
+                        onClick={e => e.stopPropagation()}>
+                        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <h3 style={{ margin: 0, fontSize: '15px' }}>{t('enterprise.invites.usageDetailTitle', '邀请码使用详情')}</h3>
+                            <button className="btn btn-ghost" onClick={() => setUsageDetail(null)} style={{ padding: '4px 8px', fontSize: '16px' }}>x</button>
+                        </div>
+                        <div style={{ padding: '16px 20px' }}>
+                            <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
+                                {t('enterprise.invites.code', '邀请码')}: <code style={{ fontFamily: 'monospace', fontWeight: 500 }}>{usageDetail.code}</code>
+                            </div>
+                            {usageDetail.usages.length === 0 ? (
+                                <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-tertiary)', fontSize: '13px' }}>
+                                    {t('enterprise.invites.noUsageData', '暂无使用记录（后端API待实现）')}
+                                </div>
+                            ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                    {usageDetail.usages.map((u: any, i: number) => (
+                                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', borderRadius: '6px', background: 'var(--bg-tertiary)', fontSize: '12px' }}>
+                                            <span style={{ fontWeight: 500 }}>{u.username || u.user_id || '-'}</span>
+                                            <span style={{ color: 'var(--text-tertiary)' }}>{u.used_at ? new Date(u.used_at).toLocaleString() : '-'}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

@@ -45,10 +45,10 @@ if [ -f "$DAEMON_SCRIPT" ]; then
     DAEMON_PID=$!
     echo "[Startup] 模型守护进程 PID: $DAEMON_PID"
     
-    # 等待守护进程初始化 (最多等待60秒)
+    # 等待守护进程初始化 (最多等待120秒，AI模型加载需要较长时间)
     echo "[Startup] 等待模型加载..."
     WAIT_COUNT=0
-    MAX_WAIT=60
+    MAX_WAIT=120
     
     while [ ! -p /tmp/dialogue_daemon_control_request ]; do
         sleep 1

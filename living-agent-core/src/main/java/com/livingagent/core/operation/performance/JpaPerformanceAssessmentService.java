@@ -143,6 +143,16 @@ public class JpaPerformanceAssessmentService implements PerformanceAssessmentSer
     }
 
     @Override
+    public List<EmployeeRanking> getCompanyTopPerformers(int limit) {
+        return buildRankings(null, limit, true);
+    }
+
+    @Override
+    public List<EmployeeRanking> getCompanyBottomPerformers(int limit) {
+        return buildRankings(null, limit, false);
+    }
+
+    @Override
     public PerformanceTrend getPerformanceTrend(String employeeId, int periods) {
         List<PerformanceTrendSnapshotEntity> snapshots = trendRepository.findByEmployeeIdOrderByDateDesc(employeeId);
         List<TrendPoint> points = snapshots.stream()

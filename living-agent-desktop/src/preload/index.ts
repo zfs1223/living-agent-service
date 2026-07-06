@@ -10,7 +10,8 @@ import type {
   SavedInfo,
   PublicTask,
   TaskNotificationConfig,
-  ArtifactRecord
+  ArtifactRecord,
+  DesktopUser
 } from '../shared/types';
 
 const api = {
@@ -24,7 +25,13 @@ const api = {
   auth: {
     getToken: () => ipcRenderer.invoke('auth:get-token') as Promise<string | null>,
     setToken: (token: string) => ipcRenderer.invoke('auth:set-token', token) as Promise<void>,
-    clearToken: () => ipcRenderer.invoke('auth:clear-token') as Promise<void>
+    clearToken: () => ipcRenderer.invoke('auth:clear-token') as Promise<void>,
+    // 手机号登录（与 frontend 对齐）
+    smsSend: (phone: string, type?: string) =>
+      ipcRenderer.invoke('auth:sms-send', phone, type || 'login') as Promise<{ success: boolean; message: string; expiresIn: number; code?: string }>,
+    phoneLogin: (phone: string, code: string) =>
+      ipcRenderer.invoke('auth:phone-login', phone, code) as Promise<{ accessToken: string; user: DesktopUser }>,
+    me: () => ipcRenderer.invoke('auth:me') as Promise<DesktopUser>
   },
 
   /* ============ 文件系统 ============ */
@@ -77,7 +84,9 @@ const api = {
     myVisible: (params?: { page?: number; size?: number }) =>
       ipcRenderer.invoke('artifacts:my-visible', params) as Promise<ArtifactRecord[]>,
     download: (artifactId: string) =>
-      ipcRenderer.invoke('artifacts:download', artifactId) as Promise<string>
+      ipcRenderer.invoke('artifacts:download', artifactId) as Promise<string>,
+    save: (artifactId: string, fileName: string) =>
+      ipcRenderer.invoke('artifacts:save', { artifactId, fileName }) as Promise<{ saved: boolean; path?: string }>
   },
 
   /* ============ 窗口控制 ============ */
@@ -104,6 +113,15 @@ const api = {
         createdAt: string;
       }>,
     resetClientId: () => ipcRenderer.invoke('app:reset-client-id') as Promise<string>
+  },
+
+  /* ============ Windows 自动化 ============ */
+  winAutomation: {
+    start: () => ipcRenderer.invoke('win-automation:start') as Promise<{ success: boolean; running?: boolean; error?: string }>,
+    stop: () => ipcRenderer.invoke('win-automation:stop') as Promise<{ success: boolean }>,
+    status: () => ipcRenderer.invoke('win-automation:status') as Promise<{ running: boolean }>,
+    execute: (operation: string, args?: Record<string, unknown>) =>
+      ipcRenderer.invoke('win-automation:execute', operation, args) as Promise<{ success: boolean; result?: unknown; error?: string }>
   },
 
   /* ============ 事件订阅 ============ */

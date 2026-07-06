@@ -38,6 +38,17 @@ public class ProjectServiceImpl implements ProjectService {
     
     @Override
     public Optional<Project> getProject(String projectId) {
+        // B-1-7: 优先从 DB 查询，回填内存缓存
+        try {
+            Optional<ProjectEntity> entity = projectRepository.findByProjectId(projectId);
+            if (entity.isPresent()) {
+                Project project = toProject(entity.get());
+                projectStore.put(projectId, project);
+                return Optional.of(project);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to query project from DB, falling back to memory: {}", e.getMessage());
+        }
         return Optional.ofNullable(projectStore.get(projectId));
     }
     
@@ -186,5 +197,24 @@ public class ProjectServiceImpl implements ProjectService {
         } catch (Exception e) {
             log.warn("Failed to persist project {}: {}", project.getProjectId(), e.getMessage());
         }
+    }
+
+    private Project toProject(ProjectEntity entity) {
+        Project project = new Project(entity.getName(), entity.getOwnerDepartment());
+        project.setProjectId(entity.getProjectId());
+        project.setDescription(entity.getDescription());
+        if (entity.getStatus() != null) {
+            try { project.setStatus(ProjectStatus.valueOf(entity.getStatus())); } catch (IllegalArgumentException ignored) {}
+        }
+        if (entity.getCurrentPhase() != null) {
+            try { project.setCurrentPhase(ProjectPhase.valueOf(entity.getCurrentPhase())); } catch (IllegalArgumentException ignored) {}
+        }
+        project.setManagerId(entity.getManagerId());
+        project.setStartDate(entity.getStartDate());
+        project.setEndDate(entity.getEndDate());
+        Double progress = entity.getProgress();
+        project.setProgress(progress != null ? progress : 0.0);
+        project.setCreatedAt(entity.getCreatedAt());
+        return project;
     }
 }

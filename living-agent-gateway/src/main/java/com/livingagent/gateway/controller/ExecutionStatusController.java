@@ -4,6 +4,7 @@ import com.livingagent.core.autonomy.EmployeeExecutionReceipt;
 import com.livingagent.core.autonomy.EmployeeExecutionReceiptService;
 import com.livingagent.core.autonomy.ReceiptStatus;
 import com.livingagent.core.security.AccessGateService;
+import com.livingagent.gateway.controller.common.ApiResponse;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -59,12 +60,4 @@ public class ExecutionStatusController {
             List<EmployeeExecutionReceipt> receipts
     ) {}
 
-    public record ApiResponse<T>(boolean success, T data, String error, String message) {
-        public static <T> ApiResponse<T> ok(T data) {
-            return new ApiResponse<>(true, data, null, null);
-        }
-        public static <T> ApiResponse<T> err(String error, String message) {
-            return new ApiResponse<>(false, null, error, message);
-        }
-    }
 }

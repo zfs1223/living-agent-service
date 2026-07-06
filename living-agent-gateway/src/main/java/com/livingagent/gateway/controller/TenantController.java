@@ -10,6 +10,7 @@ import com.livingagent.core.security.auth.UnifiedAuthService.AuthResult;
 import com.livingagent.core.security.auth.UnifiedAuthService.AuthSession;
 import com.livingagent.gateway.service.SystemConfigService;
 import com.livingagent.gateway.service.SystemConfigService.TenantInfo;
+import com.livingagent.gateway.controller.common.ApiResponse;  // 添加 import
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -70,6 +71,12 @@ public class TenantController {
                     .body(ApiResponse.err("unauthorized", "请先登录"));
         }
 
+        // 只有董事长才能创建公司
+        if (!currentUser.isFounder()) {
+            return ResponseEntity.status(403)
+                    .body(ApiResponse.err("forbidden", "只有董事长才能创建公司"));
+        }
+
         String tenantId = "tenant_" + UUID.randomUUID().toString().substring(0, 8);
 
         // Persist tenant to SystemConfigService
@@ -122,25 +129,100 @@ public class TenantController {
                     .body(ApiResponse.err("unauthorized", "请先登录"));
         }
 
-        String tenantId = "tenant_" + request.invitation_code();
-        
-        // Persist tenant to SystemConfigService
-        configService.createTenantWithCompany(tenantId, "示例公司", currentUser.getEmployeeId());
-        
+        // 从系统配置中查找邀请码
+        var settings = configService.getSettings();
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> codes = (List<Map<String, Object>>) settings.getOrDefault("invitationCodes", new ArrayList<>());
+
+        Map<String, Object> matchedCode = null;
+        for (Map<String, Object> c : codes) {
+            if (request.invitation_code().equals(c.get("code"))) {
+                matchedCode = c;
+                break;
+            }
+        }
+
+        if (matchedCode == null) {
+            return ResponseEntity.status(404)
+                    .body(ApiResponse.err("invalid_code", "邀请码不存在"));
+        }
+
+        // 验证邀请码状态
+        String codeStatus = (String) matchedCode.get("status");
+        if (!"active".equals(codeStatus)) {
+            return ResponseEntity.status(400)
+                    .body(ApiResponse.err("code_inactive", "邀请码已失效"));
+        }
+
+        // 验证是否过期
+        String expiresAt = (String) matchedCode.get("expiresAt");
+        if (expiresAt != null && !expiresAt.isBlank()) {
+            try {
+                Instant expiry = Instant.parse(expiresAt);
+                if (Instant.now().isAfter(expiry)) {
+                    matchedCode.put("status", "expired");
+                    settings.put("invitationCodes", codes);
+                    return ResponseEntity.status(400)
+                            .body(ApiResponse.err("code_expired", "邀请码已过期"));
+                }
+            } catch (Exception e) {
+                log.warn("Failed to parse expiresAt: {}", expiresAt);
+            }
+        }
+
+        // 验证使用次数
+        int maxUses = toInt(matchedCode.get("maxUses"), 1);
+        int usedCount = toInt(matchedCode.get("usedCount"), 0);
+        if (usedCount >= maxUses) {
+            matchedCode.put("status", "exhausted");
+            settings.put("invitationCodes", codes);
+            return ResponseEntity.status(400)
+                    .body(ApiResponse.err("code_exhausted", "邀请码使用次数已用尽"));
+        }
+
+        // 获取邀请码对应的 tenantId
+        String tenantId = (String) matchedCode.get("tenantId");
+        if (tenantId == null || tenantId.isBlank()) {
+            return ResponseEntity.status(500)
+                    .body(ApiResponse.err("invalid_tenant", "邀请码未关联有效的公司"));
+        }
+
+        // 获取公司名称
+        TenantInfo tenantInfo = configService.getTenant(tenantId);
+        String tenantName = tenantInfo != null ? tenantInfo.name() : "未知公司";
+
+        // 更新邀请码使用次数
+        matchedCode.put("usedCount", usedCount + 1);
+        if (usedCount + 1 >= maxUses) {
+            matchedCode.put("status", "exhausted");
+        }
+        settings.put("invitationCodes", codes);
+
+        // 更新用户会话和 tenantId
         if (sessionId != null) {
             authService.updateSessionTenantId(sessionId, tenantId);
         }
-        
         employeeService.updateTenantId(currentUser.getEmployeeId(), tenantId);
 
         TenantJoinResult result = new TenantJoinResult(
                 tenantId,
-                "示例公司",
+                tenantName,
                 currentUser.getEmployeeId()
         );
 
-        log.info("User {} joined tenant {}", currentUser.getName(), tenantId);
+        log.info("User {} joined tenant {} using invitation code {}", currentUser.getName(), tenantId, request.invitation_code());
         return ResponseEntity.ok(ApiResponse.ok(result));
+    }
+
+    /** 安全地将 Object 转换为 int */
+    private int toInt(Object value, int defaultValue) {
+        if (value == null) return defaultValue;
+        if (value instanceof Number) return ((Number) value).intValue();
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
     }
 
     @GetMapping("/resolve-by-domain")
@@ -281,21 +363,6 @@ public class TenantController {
         );
 
         return ResponseEntity.ok(ApiResponse.ok(settings));
-    }
-
-    public record ApiResponse<T>(
-            boolean success,
-            T data,
-            String error,
-            String errorDescription
-    ) {
-        public static <T> ApiResponse<T> ok(T data) {
-            return new ApiResponse<>(true, data, null, null);
-        }
-
-        public static <T> ApiResponse<T> err(String error, String description) {
-            return new ApiResponse<>(false, null, error, description);
-        }
     }
 
     public record RegistrationConfig(boolean allow_self_create_company) {}

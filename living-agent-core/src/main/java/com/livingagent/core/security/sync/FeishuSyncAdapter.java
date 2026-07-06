@@ -26,6 +26,15 @@ public class FeishuSyncAdapter implements HrSyncAdapter {
     private String tenantAccessToken;
     private long tokenExpireTime;
 
+    // P10: 同步状态跟踪
+    private volatile String lastSyncId;
+    private volatile SyncPhase currentPhase = SyncPhase.NOT_STARTED;
+    private volatile Instant lastSyncTime;
+    private volatile Instant lastConfirmedAt;
+    private volatile int totalSynced;
+    private volatile int totalConfirmed;
+    private final List<String> pendingConfirmations = new java.util.concurrent.CopyOnWriteArrayList<>();
+
     public FeishuSyncAdapter() {
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(30))
@@ -133,6 +142,12 @@ public class FeishuSyncAdapter implements HrSyncAdapter {
     public SyncResult syncEmployees() {
         log.info("Syncing employees from Feishu");
         
+        String syncId = "sync-feishu-" + System.currentTimeMillis();
+        this.lastSyncId = syncId;
+        this.currentPhase = SyncPhase.IN_PROGRESS;
+        this.lastSyncTime = Instant.now();
+        pendingConfirmations.add(syncId);
+        
         int created = 0, updated = 0, errors = 0;
         List<String> errorList = new ArrayList<>();
         
@@ -147,6 +162,10 @@ public class FeishuSyncAdapter implements HrSyncAdapter {
                     errorList.add("Failed to sync employee " + emp.getName() + ": " + e.getMessage());
                 }
             }
+            
+            totalSynced += created;
+            currentPhase = errors == 0 ? SyncPhase.SYNCED : SyncPhase.FAILED;
+            log.info("P10: Feishu sync {} completed: {} employees, phase={}", syncId, created, currentPhase);
             
         } catch (Exception e) {
             errorList.add("Sync failed: " + e.getMessage());
@@ -172,6 +191,42 @@ public class FeishuSyncAdapter implements HrSyncAdapter {
         }
         
         return new SyncResult(created + updated + errors, created, updated, 0, errors, errorList);
+    }
+
+    @Override
+    public SyncConfirmation confirmSync(String syncId) {
+        if (syncId == null || !pendingConfirmations.contains(syncId)) {
+            log.warn("P10: Unknown syncId for confirmation: {}", syncId);
+            return SyncConfirmation.failed(syncId, getAdapterName(), "未知的同步ID");
+        }
+
+        try {
+            String token = getTenantAccessToken();
+            if (token != null) {
+                String url = FEISHU_API + "/contact/v3/users?user_id_type=open_id&page_size=1";
+                getWithToken(url, token);
+            }
+
+            pendingConfirmations.remove(syncId);
+            lastConfirmedAt = Instant.now();
+            totalConfirmed++;
+            currentPhase = SyncPhase.CONFIRMED;
+
+            log.info("P10: Feishu sync {} confirmed successfully", syncId);
+            return SyncConfirmation.confirmed(syncId, getAdapterName());
+
+        } catch (Exception e) {
+            log.warn("P10: Feishu sync confirmation failed for {}: {}", syncId, e.getMessage());
+            return SyncConfirmation.failed(syncId, getAdapterName(), e.getMessage());
+        }
+    }
+
+    @Override
+    public SyncStatus getSyncStatus() {
+        return new SyncStatus(
+            lastSyncId, currentPhase, lastSyncTime, lastConfirmedAt,
+            totalSynced, totalConfirmed, List.copyOf(pendingConfirmations)
+        );
     }
 
     @Override

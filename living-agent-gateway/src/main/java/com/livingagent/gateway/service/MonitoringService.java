@@ -19,9 +19,26 @@ public class MonitoringService {
     private final HealthMonitor healthMonitor;
     private final Map<String, Double> metrics = new ConcurrentHashMap<>();
     private final Map<String, MetricRecord> metricHistory = new ConcurrentHashMap<>();
+    private final Instant startTime = Instant.now();
 
     public MonitoringService(HealthMonitor healthMonitor) {
         this.healthMonitor = healthMonitor;
+    }
+
+    public Map<String, Object> getHealthDetailed(org.springframework.boot.info.BuildProperties buildProperties) {
+        HealthStatus health = healthMonitor.checkHealth();
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("status", health.getStatus().name().toLowerCase());
+        if (buildProperties != null) {
+            result.put("version", buildProperties.getVersion());
+            result.put("artifact", buildProperties.getArtifact());
+        }
+        result.put("startedAt", startTime.toString());
+        result.put("uptime", java.time.Duration.between(startTime, Instant.now()).toString());
+        result.put("components", healthMonitor.getAllComponentStatus());
+        result.put("issues", healthMonitor.detectIssues());
+        result.put("alerts", healthMonitor.getActiveAlerts());
+        return result;
     }
 
     public HealthStatus getHealth() {

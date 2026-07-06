@@ -7,12 +7,15 @@ import com.livingagent.core.database.repository.DepartmentRepository;
 import com.livingagent.core.employee.EmployeeService;
 import com.livingagent.core.employee.EmployeeService.MemberSummary;
 import com.livingagent.core.model.pool.BrainModelAssigner;
+import com.livingagent.core.database.repository.AccessAuditLogRepository;
+import com.livingagent.core.security.AccessAuditLog;
 import com.livingagent.core.security.Department;
 import com.livingagent.core.security.session.SessionEntity;
 import com.livingagent.core.security.session.SessionRepository;
 import com.livingagent.gateway.service.OrganizationQueryService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,18 +34,21 @@ public class OrganizationQueryServiceImpl implements OrganizationQueryService {
     private final BrainRegistry brainRegistry;
     private final BrainModelAssigner brainModelAssigner;
     private final SessionRepository sessionRepository;
+    private final AccessAuditLogRepository accessAuditLogRepository;
 
     public OrganizationQueryServiceImpl(
             DepartmentRepository departmentRepository,
             EmployeeService employeeService,
             BrainRegistry brainRegistry,
             BrainModelAssigner brainModelAssigner,
-            SessionRepository sessionRepository) {
+            SessionRepository sessionRepository,
+            AccessAuditLogRepository accessAuditLogRepository) {
         this.departmentRepository = departmentRepository;
         this.employeeService = employeeService;
         this.brainRegistry = brainRegistry;
         this.brainModelAssigner = brainModelAssigner;
         this.sessionRepository = sessionRepository;
+        this.accessAuditLogRepository = accessAuditLogRepository;
     }
 
     @Override
@@ -249,7 +255,26 @@ public class OrganizationQueryServiceImpl implements OrganizationQueryService {
 
     @Override
     public List<AuditSummary> getRecentAuditLogs(String departmentCode, int limit) {
-        return Collections.emptyList();
+        if (limit <= 0) {
+            limit = 20;
+        }
+        try {
+            List<AccessAuditLog> logs = accessAuditLogRepository.findRecentAll(PageRequest.of(0, limit));
+            return logs.stream()
+                .map(audit -> new AuditSummary(
+                    audit.getLogId(),
+                    audit.getAction(),
+                    audit.getEmployeeId(),
+                    audit.getEmployeeName(),
+                    departmentCode,
+                    audit.getResource() + " - " + audit.getAction() + (audit.isGranted() ? " (granted)" : " (denied)"),
+                    Instant.ofEpochMilli(audit.getTimestamp())
+                ))
+                .collect(Collectors.toList());
+        } catch (Exception e) {
+            log.warn("Failed to query recent audit logs for department {}: {}", departmentCode, e.getMessage());
+            return Collections.emptyList();
+        }
     }
 
     private DepartmentSummary toDepartmentSummary(DepartmentEntity entity) {

@@ -2,6 +2,7 @@ package com.livingagent.core.model.pool.impl;
 
 import com.livingagent.core.model.pool.LlmModel;
 import com.livingagent.core.model.pool.ModelCapabilityAssessor;
+import com.livingagent.core.model.pool.ModelHealthRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -23,6 +24,16 @@ import java.util.stream.Collectors;
 public class ModelCapabilityAssessorImpl implements ModelCapabilityAssessor {
 
     private static final Logger log = LoggerFactory.getLogger(ModelCapabilityAssessorImpl.class);
+
+    /** 可选的模型健康注册表，用于运行时成功率加权 */
+    private volatile ModelHealthRegistry modelHealthRegistry;
+
+    /**
+     * 设置模型健康注册表（可选注入）
+     */
+    public void setModelHealthRegistry(ModelHealthRegistry registry) {
+        this.modelHealthRegistry = registry;
+    }
 
     /**
      * 能力标签常量
@@ -372,10 +383,12 @@ public class ModelCapabilityAssessorImpl implements ModelCapabilityAssessor {
 
     /**
      * 计算模型与所需能力的匹配分数
+     * 评分权重：匹配度 50% + 静态性能分 25% + 运行时成功率 25%
      */
     private int calculateModelScore(LlmModel model, List<String> requiredCapabilities) {
         if (model.getCapabilityTags() == null || requiredCapabilities.isEmpty()) {
-            return model.getPerformanceScore() != null ? model.getPerformanceScore() / 2 : 25;
+            int base = model.getPerformanceScore() != null ? model.getPerformanceScore() / 2 : 25;
+            return base + getHealthBonus(model);
         }
 
         Set<String> modelCaps = new HashSet<>(Arrays.asList(model.getCapabilityTags().split(",")));
@@ -388,11 +401,25 @@ public class ModelCapabilityAssessorImpl implements ModelCapabilityAssessor {
             }
         }
 
-        // 匹配度占 60%，性能分占 40%
+        // 匹配度占 50%，静态性能分占 25%，运行时成功率占 25%
         int matchScore = (int) ((double) matched / total * 100);
         int perfScore = model.getPerformanceScore() != null ? model.getPerformanceScore() : 50;
+        int healthBonus = getHealthBonus(model);
 
-        return (int) (matchScore * 0.6 + perfScore * 0.4);
+        return (int) (matchScore * 0.5 + perfScore * 0.25 + healthBonus);
+    }
+
+    /**
+     * 计算模型运行时健康度加分（0~25）
+     * 高成功率模型额外加分，低成功率或冷却中模型扣分
+     */
+    private int getHealthBonus(LlmModel model) {
+        if (modelHealthRegistry == null || model.getId() == null) return 12; // 无数据给中间分
+        ModelHealthRegistry.ModelHealthRecord health = modelHealthRegistry.getHealth(model.getId().toString());
+        if (health.totalCalls() <= 0) return 15; // 无调用记录，略高于中间
+        double successRate = health.totalSuccesses() * 1.0 / health.totalCalls();
+        if (!health.isAvailable()) return 0; // 冷却中，不给分
+        return (int) Math.round(successRate * 25); // 成功率100%=25分, 80%=20分, 50%=12.5分
     }
 
     /**

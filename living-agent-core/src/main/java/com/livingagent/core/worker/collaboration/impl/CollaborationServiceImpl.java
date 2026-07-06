@@ -2,6 +2,7 @@ package com.livingagent.core.worker.collaboration.impl;
 
 import com.livingagent.core.autonomy.CodeReviewWorkflowService;
 import com.livingagent.core.autonomy.CodeReviewWorkflowService.ReviewStage;
+import com.livingagent.core.autonomy.PerformanceStatsService;
 import com.livingagent.core.employee.registry.FixedEmployeeRegistry;
 import com.livingagent.core.worker.collaboration.*;
 import org.slf4j.Logger;
@@ -22,13 +23,20 @@ public class CollaborationServiceImpl implements CollaborationService {
 
     private final FixedEmployeeRegistry fixedEmployeeRegistry;
     private final CodeReviewWorkflowService codeReviewWorkflowService;
+    private final PerformanceStatsService performanceStatsService;
 
     private final Map<String, CollaborationSessionImpl> sessions = new ConcurrentHashMap<>();
 
+    // P34: 协作绩效历史记录（用于推荐优化）
+    private final Map<String, Deque<Double>> collaborationPerformanceByEmployee = new ConcurrentHashMap<>();
+    private static final int MAX_HISTORY_PER_EMPLOYEE = 20;
+
     public CollaborationServiceImpl(FixedEmployeeRegistry fixedEmployeeRegistry,
-                                    CodeReviewWorkflowService codeReviewWorkflowService) {
+                                    CodeReviewWorkflowService codeReviewWorkflowService,
+                                    PerformanceStatsService performanceStatsService) {
         this.fixedEmployeeRegistry = fixedEmployeeRegistry;
         this.codeReviewWorkflowService = codeReviewWorkflowService;
+        this.performanceStatsService = performanceStatsService;
     }
 
     @Override
@@ -204,7 +212,50 @@ public class CollaborationServiceImpl implements CollaborationService {
         
         if (allCompleted) {
             session.complete();
+            // P34: 绩效反馈到推荐策略
+            feedbackCollaborationPerformance(session);
             log.info("All tasks completed, session {} finished", session.getSessionId());
+        }
+    }
+
+    /**
+     * P34: 协作绩效反馈到推荐策略。
+     * 将 participantScores 反馈到 PerformanceStatsService 的 dispatchWeight，
+     * 并记录到协作绩效历史用于推荐优化。
+     */
+    private void feedbackCollaborationPerformance(CollaborationSessionImpl session) {
+        CollaborationSession.CollaborationResult result = session.getResult();
+        if (result == null || result.participantScores() == null) return;
+
+        double overallScore = result.overallScore();
+
+        for (Map.Entry<String, Double> entry : result.participantScores().entrySet()) {
+            String employeeId = entry.getKey();
+            double personalScore = entry.getValue();
+
+            // 计算绩效反馈量：个人得分 * 整体完成率
+            double performanceDelta = (personalScore * overallScore - 0.5) * 0.1;
+
+            // 反馈到 PerformanceStatsService
+            try {
+                performanceStatsService.adjustWeight(employeeId, performanceDelta);
+                log.info("P34: Adjusted dispatch weight for {} by {} (personal={}, overall={})",
+                    employeeId, String.format("%.3f", performanceDelta),
+                    String.format("%.1f", personalScore), String.format("%.2f", overallScore));
+            } catch (Exception e) {
+                log.warn("P34: Failed to adjust weight for {}: {}", employeeId, e.getMessage());
+            }
+
+            // 记录到协作绩效历史
+            collaborationPerformanceByEmployee
+                .computeIfAbsent(employeeId, k -> new ArrayDeque<>())
+                .addFirst(personalScore * overallScore);
+
+            // 限制历史长度
+            Deque<Double> history = collaborationPerformanceByEmployee.get(employeeId);
+            while (history.size() > MAX_HISTORY_PER_EMPLOYEE) {
+                history.removeLast();
+            }
         }
     }
 
@@ -323,7 +374,46 @@ public class CollaborationServiceImpl implements CollaborationService {
             score += 0.2;
         }
 
+        // P34: 绩效权重系数（绩效好的员工在推荐中排名更高）
+        double performanceMultiplier = getPerformanceMultiplier(def.neuronId());
+        score *= performanceMultiplier;
+
+        // P34: 协作绩效历史加权（历史表现好的员工加分）
+        double collaborationBonus = getCollaborationBonus(def.neuronId());
+        score += collaborationBonus;
+
         return Math.min(1.0, score);
+    }
+
+    /**
+     * P34: 获取绩效权重系数。
+     * 从 PerformanceStatsService 读取 dispatchWeight 作为推荐系数。
+     */
+    private double getPerformanceMultiplier(String employeeId) {
+        try {
+            double weight = performanceStatsService.getDispatchWeight(employeeId);
+            // weight 默认1.0，范围 [0.0, ~]
+            // 将 weight 映射到 [0.5, 1.5] 区间，避免极端值
+            return 0.5 + Math.min(1.0, weight) * 1.0;
+        } catch (Exception e) {
+            return 1.0; // 默认不调整
+        }
+    }
+
+    /**
+     * P34: 获取协作绩效历史加分。
+     * 根据历史协作表现给予额外推荐权重。
+     */
+    private double getCollaborationBonus(String employeeId) {
+        Deque<Double> history = collaborationPerformanceByEmployee.get(employeeId);
+        if (history == null || history.isEmpty()) return 0.0;
+
+        double avgPerformance = history.stream()
+            .mapToDouble(Double::doubleValue)
+            .average().orElse(0.5);
+
+        // 历史绩效>0.5加分，<0.5减分，最大±0.1
+        return Math.max(-0.1, Math.min(0.1, (avgPerformance - 0.5) * 0.2));
     }
 
     private static class CollaborationSessionImpl implements CollaborationSession {

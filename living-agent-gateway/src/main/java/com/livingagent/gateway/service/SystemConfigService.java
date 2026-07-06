@@ -2,6 +2,8 @@ package com.livingagent.gateway.service;
 
 import com.livingagent.core.database.entity.TenantEntity;
 import com.livingagent.core.database.service.TenantService;
+import com.livingagent.core.model.pool.ProviderConfigRepository;
+import com.livingagent.core.model.pool.Protocol;
 import com.livingagent.core.security.auth.FounderService;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -19,6 +21,7 @@ public class SystemConfigService {
 
     private final FounderService founderService;
     private final TenantService tenantService;
+    private final ProviderConfigRepository providerConfigRepository;
 
     private String companyName = "Living Agent";
     private String companyLogo;
@@ -27,21 +30,77 @@ public class SystemConfigService {
     private final Map<String, ProviderConfig> providerConfigs = new ConcurrentHashMap<>();
     private final List<ConfigChangeRecord> changeHistory = new CopyOnWriteArrayList<>();
 
-    public SystemConfigService(FounderService founderService, TenantService tenantService) {
+    public SystemConfigService(FounderService founderService, TenantService tenantService,
+                              ProviderConfigRepository providerConfigRepository) {
         this.founderService = founderService;
         this.tenantService = tenantService;
-        initDefaultProviders();
+        this.providerConfigRepository = providerConfigRepository;
     }
 
     @PostConstruct
     public void initializeDefaultTenant() {
+        // 初始化默认租户
         String defaultTenantId = "tenant_default";
         if (tenantService.exists(defaultTenantId)) {
             log.info("Default tenant {} already exists in database, skipping initialization", defaultTenantId);
-            return;
+        } else {
+            tenantService.createTenant(defaultTenantId, "Living Agent", "system");
+            log.info("Initialized default tenant in database: {}", defaultTenantId);
         }
-        tenantService.createTenant(defaultTenantId, "Living Agent", "system");
-        log.info("Initialized default tenant in database: {}", defaultTenantId);
+
+        // B-1-9: 启动时从 DB 加载 ProviderConfig 到内存缓存
+        loadProviderConfigsFromDb();
+    }
+
+    /**
+     * B-1-9: 从数据库加载 ProviderConfig 到内存缓存。
+     * 如果 DB 无数据则用默认值初始化并写入 DB。
+     */
+    private void loadProviderConfigsFromDb() {
+        try {
+            List<com.livingagent.core.model.pool.ProviderConfig> dbConfigs = providerConfigRepository.findAll();
+            if (!dbConfigs.isEmpty()) {
+                for (com.livingagent.core.model.pool.ProviderConfig entity : dbConfigs) {
+                    providerConfigs.put(entity.getId(), toInternalProviderConfig(entity));
+                }
+                log.info("Loaded {} provider configs from database into cache", dbConfigs.size());
+            } else {
+                // DB 无数据，用默认值初始化
+                initDefaultProviders();
+                // 将默认值写入 DB
+                for (ProviderConfig config : providerConfigs.values()) {
+                    providerConfigRepository.save(toDbProviderConfig(config));
+                }
+                log.info("Initialized default provider configs and saved to database");
+            }
+        } catch (Exception e) {
+            log.warn("Failed to load provider configs from database, falling back to defaults: {}", e.getMessage());
+            initDefaultProviders();
+        }
+    }
+
+    /** DB Entity -> 内部 record */
+    private ProviderConfig toInternalProviderConfig(com.livingagent.core.model.pool.ProviderConfig entity) {
+        return new ProviderConfig(
+            entity.getId(),
+            entity.getDisplayName(),
+            entity.getApiKeyEncrypted(),
+            null,  // apiSecret 不在 DB 中
+            entity.getBaseUrl(),
+            entity.isEnabled()
+        );
+    }
+
+    /** 内部 record -> DB Entity */
+    private com.livingagent.core.model.pool.ProviderConfig toDbProviderConfig(ProviderConfig config) {
+        com.livingagent.core.model.pool.ProviderConfig entity = new com.livingagent.core.model.pool.ProviderConfig();
+        entity.setId(config.providerId());
+        entity.setDisplayName(config.name());
+        entity.setProtocol(Protocol.OPENAI_COMPATIBLE);
+        entity.setBaseUrl(config.baseUrl());
+        entity.setApiKeyEncrypted(config.apiKey());
+        entity.setEnabled(config.enabled());
+        return entity;
     }
 
     private void initDefaultProviders() {
@@ -107,7 +166,23 @@ public class SystemConfigService {
         return getSystemConfig();
     }
 
+    /**
+     * B-1-9: 获取 Provider 配置。优先从 DB 查询，内存作为缓存。
+     * DB 查询成功则刷新内存缓存；DB 查询失败则回退到内存缓存。
+     */
     public Map<String, ProviderConfig> getProviderConfigs() {
+        try {
+            List<com.livingagent.core.model.pool.ProviderConfig> dbConfigs = providerConfigRepository.findAll();
+            if (!dbConfigs.isEmpty()) {
+                // 刷新内存缓存
+                providerConfigs.clear();
+                for (com.livingagent.core.model.pool.ProviderConfig entity : dbConfigs) {
+                    providerConfigs.put(entity.getId(), toInternalProviderConfig(entity));
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Failed to query provider configs from DB, using cache: {}", e.getMessage());
+        }
         return new LinkedHashMap<>(providerConfigs);
     }
 
@@ -123,6 +198,9 @@ public class SystemConfigService {
         return providerConfigs.get(providerId);
     }
 
+    /**
+     * B-1-9: 更新 Provider 配置，同时写 DB。
+     */
     public ProviderConfig updateProviderConfig(String providerId, ProviderConfigUpdateRequest request) {
         ProviderConfig existing = providerConfigs.get(providerId);
         if (existing == null) {
@@ -139,6 +217,14 @@ public class SystemConfigService {
         );
 
         providerConfigs.put(providerId, updated);
+
+        // B-1-9: 同时写 DB
+        try {
+            providerConfigRepository.save(toDbProviderConfig(updated));
+        } catch (Exception e) {
+            log.warn("Failed to persist provider config update to DB: {}", e.getMessage());
+        }
+
         recordChange("provider." + providerId, existing, updated, "Provider config updated");
         log.info("Provider config updated: {}", providerId);
         return updated;
@@ -158,6 +244,14 @@ public class SystemConfigService {
             config.enabled()
         );
         providerConfigs.put(providerId, newConfig);
+
+        // B-1-9: 同时写 DB
+        try {
+            providerConfigRepository.save(toDbProviderConfig(newConfig));
+        } catch (Exception e) {
+            log.warn("Failed to persist new provider config to DB: {}", e.getMessage());
+        }
+
         recordChange("provider." + providerId, null, newConfig, "Provider config created");
         log.info("Created provider config: {}", providerId);
         return newConfig;
@@ -166,6 +260,14 @@ public class SystemConfigService {
     public boolean deleteProviderConfig(String providerId) {
         if (providerConfigs.containsKey(providerId)) {
             ProviderConfig removed = providerConfigs.remove(providerId);
+
+            // B-1-9: 同时从 DB 删除
+            try {
+                providerConfigRepository.deleteById(providerId);
+            } catch (Exception e) {
+                log.warn("Failed to delete provider config from DB: {}", e.getMessage());
+            }
+
             recordChange("provider." + providerId, removed, null, "Provider config deleted");
             log.info("Deleted provider config: {}", providerId);
             return true;
@@ -191,6 +293,14 @@ public class SystemConfigService {
             enabled
         );
         providerConfigs.put(providerId, updated);
+
+        // B-1-9: 同时写 DB
+        try {
+            providerConfigRepository.save(toDbProviderConfig(updated));
+        } catch (Exception e) {
+            log.warn("Failed to persist provider enable state to DB: {}", e.getMessage());
+        }
+
         log.info("Provider {} enabled: {}", providerId, enabled);
         return updated;
     }

@@ -9,6 +9,7 @@ import com.livingagent.core.database.repository.CompensationRecordRepository;
 import com.livingagent.core.employee.EmployeeCompensationService;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -33,6 +34,7 @@ public class JpaEmployeeCompensationService implements EmployeeCompensationServi
     }
 
     @Override
+    @Transactional
     public CompensationPlan definePlan(String departmentId, String employeeType, Map<String, Object> rules) {
         CompensationPlanEntity entity = new CompensationPlanEntity();
         entity.setPlanId("plan_" + System.currentTimeMillis());
@@ -44,6 +46,7 @@ public class JpaEmployeeCompensationService implements EmployeeCompensationServi
     }
 
     @Override
+    @Transactional
     public void assignPlan(String employeeId, String planId) {
         CompensationAccountEntity account = accountRepository.findByEmployeeId(employeeId).orElseGet(CompensationAccountEntity::new);
         account.setEmployeeId(employeeId);
@@ -91,6 +94,7 @@ public class JpaEmployeeCompensationService implements EmployeeCompensationServi
         return payload;
     }
 
+    @Transactional
     public void record(String employeeId, int points, String type, String reason, String sourceTaskId, String sourceReviewId) {
         CompensationAccountEntity account = accountRepository.findByEmployeeId(employeeId).orElseGet(() -> {
             CompensationAccountEntity created = new CompensationAccountEntity();

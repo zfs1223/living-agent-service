@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { getToken } from '../stores';
+import { request } from '../services/apiBase';
 
 function formatTokens(n: number | null | undefined): string {
     if (n == null) return '-';
@@ -27,15 +27,9 @@ export default function PlatformDashboard() {
             const end = new Date();
             const start = new Date();
             start.setDate(start.getDate() - days);
-            
-            const token = getToken();
-            const res = await fetch(`/api/admin/metrics/timeseries?start_date=${start.toISOString()}&end_date=${end.toISOString()}`, {
-                headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-            });
-            if (res.ok) {
-                const data = await res.json();
-                setTimeSeriesData(data);
-            }
+
+            const data = await request<any>(`/admin/metrics/timeseries?start_date=${start.toISOString()}&end_date=${end.toISOString()}`);
+            setTimeSeriesData(data);
         } catch (e) {
             console.error('Failed to load metrics:', e);
         }
@@ -45,15 +39,9 @@ export default function PlatformDashboard() {
     const fetchLeaderboards = async () => {
         setLoadingLeaders(true);
         try {
-            const token = getToken();
-            const res = await fetch('/api/admin/metrics/leaderboards', {
-                headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-            });
-            if (res.ok) {
-                const data = await res.json();
-                setTopCompanies(data.top_companies || []);
-                setTopAgents(data.top_agents || []);
-            }
+            const data = await request<any>('/admin/metrics/leaderboards');
+            setTopCompanies(data.top_companies || []);
+            setTopAgents(data.top_agents || []);
         } catch (e) {
             console.error('Failed to load leaderboards:', e);
         }

@@ -340,6 +340,7 @@ public class FixedEmployeeRegistry {
         int violationCount = 0;
 
         for (FixedEmployeeDefinition def : definitionsByCode.values()) {
+            // FixedEmployeeDefinition.department() 返回 department_code，已经是 xxx 格式（不带前缀）
             Set<String> departmentAllowed = DEPARTMENT_DEFAULT_TOOL_WHITELIST.getOrDefault(def.department(), Set.of());
             for (String configured : def.tools()) {
                 String normalized = TOOL_ALIAS.getOrDefault(configured, configured);
@@ -376,6 +377,12 @@ public class FixedEmployeeRegistry {
         String department = employee.getDepartmentId() == null || employee.getDepartmentId().isBlank()
             ? employee.getDepartment()
             : employee.getDepartmentId();
+
+        // 去掉 dept_ 前缀（数据库使用 dept_tech 格式，工具白名单使用 tech 格式）
+        if (department != null && department.startsWith("dept_")) {
+            department = department.substring(5);
+        }
+        // 特殊映射：main -> core（但工具白名单有 main 的定义，不需要额外映射）
 
         Set<String> departmentAllowed = DEPARTMENT_DEFAULT_TOOL_WHITELIST.getOrDefault(department, Set.of());
 
@@ -522,6 +529,26 @@ public class FixedEmployeeRegistry {
             List.of("gitlab", "knowledge_graph", "jira"),
             "channel://tech/backend",
             EmployeePersonality.of(0.8, 0.6, 0.5, 0.75));
+
+        // 部门内审查关系：T09(前端) ↔ T10(后端) 交叉审查
+        applyDownstreamReviewers("T09", List.of("T10"));
+        applyDownstreamReviewers("T10", List.of("T09"));
+    }
+
+    /**
+     * 为已注册的员工定义设置下游审查员（不可变 record 更新）。
+     *
+     * @param code      员工代码
+     * @param reviewers 审查员代码列表
+     */
+    private void applyDownstreamReviewers(String code, List<String> reviewers) {
+        FixedEmployeeDefinition existing = definitionsByCode.get(code);
+        if (existing == null) {
+            log.warn("Cannot apply downstreamReviewers: employee {} not found", code);
+            return;
+        }
+        definitionsByCode.put(code, existing.withDownstreamReviewers(reviewers));
+        log.info("Applied downstreamReviewers for employee {}: {}", code, reviewers);
     }
 
     private void registerFinanceEmployees() {
@@ -769,7 +796,8 @@ public class FixedEmployeeRegistry {
             code, name, title, dept, deptName, neuronId,
             roles, capabilities, tools, channel, personality,
             getIconForDepartment(dept),
-            allSkills
+            allSkills,
+            List.of() // downstreamReviewers: 后续从配置或数据库加载
         );
         
         definitionsByCode.put(code, definition);
@@ -803,7 +831,8 @@ public class FixedEmployeeRegistry {
             channel,
             personality,
             getIconForDepartment(department),
-            requiredSkills.stream().distinct().toList()
+            requiredSkills.stream().distinct().toList(),
+            List.of() // downstreamReviewers: 后续从数据库加载
         );
     }
 
@@ -901,8 +930,16 @@ public class FixedEmployeeRegistry {
     }
 
     public List<FixedEmployeeDefinition> getDefinitionsByDepartment(String department) {
+        // 支持两种格式匹配：调用方可能传递 dept_xxx 或 xxx
+        // FixedEmployeeDefinition.department() 返回 xxx 格式（不带前缀）
+        final String normalizedDept;
+        if (department != null && department.startsWith("dept_")) {
+            normalizedDept = department.substring(5);
+        } else {
+            normalizedDept = department;
+        }
         return definitionsByCode.values().stream()
-            .filter(d -> d.department().equals(department))
+            .filter(d -> d.department() != null && d.department().equals(normalizedDept))
             .toList();
     }
 
@@ -991,11 +1028,22 @@ public class FixedEmployeeRegistry {
                         employeeDept = en.getEmployee().getDepartment();
                     }
                     String brainDept = en.getDelegateBrain().getDepartment();
-                    if (employeeDept != null && brainDept != null && !employeeDept.equals(brainDept)) {
+
+                    // 去掉 dept_ 前缀进行比较（数据库使用 dept_tech 格式，Brain 使用 tech 格式）
+                    String normalizedEmployeeDept = employeeDept;
+                    if (normalizedEmployeeDept != null && normalizedEmployeeDept.startsWith("dept_")) {
+                        normalizedEmployeeDept = normalizedEmployeeDept.substring(5);
+                    }
+                    // 特殊映射：main -> core
+                    if ("main".equals(normalizedEmployeeDept)) {
+                        normalizedEmployeeDept = "core";
+                    }
+
+                    if (normalizedEmployeeDept != null && brainDept != null && !normalizedEmployeeDept.equals(brainDept)) {
                         mismatchCount++;
-                        mismatchList.add(employeeId + "(employeeDept=" + employeeDept + ", brainDept=" + brainDept + ")");
-                        log.warn("delegateBrain mismatch: employee={} dept='{}' but bound to brain dept='{}'",
-                            employeeId, employeeDept, brainDept);
+                        mismatchList.add(employeeId + "(employeeDept=" + employeeDept + " -> " + normalizedEmployeeDept + ", brainDept=" + brainDept + ")");
+                        log.warn("delegateBrain mismatch: employee={} dept='{}' (normalized='{}') but bound to brain dept='{}'",
+                            employeeId, employeeDept, normalizedEmployeeDept, brainDept);
                     }
                 }
             }
@@ -1056,7 +1104,8 @@ public class FixedEmployeeRegistry {
         String channel,
         EmployeePersonality personality,
         String icon,
-        List<String> requiredSkills
+        List<String> requiredSkills,
+        List<String> downstreamReviewers
     ) {
         public boolean hasCapability(String capability) {
             return capabilities != null && capabilities.contains(capability);
@@ -1095,10 +1144,36 @@ public class FixedEmployeeRegistry {
         public void validateSkill(String skillId) {
             if (!hasSkill(skillId)) {
                 throw new IllegalStateException(
-                    String.format("编制 '%s' (%s) 未配置技能 '%s'", 
+                    String.format("编制 '%s' (%s) 未配置技能 '%s'",
                         name, code, skillId)
                 );
             }
+        }
+
+        // NP1-2: 安装技能后更新员工技能列表
+        public FixedEmployeeDefinition withAdditionalSkill(String skillId) {
+            if (hasSkill(skillId)) return this;
+            List<String> updatedSkills = requiredSkills != null
+                ? new ArrayList<>(requiredSkills) : new ArrayList<>();
+            updatedSkills.add(skillId);
+            return new FixedEmployeeDefinition(
+                code, name, title, department, departmentName, neuronId,
+                roles, capabilities, tools, channel, personality, icon,
+                Collections.unmodifiableList(updatedSkills), downstreamReviewers
+            );
+        }
+
+        // NP1-2: 安装技能后更新员工能力列表
+        public FixedEmployeeDefinition withAdditionalCapability(String capability) {
+            if (hasCapability(capability)) return this;
+            List<String> updatedCapabilities = capabilities != null
+                ? new ArrayList<>(capabilities) : new ArrayList<>();
+            updatedCapabilities.add(capability);
+            return new FixedEmployeeDefinition(
+                code, name, title, department, departmentName, neuronId,
+                roles, Collections.unmodifiableList(updatedCapabilities), tools,
+                channel, personality, icon, requiredSkills, downstreamReviewers
+            );
         }
 
         public static FixedEmployeeDefinition withDefaultSkills(
@@ -1112,7 +1187,17 @@ public class FixedEmployeeRegistry {
             );
             return new FixedEmployeeDefinition(
                 code, name, title, department, departmentName, neuronId,
-                roles, capabilities, tools, channel, personality, icon, defaultSkills
+                roles, capabilities, tools, channel, personality, icon, defaultSkills,
+                List.of() // downstreamReviewers
+            );
+        }
+
+        /** 返回带有指定审查关系的新定义（不可变 record 更新） */
+        public FixedEmployeeDefinition withDownstreamReviewers(List<String> reviewers) {
+            return new FixedEmployeeDefinition(
+                code, name, title, department, departmentName, neuronId,
+                roles, capabilities, tools, channel, personality, icon, requiredSkills,
+                reviewers != null ? reviewers : List.of()
             );
         }
     }

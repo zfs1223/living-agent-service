@@ -1,9 +1,12 @@
 package com.livingagent.gateway.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.livingagent.core.database.entity.NotificationEntity;
+import com.livingagent.core.database.repository.NotificationRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.*;
@@ -18,18 +21,68 @@ public class DepartmentNotificationService {
 
     private final ObjectMapper objectMapper;
     private final DepartmentChatService departmentChatService;
+    private final NotificationRepository notificationRepository;
 
     private final Map<String, Deque<Notification>> notificationQueue = new ConcurrentHashMap<>();
     private final Map<String, Set<NotificationListener>> listeners = new ConcurrentHashMap<>();
     
     private static final int MAX_NOTIFICATIONS_PER_DEPT = 50;
 
-    public DepartmentNotificationService(DepartmentChatService departmentChatService) {
+    public DepartmentNotificationService(DepartmentChatService departmentChatService,
+                                         NotificationRepository notificationRepository) {
         this.departmentChatService = departmentChatService;
+        this.notificationRepository = notificationRepository;
         this.objectMapper = new ObjectMapper();
+        loadNotificationsFromDb();
     }
 
-    public Notification sendNotification(String department, String type, String title, String content, 
+    private void loadNotificationsFromDb() {
+        try {
+            for (String dept : getAllDepartments()) {
+                List<NotificationEntity> entities = notificationRepository
+                    .findByDepartmentAndReadFalseOrderByTimestampDesc(dept);
+                Deque<Notification> queue = new ConcurrentLinkedDeque<>();
+                for (NotificationEntity e : entities) {
+                    Map<String, Object> metadata = parseMetadataJson(e.getMetadataJson());
+                    queue.addLast(new Notification(
+                        e.getNotificationId(), e.getDepartment(), e.getType(), e.getTitle(),
+                        e.getContent(), e.getPriority(), metadata, e.getTimestamp(), e.isRead()
+                    ));
+                }
+                if (!queue.isEmpty()) {
+                    notificationQueue.put(dept, queue);
+                }
+            }
+            log.info("Loaded notifications from DB for departments");
+        } catch (Exception e) {
+            log.warn("Failed to load notifications from DB, using empty state: {}", e.getMessage());
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> parseMetadataJson(String json) {
+        if (json == null || json.isBlank()) return new HashMap<>();
+        try {
+            return objectMapper.readValue(json, Map.class);
+        } catch (Exception e) {
+            return new HashMap<>();
+        }
+    }
+
+    private String toMetadataJson(Map<String, Object> metadata) {
+        if (metadata == null || metadata.isEmpty()) return "{}";
+        try {
+            return objectMapper.writeValueAsString(metadata);
+        } catch (Exception e) {
+            return "{}";
+        }
+    }
+
+    /**
+     * B-1-11: 发送通知，内存队列 + DB 双写。
+     */
+    @Transactional
+    public Notification sendNotification(String department, String type, String title, String content,
                                          String priority, Map<String, Object> metadata) {
         Notification notification = new Notification(
             UUID.randomUUID().toString(),
@@ -50,6 +103,8 @@ public class DepartmentNotificationService {
         while (queue.size() > MAX_NOTIFICATIONS_PER_DEPT) {
             queue.removeFirst();
         }
+
+        saveNotificationToDb(notification);
 
         notifyListeners(department, notification);
 
@@ -82,7 +137,11 @@ public class DepartmentNotificationService {
         return sendNotification(department, "ANNOUNCEMENT", title, content, "NORMAL", Map.of());
     }
 
-    public Notification broadcastToAllDepartments(String type, String title, String content, 
+    /**
+     * B-1-11: 广播通知到所有部门，内存 + DB 双写。
+     */
+    @Transactional
+    public Notification broadcastToAllDepartments(String type, String title, String content,
                                                    String priority) {
         Notification notification = new Notification(
             UUID.randomUUID().toString(),
@@ -101,6 +160,8 @@ public class DepartmentNotificationService {
                 .addLast(notification);
             notifyListeners(dept, notification);
         }
+
+        saveNotificationToDb(notification);
 
         log.info("Broadcast notification to all departments: type={}, title={}", type, title);
         return notification;
@@ -122,6 +183,10 @@ public class DepartmentNotificationService {
         return getNotifications(department, MAX_NOTIFICATIONS_PER_DEPT, true);
     }
 
+    /**
+     * B-1-11: 标记已读，内存 + DB 双写。
+     */
+    @Transactional
     public void markAsRead(String department, String notificationId) {
         Deque<Notification> queue = notificationQueue.get(department);
         if (queue == null) return;
@@ -134,11 +199,17 @@ public class DepartmentNotificationService {
                 );
                 queue.remove(n);
                 queue.add(read);
+                notificationRepository.findByNotificationId(notificationId)
+                    .ifPresent(entity -> { entity.setRead(true); notificationRepository.save(entity); });
                 break;
             }
         }
     }
 
+    /**
+     * B-1-11: 全部标记已读，内存 + DB 双写。
+     */
+    @Transactional
     public void markAllAsRead(String department) {
         Deque<Notification> queue = notificationQueue.get(department);
         if (queue == null) return;
@@ -151,6 +222,12 @@ public class DepartmentNotificationService {
             ));
         }
         notificationQueue.put(department, updated);
+        List<NotificationEntity> dbUnread = notificationRepository
+            .findByDepartmentAndReadFalseOrderByTimestampDesc(department);
+        for (NotificationEntity e : dbUnread) {
+            e.setRead(true);
+            notificationRepository.save(e);
+        }
     }
 
     public int getUnreadCount(String department) {
@@ -160,8 +237,13 @@ public class DepartmentNotificationService {
         return (int) queue.stream().filter(n -> !n.read()).count();
     }
 
+    /**
+     * B-1-11: 清除部门通知，内存 + DB 双写。
+     */
+    @Transactional
     public void clearNotifications(String department) {
         notificationQueue.remove(department);
+        notificationRepository.deleteByDepartment(department);
         log.info("Cleared notifications for department: {}", department);
     }
 
@@ -192,6 +274,19 @@ public class DepartmentNotificationService {
 
     private Set<String> getAllDepartments() {
         return Set.of("tech", "hr", "finance", "sales", "admin", "cs", "legal", "ops");
+    }
+
+    private void saveNotificationToDb(Notification n) {
+        try {
+            NotificationEntity entity = new NotificationEntity(
+                n.notificationId(), n.department(), n.type(), n.title(),
+                n.content(), n.priority(), toMetadataJson(n.metadata()),
+                n.timestamp(), n.read()
+            );
+            notificationRepository.save(entity);
+        } catch (Exception e) {
+            log.warn("Failed to save notification to DB: {}", e.getMessage());
+        }
     }
 
     public NotificationSummary getSummary(String department) {

@@ -6,6 +6,7 @@ import com.livingagent.core.evolution.executor.EvolutionFeedbackService;
 import com.livingagent.core.evolution.executor.EvolutionResult;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.HashMap;
 import java.util.List;
@@ -28,6 +29,7 @@ public class JpaEvolutionFeedbackService implements EvolutionFeedbackService {
     }
 
     @Override
+    @Transactional
     public void record(EvolutionResult result) {
         if (result == null) {
             return;

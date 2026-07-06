@@ -6,6 +6,9 @@
  * - 主题色（与 web 端 Living Agent 一致：#1890ff 蓝、#52c41a 绿、#f5222d 红、#fa8c16 橙）
  */
 
+/* 导入办公室聊天页面样式 */
+@import './pages/OfficeChat/OfficeChatPage.css';
+
 /* ============ 整体 ============ */
 
 * { box-sizing: border-box; }
@@ -99,6 +102,23 @@ input, select, textarea {
   display: flex;
   flex-direction: column;
   padding: 8px 0;
+}
+
+.nav-section {
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.nav-section:last-child {
+  border-bottom: none;
+}
+
+.nav-section-title {
+  padding: 8px 16px 4px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .nav-item {
@@ -454,4 +474,147 @@ input, select, textarea {
   color: #888;
   padding-top: 8px;
   border-top: 1px dashed #e8e8e8;
+}
+
+/* ============ 登录对话框（手机号 + 验证码，与 frontend 对齐） ============ */
+
+.login-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.login-dialog {
+  background: #fff;
+  border-radius: 12px;
+  padding: 32px 28px;
+  width: 420px;
+  max-width: 90vw;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.25);
+}
+
+.login-dialog h2 {
+  margin: 0 0 4px;
+  font-size: 20px;
+  color: #1f1f1f;
+}
+
+.login-hint {
+  margin: 0 0 18px;
+  color: #888;
+  font-size: 13px;
+}
+
+/* 错误提示 */
+.login-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  background: #fff1f0;
+  border: 1px solid #ffa39e;
+  border-radius: 6px;
+  color: #cf1322;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+/* 测试模式验证码提示 */
+.test-code-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: #f6ffed;
+  border: 1px solid #b7eb8f;
+  border-radius: 6px;
+  color: #389e0d;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+.test-code-hint strong {
+  letter-spacing: 3px;
+  font-size: 15px;
+}
+
+/* 登录表单字段（与 frontend .login-field 对齐） */
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.login-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.login-field label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #333;
+}
+
+.login-field input[type="tel"],
+.login-field input[type="text"] {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  font-size: 14px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  outline: none;
+  box-sizing: border-box;
+}
+.login-field input:focus {
+  border-color: #1890ff;
+  box-shadow: 0 0 0 3px rgba(24, 144, 255, 0.1);
+}
+
+/* 登录提交按钮 */
+.login-submit-btn {
+  width: 100%;
+  padding: 11px 24px !important;
+  font-size: 15px !important;
+  font-weight: 500 !important;
+  border-radius: 8px !important;
+  margin-top: 4px;
+}
+
+/* 幽灵链接按钮 */
+.btn-ghost-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: transparent;
+  border: none;
+  color: #999;
+  font-size: 13px;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.btn-ghost-link:hover {
+  color: #1890ff;
+}
+
+/* 加载旋转器 */
+.login-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: desktop-spin 0.6s linear infinite;
+}
+
+@keyframes desktop-spin {
+  to { transform: rotate(360deg); }
 }

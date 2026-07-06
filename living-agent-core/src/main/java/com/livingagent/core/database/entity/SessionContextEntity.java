@@ -9,7 +9,11 @@ import java.time.Instant;
     @Index(name = "idx_sess_user_id", columnList = "user_id"),
     @Index(name = "idx_sess_tenant_id", columnList = "tenant_id"),
     @Index(name = "idx_sess_conversation_id", columnList = "conversation_id"),
-    @Index(name = "idx_sess_last_activity", columnList = "last_activity")
+    @Index(name = "idx_sess_last_activity", columnList = "last_activity"),
+    // B-0-2: 反向索引查询支持
+    @Index(name = "idx_sess_task_key", columnList = "task_key"),
+    @Index(name = "idx_sess_execution_id", columnList = "execution_id"),
+    @Index(name = "idx_sess_project_key", columnList = "project_key")
 })
 public class SessionContextEntity {
 

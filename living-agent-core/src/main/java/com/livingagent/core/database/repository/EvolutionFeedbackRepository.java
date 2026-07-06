@@ -20,4 +20,18 @@ public interface EvolutionFeedbackRepository extends JpaRepository<EvolutionFeed
     List<EvolutionFeedbackEntity> findByCreatedAtAfterOrderByCreatedAtDesc(Instant createdAt);
 
     List<EvolutionFeedbackEntity> findTop100ByOrderByCreatedAtDesc();
+
+    /**
+     * P18-B: 写入验证 — 保存后立即查询确认
+     */
+    default EvolutionFeedbackEntity saveAndVerify(EvolutionFeedbackEntity entity) {
+        EvolutionFeedbackEntity saved = save(entity);
+        if (saved.getId() == null) {
+            throw new IllegalStateException("EvolutionFeedback save verification failed: id is null");
+        }
+        if (!existsById(saved.getId())) {
+            throw new IllegalStateException("EvolutionFeedback save verification failed: " + saved.getId());
+        }
+        return saved;
+    }
 }

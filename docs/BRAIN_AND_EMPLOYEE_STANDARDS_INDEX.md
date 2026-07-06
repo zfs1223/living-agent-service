@@ -90,17 +90,17 @@ requiresHumanReview
 
 ### 2.2 大脑职责边界索引
 
-| Brain | 部门/层级 | 主要职责 | 不应越权做的事 | 必须上报/澄清场景 | 代码文件 |
-| --- | --- | --- | --- | --- | --- |
-| `MainBrain` | 主脑/总控 | 跨部门协调、任务识别、战略判断、最终收口 | 不直接替员工执行具体工具任务 | 跨部门冲突、高风险、审批、资源冲突 | `living-agent-core/src/main/java/com/livingagent/core/brain/impl/MainBrain.java` |
-| `TechBrain` | 技术部 | 技术方案、代码开发、系统架构、研发执行协调 | 不处理财务、人事、法务最终决策 | 需求不清、上线风险、安全风险、跨部门依赖 | `living-agent-core/src/main/java/com/livingagent/core/brain/impl/TechBrain.java` |
-| `HrBrain` | 人力资源部 | 招聘、绩效、组织、人事流程 | 不做财务支付和法务裁定 | 涉及员工隐私、奖惩、组织调整 | `living-agent-core/src/main/java/com/livingagent/core/brain/impl/HrBrain.java` |
-| `FinanceBrain` | 财务部 | 报销、预算、发票、成本、财务审核 | 不做业务战略和法律结论 | 大额支出、预算不足、合规风险 | `living-agent-core/src/main/java/com/livingagent/core/brain/impl/FinanceBrain.java` |
-| `SalesBrain` | 销售部 | 客户、线索、报价、销售推进 | 不承诺无法交付的技术/法务条款 | 大客户承诺、价格异常、合同风险 | `living-agent-core/src/main/java/com/livingagent/core/brain/impl/SalesBrain.java` |
-| `CsBrain` | 客服部 | 客诉、工单、FAQ、用户支持 | 不擅自承诺赔偿或技术改造 | 高危客诉、赔付、法务风险 | `living-agent-core/src/main/java/com/livingagent/core/brain/impl/CsBrain.java` |
-| `AdminBrain` | 行政部 | 办公行政、资产、后勤、行政流程 | 不做人事奖惩和财务最终审批 | 资产处置、采购、权限申请 | `living-agent-core/src/main/java/com/livingagent/core/brain/impl/AdminBrain.java` |
-| `LegalBrain` | 法务部 | 合同、合规、风险、法律条款 | 不替业务部门做商业承诺 | 合同重大风险、监管风险、争议处理 | `living-agent-core/src/main/java/com/livingagent/core/brain/impl/LegalBrain.java` |
-| `OpsBrain` | 运营部 | 数据运营、流程运营、活动运营 | 不直接替销售承诺客户结果 | 活动风险、数据异常、跨部门流程变化 | `living-agent-core/src/main/java/com/livingagent/core/brain/impl/OpsBrain.java` |
+| Brain | 部门/层级 | 主要职责 | 不应越权做的事 | 必须上报/澄清场景 | 进化权限 | 代码文件 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `MainBrain` | 主脑/总控 | 跨部门协调、任务识别、战略判断、最终收口 | 不直接替员工执行具体工具任务；不可绕过熔断器强制应用代码修复 | 跨部门冲突、高风险、审批、资源冲突；修复循环≥3次；连续失败≥5次 | codebase_full_access + evolution_full_access + apply_code_fix + propose_code_fix | `living-agent-core/src/main/java/com/livingagent/core/brain/impl/MainBrain.java` |
+| `TechBrain` | 技术部 | 技术方案、代码开发、系统架构、研发执行协调 | 不处理财务、人事、法务最终决策；不可在熔断状态下继续自修复 | 需求不清、上线风险、安全风险、跨部门依赖；修复循环≥3次；连续失败≥5次 | codebase_full_access + evolution_full_access + apply_code_fix + propose_code_fix | `living-agent-core/src/main/java/com/livingagent/core/brain/impl/TechBrain.java` |
+| `HrBrain` | 人力资源部 | 招聘、绩效、组织、人事流程 | 不做财务支付和法务裁定；不可绕过修复循环检测 | 涉及员工隐私、奖惩、组织调整；修复循环≥3次；连续失败≥5次 | codebase_full_access + evolution_full_access + apply_code_fix + propose_code_fix | `living-agent-core/src/main/java/com/livingagent/core/brain/impl/HrBrain.java` |
+| `FinanceBrain` | 财务部 | 报销、预算、发票、成本、财务审核 | 不做业务战略和法律结论；不可绕过修复循环检测 | 大额支出、预算不足、合规风险；修复循环≥3次；连续失败≥5次 | codebase_full_access + evolution_full_access + apply_code_fix + propose_code_fix | `living-agent-core/src/main/java/com/livingagent/core/brain/impl/FinanceBrain.java` |
+| `SalesBrain` | 销售部 | 客户、线索、报价、销售推进 | 不承诺无法交付的技术/法务条款；不可绕过修复循环检测 | 大客户承诺、价格异常、合同风险；修复循环≥3次；连续失败≥5次 | codebase_full_access + evolution_full_access + apply_code_fix + propose_code_fix | `living-agent-core/src/main/java/com/livingagent/core/brain/impl/SalesBrain.java` |
+| `CsBrain` | 客服部 | 客诉、工单、FAQ、用户支持 | 不擅自承诺赔偿或技术改造；不可绕过修复循环检测 | 高危客诉、赔付、法务风险；修复循环≥3次；连续失败≥5次 | codebase_full_access + evolution_full_access + apply_code_fix + propose_code_fix | `living-agent-core/src/main/java/com/livingagent/core/brain/impl/CsBrain.java` |
+| `AdminBrain` | 行政部 | 办公行政、资产、后勤、行政流程 | 不做人事奖惩和财务最终审批；不可绕过修复循环检测 | 资产处置、采购、权限申请；修复循环≥3次；连续失败≥5次 | codebase_full_access + evolution_full_access + apply_code_fix + propose_code_fix | `living-agent-core/src/main/java/com/livingagent/core/brain/impl/AdminBrain.java` |
+| `LegalBrain` | 法务部 | 合同、合规、风险、法律条款 | 不替业务部门做商业承诺；不可绕过修复循环检测 | 合同重大风险、监管风险、争议处理；修复循环≥3次；连续失败≥5次 | codebase_full_access + evolution_full_access + apply_code_fix + propose_code_fix | `living-agent-core/src/main/java/com/livingagent/core/brain/impl/LegalBrain.java` |
+| `OpsBrain` | 运营部 | 数据运营、流程运营、活动运营 | 不直接替销售承诺客户结果；不可绕过修复循环检测 | 活动风险、数据异常、跨部门流程变化；修复循环≥3次；连续失败≥5次 | codebase_full_access + evolution_full_access + apply_code_fix + propose_code_fix | `living-agent-core/src/main/java/com/livingagent/core/brain/impl/OpsBrain.java` |
 
 ### 2.3 大脑执行必须遵守的流程
 
@@ -162,6 +162,14 @@ traceId: Trace ID
 | 员工输出契约 | `living-agent-core/src/main/java/com/livingagent/core/autonomy/EmployeeOutputContract.java` | 统一员工输出结构：employeeCode/status/summary/completedItems/failedItems/artifacts/blockingIssues/riskLevel/retryable |
 | 规范强制加载链 | `living-agent-core/src/main/java/com/livingagent/core/brain/prompt/StandardLoadingChainService.java` | 职责卡→Prompt→runbook→文档工作流→自定义指令强制加载 |
 | 规范合规追踪 | `living-agent-core/src/main/java/com/livingagent/core/runtime/StandardComplianceTraceService.java` | 边界检查/标准加载/澄清/升级/回执合规/权限检查追踪 |
+| 进化空间命名空间 | `core/runtime/EvolutionNamespaceService.java` | .living/ 进化空间路径管理 |
+| 架构知识播种 | `core/knowledge/professional/ArchitectureKnowledgeSeeder.java` | docs/documents → 知识库 |
+| 源码索引 | `core/knowledge/professional/SourceTreeIndexer.java` | 生成 source-tree.json |
+| 统一升级通知 | `core/evolution/escalation/EscalationNotificationService.java` | 所有升级的唯一出口 |
+| 错误代码映射 | `core/evolution/codemapper/ErrorCodeMapper.java` | 异常→代码文件→文档 |
+| 代码库访问 | `core/evolution/codebase/CodebaseAccessService.java` | 大脑自由读写代码库 |
+| 补丁提案 | `core/evolution/patch/PatchProposalService.java` | 创建/保存/查询补丁 |
+| 补丁应用 | `core/evolution/patch/PatchApplicationService.java` | 大脑自主决定应用/回滚 |
 
 ### 3.2 部门固定员工职责卡索引
 
@@ -286,6 +294,9 @@ completedAt
 - 低权限用户销毁会话、任务、artifact 或治理文档。
 - 大脑/员工绕过 `WorkItemPermissionService` 操作项目、任务、会话。
 - 员工擅自改写职责卡、系统提示词、runbook 或治理规则。
+- 固定员工不可直接访问代码库（codebase_access 禁止）。
+- 固定员工不可写入进化空间（evolution_write 禁止）。
+- 修复循环（>=3次）和连续失败（>=5次）必须强制升级。
 
 ### 5.3 失败处理规则
 

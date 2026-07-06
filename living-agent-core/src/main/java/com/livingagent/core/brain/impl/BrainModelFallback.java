@@ -9,6 +9,7 @@ import com.livingagent.core.model.selector.BrainModelSelector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -193,7 +194,9 @@ public class BrainModelFallback {
     }
 
     /**
-     * 从模型池中找到评分最高的可用模型作为降级替代。
+     * 从模型池中找到综合评分最高的可用模型作为降级替代。
+     * 排序优先级：支持 chat > 本地供应商 > 成功率 > 静态性能分
+     * 排除：embedding 模型（不支持 chat completions）
      */
     public ResolvedBrainModel findBestAvailableModel(ResolvedBrainModel failedModel) {
         if (modelPoolManager == null || brainModelResolver == null) {
@@ -202,15 +205,33 @@ public class BrainModelFallback {
         try {
             ModelHealthRegistry registry = getModelHealthRegistry();
             UUID failedModelId = failedModel != null ? failedModel.getModelId() : null;
+            Set<String> localProviders = Set.of("vllm", "ollama");
 
             return modelPoolManager.getAllModels().stream()
                 .filter(com.livingagent.core.model.pool.LlmModel::isEnabled)
                 .filter(m -> failedModelId == null || !m.getId().equals(failedModelId))
                 .filter(m -> registry == null || registry.isModelAvailable(m.getId().toString()))
+                // 关键：排除 embedding 模型（不支持 chat completions）
+                .filter(m -> !isEmbeddingModel(m.getModelName()))
                 .sorted((a, b) -> {
+                    // 1. 本地供应商优先
+                    boolean aLocal = localProviders.contains(a.getProviderId());
+                    boolean bLocal = localProviders.contains(b.getProviderId());
+                    if (aLocal != bLocal) return aLocal ? -1 : 1;
+                    // 2. 成功率高的优先（运行时动态评分）
+                    double rateA = (registry != null && a.getId() != null)
+                        ? getSuccessRate(registry, a.getId().toString()) : 1.0;
+                    double rateB = (registry != null && b.getId() != null)
+                        ? getSuccessRate(registry, b.getId().toString()) : 1.0;
+                    int rateCompare = Double.compare(rateB, rateA);
+                    if (rateCompare != 0) return rateCompare;
+                    // 3. 静态性能分高的优先（配置评分）
                     double scoreA = a.getPerformanceScore() != null ? a.getPerformanceScore() : 0.0;
                     double scoreB = b.getPerformanceScore() != null ? b.getPerformanceScore() : 0.0;
-                    return Double.compare(scoreB, scoreA);
+                    int scoreCompare = Double.compare(scoreB, scoreA);
+                    if (scoreCompare != 0) return scoreCompare;
+                    // 4. 最后用 id 确保稳定排序（避免依赖数据库顺序）
+                    return a.getId().compareTo(b.getId());
                 })
                 .findFirst()
                 .map(m -> brainModelResolver.resolveRaw(m.getProviderId(), m.getModelName()))
@@ -219,6 +240,31 @@ public class BrainModelFallback {
             log.warn("Failed to find best available model: {}", e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * 判断是否为 embedding 模型（不支持 chat completions）
+     */
+    private boolean isEmbeddingModel(String modelName) {
+        if (modelName == null) return false;
+        String lower = modelName.toLowerCase();
+        Set<String> embeddingKeywords = Set.of(
+            "bge", "e5", "embedding", "text-embedding", "ada", "gte", "jina",
+            "m3e", "voyage", "cohere-embed", "retrieval", "sentence"
+        );
+        for (String kw : embeddingKeywords) {
+            if (lower.contains(kw)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * 获取模型运行时成功率（0.0~1.0）
+     */
+    private double getSuccessRate(ModelHealthRegistry registry, String modelId) {
+        ModelHealthRegistry.ModelHealthRecord health = registry.getHealth(modelId);
+        if (health.totalCalls() <= 0) return 1.0;
+        return health.totalSuccesses() * 1.0 / health.totalCalls();
     }
 
     /**

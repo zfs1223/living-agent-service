@@ -111,6 +111,18 @@ public class InMemoryEmployeeExecutionReceiptService implements EmployeeExecutio
     }
 
     @Override
+    public List<EmployeeExecutionReceipt> getReceiptsByDepartment(String department) {
+        return receiptsByExecutionId.values().stream()
+            .flatMap(List::stream)
+            .filter(r -> {
+                if (r.metadata() == null) return false;
+                Object dept = r.metadata().get("department");
+                return department.equals(dept);
+            })
+            .toList();
+    }
+
+    @Override
     public boolean isExecutionComplete(String executionId) {
         List<EmployeeExecutionReceipt> receipts = receiptsByExecutionId.get(executionId);
         if (receipts == null || receipts.isEmpty()) {

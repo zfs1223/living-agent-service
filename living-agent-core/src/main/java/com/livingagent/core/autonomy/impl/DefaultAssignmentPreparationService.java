@@ -11,6 +11,7 @@ import com.livingagent.core.autonomy.ExecutionCapabilityResolution;
 import com.livingagent.core.autonomy.ExecutionCapabilityResolver;
 import com.livingagent.core.autonomy.MainBrainTaskPlan;
 import com.livingagent.core.autonomy.PreparedAssignmentBatch;
+import com.livingagent.core.employee.registry.FixedEmployeeRegistry;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -21,13 +22,22 @@ import java.util.stream.Collectors;
 public class DefaultAssignmentPreparationService implements AssignmentPreparationService {
 
     private final ExecutionCapabilityResolver capabilityResolver;
+    private final FixedEmployeeRegistry fixedEmployeeRegistry;
 
     public DefaultAssignmentPreparationService() {
         this.capabilityResolver = null;
+        this.fixedEmployeeRegistry = null;
     }
 
     public DefaultAssignmentPreparationService(ExecutionCapabilityResolver capabilityResolver) {
         this.capabilityResolver = capabilityResolver;
+        this.fixedEmployeeRegistry = null;
+    }
+
+    public DefaultAssignmentPreparationService(ExecutionCapabilityResolver capabilityResolver,
+                                                FixedEmployeeRegistry fixedEmployeeRegistry) {
+        this.capabilityResolver = capabilityResolver;
+        this.fixedEmployeeRegistry = fixedEmployeeRegistry;
     }
 
     @Override
@@ -59,12 +69,13 @@ public class DefaultAssignmentPreparationService implements AssignmentPreparatio
             }
         }
 
-        // 将 capability 信息写入每个 assignment 的 context
+        // 将 capability 信息和审查配置写入每个 assignment
         final ExecutionCapability cap = resolvedCapability;
         final ArtifactType artType = resolvedArtifactType;
         final ExecutionMode execMode = resolvedExecutionMode;
         List<EmployeeWorkAssignment> enrichedAssignments = safeAssignments.stream()
             .map(a -> enrichAssignmentWithContext(a, cap, artType, execMode))
+            .map(a -> enrichAssignmentWithReview(a))
             .collect(Collectors.toList());
 
         Map<String, Object> metadata = new LinkedHashMap<>();
@@ -128,7 +139,23 @@ public class DefaultAssignmentPreparationService implements AssignmentPreparatio
             assignment.allowedTools(),
             enrichedContext,
             assignment.worktreePath(),
-            assignment.diffPath()
+            assignment.diffPath(),
+            assignment.reviewRequired(),
+            assignment.reviewerCode(),
+            assignment.maxReviewRounds()
         );
+    }
+
+    /**
+     * 根据 FixedEmployeeDefinition 的 downstreamReviewers 设置审查字段。
+     */
+    private EmployeeWorkAssignment enrichAssignmentWithReview(EmployeeWorkAssignment assignment) {
+        if (fixedEmployeeRegistry == null) return assignment;
+        if (assignment.reviewRequired()) return assignment; // 已设置审查，跳过
+
+        return fixedEmployeeRegistry.getDefinitionByCode(assignment.employeeCode())
+            .filter(def -> def.downstreamReviewers() != null && !def.downstreamReviewers().isEmpty())
+            .map(def -> assignment.withReview(def.downstreamReviewers().get(0), 3))
+            .orElse(assignment);
     }
 }

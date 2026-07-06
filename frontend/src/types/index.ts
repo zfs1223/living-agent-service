@@ -190,3 +190,40 @@ export interface TokenResponse {
     user: User;
     needs_company_setup?: boolean;
 }
+
+// ─── 知识库 ───
+
+export type KnowledgeScope = 'L1_PRIVATE' | 'L2_DEPARTMENT' | 'L3_SHARED';
+export type KnowledgeType = 'RULE' | 'BEST_PRACTICE' | 'EXPERIENCE' | 'PROCEDURE';
+export type KnowledgeStatus = 'DRAFT' | 'ACTIVE' | 'DEPRECATED' | 'ARCHIVED';
+export type Importance = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+export type Validity = 'UNVERIFIED' | 'VERIFIED' | 'OUTDATED' | 'INVALID';
+
+export interface KnowledgeEntry {
+    id: string;
+    title: string;
+    content: string;
+    category: string;
+    scope: KnowledgeScope;
+    type: KnowledgeType;
+    status: KnowledgeStatus;
+    importance: Importance;
+    validity?: Validity;
+    metadata?: {
+        usageCount: number;
+        source: string;
+        createdAt: string;
+        updatedAt: string;
+    };
+    created_at?: string;
+    updated_at?: string;
+}
+
+export interface KnowledgeStats {
+    total_count: number;
+    active_count: number;
+    draft_count: number;
+    deprecated_count: number;
+    category_count: number;
+    [key: string]: any;
+}

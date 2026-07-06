@@ -8,7 +8,7 @@ import { existsSync } from 'fs';
 import { writeFile, readFile, mkdir } from 'fs/promises';
 import { join, dirname } from 'path';
 import { loadToken, saveToken, clearToken } from './auth';
-import { getBackendUrl, setBackendUrl, loadBackendUrl, isBackendConfigured, getPublicTasks, claimTask, getMyCredits, listMyVisibleArtifacts, downloadArtifact } from './api-client';
+import { getBackendUrl, setBackendUrl, loadBackendUrl, isBackendConfigured, getPublicTasks, claimTask, getMyCredits, listMyVisibleArtifacts, downloadArtifact, sendSmsCode, phoneLogin, getCurrentUser } from './api-client';
 import { loadConfig, saveConfig, getCachedConfig, resetCachedConfig } from './local-save-config';
 import { localSaveSync, triggerSync, openLocalSaveFolder, getLocalSaveStats } from './local-save-sync';
 import { refreshPendingCount, claimTopPriorityTask } from './task-board-tray';
@@ -18,6 +18,22 @@ import { setNotificationConfig, getNotificationConfig } from './task-notificatio
 import { notify } from './notifications';
 import { showMainWindow, hideMainWindow } from './window';
 import { getOrCreateClientId, getCachedClientId, resetClientId } from './client-id';
+import { winAutomationService } from './win-automation-service';
+
+const IPC_CHANNELS: readonly string[] = [
+  'backend:check', 'backend:get-url', 'backend:is-configured', 'backend:set-url',
+  'auth:get-token', 'auth:set-token', 'auth:clear-token', 'auth:sms-send', 'auth:phone-login', 'auth:me',
+  'fs:open-artifact', 'fs:show-in-folder',
+  'notify',
+  'localsave:get-config', 'localsave:set-config', 'localsave:choose-path', 'localsave:open-folder', 'localsave:sync', 'localsave:stats',
+  'taskboard:pending-count', 'taskboard:refresh', 'taskboard:claim-top', 'taskboard:cache', 'taskboard:load-cache', 'taskboard:clear-cache', 'taskboard:list', 'taskboard:claim', 'taskboard:notification-config:get', 'taskboard:notification-config:set',
+  'floating:show', 'floating:hide', 'floating:set-expanded',
+  'artifacts:my-visible', 'artifacts:download', 'artifacts:save',
+  'credits:get-balance',
+  'window:minimize-to-tray', 'window:show', 'window:quit',
+  'app:version', 'app:platform', 'app:user-data-path', 'app:client-id', 'app:client-info', 'app:reset-client-id',
+  'win-automation:start', 'win-automation:stop', 'win-automation:status', 'win-automation:execute'
+];
 
 export function registerIpcHandlers(): void {
   // ============ 后端连接 ============
@@ -50,6 +66,21 @@ export function registerIpcHandlers(): void {
     await clearToken();
   });
 
+  // ============ 手机号登录（与 frontend 对齐） ============
+  ipcMain.handle('auth:sms-send', async (_e, phone: string, type: string = 'login') => {
+    return sendSmsCode(phone, type);
+  });
+
+  ipcMain.handle('auth:phone-login', async (_e, phone: string, code: string) => {
+    const result = await phoneLogin(phone, code);
+    // 登录成功后通知渲染层
+    return result;
+  });
+
+  ipcMain.handle('auth:me', async () => {
+    return getCurrentUser();
+  });
+
   // ============ 文件系统 ============
   ipcMain.handle('fs:open-artifact', async (_e, filePath: string) => {
     if (!existsSync(filePath)) return false;
@@ -73,6 +104,26 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle('localsave:set-config', async (_e, cfg) => {
     await saveConfig(cfg);
+    // 同步工作目录到后端（将本地路径映射为容器路径）
+    if (cfg.basePath) {
+      try {
+        const backendUrl = getBackendUrl();
+        const token = await loadToken();
+        // 容器内路径固定为 /app/user-workspace（与 docker-compose.yml 映射对应）
+        const containerPath = '/app/user-workspace';
+        await fetch(`${backendUrl}/api/v1/system/workspace/config`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ root: containerPath })
+        });
+        console.log('[ipc] Workspace root synced to backend:', containerPath);
+      } catch (e) {
+        console.warn('[ipc] Failed to sync workspace root to backend:', e);
+      }
+    }
     return cfg;
   });
 
@@ -124,6 +175,19 @@ export function registerIpcHandlers(): void {
     await clearAllCache();
   });
 
+  ipcMain.handle('taskboard:list', async (_e, dept?: string) => {
+    return getPublicTasks(dept);
+  });
+
+  ipcMain.handle('taskboard:claim', async (_e, taskId: string) => {
+    try {
+      const result = await claimTask(taskId);
+      return { ok: true, data: result };
+    } catch (e: any) {
+      return { ok: false, error: e.message || String(e) };
+    }
+  });
+
   ipcMain.handle('taskboard:notification-config:get', async () => {
     return getNotificationConfig();
   });
@@ -153,6 +217,23 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('artifacts:download', async (_e, artifactId: string) => {
     const data = await downloadArtifact(artifactId);
     return data.toString('base64');
+  });
+
+  ipcMain.handle('artifacts:save', async (_e, { artifactId, fileName }: { artifactId: string; fileName: string }) => {
+    const data = await downloadArtifact(artifactId);
+    const { filePath, canceled } = await dialog.showSaveDialog({
+      title: '保存产物',
+      defaultPath: fileName,
+      filters: [{ name: '所有文件', extensions: ['*'] }]
+    });
+    if (canceled || !filePath) return { saved: false };
+    await writeFile(filePath, data);
+    return { saved: true, path: filePath };
+  });
+
+  // ============ 积分余额 ============
+  ipcMain.handle('credits:get-balance', async () => {
+    return getMyCredits();
   });
 
   // ============ 窗口控制 ============
@@ -188,8 +269,38 @@ export function registerIpcHandlers(): void {
     const info = await resetClientId();
     return info.clientId;
   });
+
+  // ============ Windows 自动化 ============
+  ipcMain.handle('win-automation:start', async () => {
+    try {
+      await winAutomationService.start();
+      return { success: true, running: winAutomationService.isRunning() };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('win-automation:stop', async () => {
+    winAutomationService.stop();
+    return { success: true };
+  });
+
+  ipcMain.handle('win-automation:status', async () => {
+    return { running: winAutomationService.isRunning() };
+  });
+
+  ipcMain.handle('win-automation:execute', async (_e, operation: string, args?: Record<string, any>) => {
+    try {
+      const result = await winAutomationService.execute(operation, args ?? {});
+      return { success: true, result };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  });
 }
 
 export function unregisterIpcHandlers(): void {
-  ipcMain.removeAllListeners();
+  for (const channel of IPC_CHANNELS) {
+    ipcMain.removeHandler(channel);
+  }
 }
