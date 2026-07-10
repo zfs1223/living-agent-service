@@ -248,10 +248,14 @@ export default function KnowledgeTab() {
                                                 <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px', display: 'flex', gap: '12px' }}>
                                                     {entry.category && <span>{t('enterprise.knowledge.category', '分类')}: {entry.category}</span>}
                                                     {entry.metadata?.usage_count !== undefined && <span>{t('enterprise.knowledge.usageCount', '使用')}: {entry.metadata.usage_count}</span>}
+                                                    {entry.metadata?.confidence !== undefined && <span>{t('enterprise.knowledge.confidence', '置信度')}: {(entry.metadata.confidence * 100).toFixed(0)}%</span>}
                                                     {entry.importance && <span>{t('enterprise.knowledge.importance', '重要性')}: {entry.importance}</span>}
                                                 </div>
                                             </div>
                                             <div style={{ display: 'flex', gap: '4px', flexShrink: 0, alignItems: 'center' }}>
+                                                {/* P2-2: Knowledge effect feedback */}
+                                                <button className="btn btn-ghost" style={{ fontSize: '11px', padding: '2px 6px' }} onClick={() => knowledgeExtendedApi.submitFeedback(entry.id, true).catch(() => {})} title={t('enterprise.knowledge.helpful', '有用')}>👍</button>
+                                                <button className="btn btn-ghost" style={{ fontSize: '11px', padding: '2px 6px' }} onClick={() => knowledgeExtendedApi.submitFeedback(entry.id, false).catch(() => {})} title={t('enterprise.knowledge.notHelpful', '无用')}>👎</button>
                                                 <button className="btn btn-ghost" style={{ fontSize: '11px', padding: '2px 6px' }} onClick={() => toggleFavorite(entry.id, isFav)}>
                                                     {isFav ? '★' : '☆'}
                                                 </button>

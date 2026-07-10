@@ -7,6 +7,7 @@ import com.livingagent.core.autonomy.ReceiptStatus;
 import com.livingagent.core.database.entity.ProjectEntity;
 import com.livingagent.core.database.entity.TaskEntity;
 import com.livingagent.core.database.repository.TaskRepository;
+import java.util.List;
 import com.livingagent.core.database.repository.ProjectRepository;
 import com.livingagent.core.runtime.RuntimeEventStore;
 import org.slf4j.Logger;
@@ -157,11 +158,13 @@ public class ExecutionReceiptTaskProjectBridge implements EmployeeExecutionRecei
             if (projectId == null) return;
 
             projectRepository.findById(projectId).ifPresent(project -> {
-                long totalTasks = taskRepository.findByProjectIdOrderByCreatedAtAsc(projectId).size();
-                long completedTasks = taskRepository.findByProjectIdOrderByCreatedAtAsc(projectId).stream()
+                // B-2-1: 一次查询后内存聚合，消除 N+1 + 重复查询
+                List<TaskEntity> projectTasks = taskRepository.findByProjectIdOrderByCreatedAtAsc(projectId);
+                long totalTasks = projectTasks.size();
+                long completedTasks = projectTasks.stream()
                     .filter(t -> "COMPLETED".equals(t.getStatus()))
                     .count();
-                long failedTasks = taskRepository.findByProjectIdOrderByCreatedAtAsc(projectId).stream()
+                long failedTasks = projectTasks.stream()
                     .filter(t -> "FAILED".equals(t.getStatus()) || "REJECTED".equals(t.getStatus()))
                     .count();
                 double completionRate = totalTasks > 0 ? (double) completedTasks / totalTasks : 0.0;

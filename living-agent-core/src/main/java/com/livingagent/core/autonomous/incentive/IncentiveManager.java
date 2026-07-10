@@ -1,7 +1,9 @@
 package com.livingagent.core.autonomous.incentive;
 
+import com.livingagent.core.autonomous.bounty.feedback.CreditEconomyMonitor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.Instant;
 import java.util.List;
@@ -16,7 +18,10 @@ public class IncentiveManager {
     private final EvolutionTracker evolutionTracker;
     private final Map<String, List<IncentiveReward>> pendingRewards = new ConcurrentHashMap<>();
 
-    public IncentiveManager(CreditAccountService creditAccountService, 
+    @Autowired(required = false)
+    private CreditEconomyMonitor creditEconomyMonitor;
+
+    public IncentiveManager(CreditAccountService creditAccountService,
                            EvolutionTracker evolutionTracker) {
         this.creditAccountService = creditAccountService;
         this.evolutionTracker = evolutionTracker;
@@ -46,6 +51,11 @@ public class IncentiveManager {
 
         creditAccountService.credit(employeeId, reward.totalCredits());
         log.info("Distributed reward: {} credits to employee {}", reward.totalCredits(), employeeId);
+
+        // 闭环54: 积分赚取时记录
+        if (creditEconomyMonitor != null) {
+            creditEconomyMonitor.recordEarn(employeeId, reward.totalCredits());
+        }
 
         evolutionTracker.recordAchievement(employeeId, result);
         evolutionTracker.updateTier(employeeId);

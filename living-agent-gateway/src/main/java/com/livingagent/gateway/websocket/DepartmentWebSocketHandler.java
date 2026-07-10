@@ -365,6 +365,7 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
                 case "CHAT", "chat" -> handleChatMessage(session, department, userId, msg);
                 case "TYPING", "typing" -> handleTypingIndicator(department, userId, msg);
                 case "PING", "ping" -> sendPong(session);
+                case "audio_full" -> handlePublicAudioFullChain(session, department, userId, msg);
                 case "win_automation_response" -> handleWinAutomationResponse(msg);
                 default -> {
                     if (type.equalsIgnoreCase("CHAT")) {
@@ -441,7 +442,7 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
     private void processWithBrain(WebSocketSession session, String department, String userId, String content, String conversationId) {
         if (content == null || content.isBlank()) return;
         if ("public".equals(department)) {
-            log.debug("Skip brain processing for public channel, sessionId={}", session.getId());
+            processPublicChannel(session, userId, content);
             return;
         }
 
@@ -839,6 +840,84 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
                 sendTextSafely(department, ws, json);
             }
         }
+    }
+
+    /**
+     * 前台闲聊通道：通过 Qwen3Neuron (model_daemon) 处理对话。
+     * 走 agentService.chatPublic() 以复用闲聊神经元。
+     */
+    private void processPublicChannel(WebSocketSession session, String userId, String content) {
+        log.info("Public channel chat: userId={}, contentLength={}", userId, content.length());
+        try {
+            sendJson(session, Map.of("type", "thinking", "content", ""));
+        } catch (Exception ignored) {}
+
+        agentService.chatPublic(content, userId)
+            .thenAccept(response -> {
+                try {
+                    if (session.isOpen()) {
+                        sendJson(session, Map.of(
+                            "type", "done",
+                            "content", response,
+                            "timestamp", Instant.now().toString()
+                        ));
+                    }
+                } catch (Exception e) {
+                    log.warn("Failed to send public channel response: {}", e.getMessage());
+                }
+            })
+            .exceptionally(ex -> {
+                try {
+                    if (session.isOpen()) {
+                        sendJson(session, Map.of(
+                            "type", "error",
+                            "message", "闲聊服务暂时不可用"
+                        ));
+                    }
+                } catch (Exception ignored) {}
+                return null;
+            });
+    }
+
+    /**
+     * 前台闲聊通道音频全链路：ASR → LLM → TTS。
+     * 仅对 public 通道启用，其他通道走原有的部门大脑逻辑。
+     */
+    private void handlePublicAudioFullChain(WebSocketSession session, String department, String userId, Map<String, Object> msg) {
+        if (!"public".equals(department)) {
+            log.warn("audio_full only supported on public channel, got: {}", department);
+            return;
+        }
+
+        String audioData = (String) msg.get("audio");
+        if (audioData == null || audioData.isEmpty()) {
+            try { sendJson(session, Map.of("type", "error", "message", "缺少音频数据")); } catch (Exception ignored) {}
+            return;
+        }
+
+        log.info("Public channel audio_full: userId={}, audioLength={}", userId, audioData.length());
+        try {
+            sendJson(session, Map.of("type", "thinking", "content", ""));
+        } catch (Exception ignored) {}
+
+        agentService.chatPublicAudio(audioData, userId)
+            .thenAccept(response -> {
+                try {
+                    if (session.isOpen()) {
+                        sendJson(session, response);
+                    }
+                } catch (Exception e) {
+                    log.warn("Failed to send audio response: {}", e.getMessage());
+                }
+            })
+            .exceptionally(ex -> {
+                try {
+                    if (session.isOpen()) {
+                        sendJson(session, Map.of("type", "error", "message", "语音处理失败"));
+                    }
+                } catch (Exception ignored) {}
+                return null;
+            });
     }
 
     private void sendJson(WebSocketSession session, Object message) throws IOException {

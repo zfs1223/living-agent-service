@@ -182,7 +182,7 @@ public class ModelPoolManager {
                     case "zhipu" -> "https://open.bigmodel.cn/api/paas/v4";
                     case "kimi" -> "https://api.moonshot.cn/v1";
                     case "modelscope" -> "https://api-inference.modelscope.cn/v1";
-                    default -> "http://localhost:11434/v1";
+                    default -> "http://host.docker.internal:11434/v1";
                 };
             }
         testConfig.setBaseUrl(effectiveBaseUrl);
@@ -221,7 +221,7 @@ public class ModelPoolManager {
     @Transactional
     public List<String> discoverModels(ProviderConfig config) {
         List<String> discovered = new ArrayList<>();
-        String baseUrl = config.getBaseUrl() != null ? config.getBaseUrl() : "http://localhost:11434";
+        String baseUrl = config.getBaseUrl() != null ? config.getBaseUrl() : "http://host.docker.internal:11434";
         String apiKey = config.getApiKeyEncrypted();
         String providerId = config.getId().toLowerCase();
 
@@ -612,7 +612,7 @@ public class ModelPoolManager {
             ollama.setId("ollama");
             ollama.setDisplayName("Ollama");
             ollama.setProtocol(Protocol.OPENAI_COMPATIBLE);
-            ollama.setBaseUrl("http://localhost:11434");
+            ollama.setBaseUrl("http://host.docker.internal:11434");
             ollama.setEnabled(true);
             ollama.setDefaultMaxTokens(4096);
             ollama.setCreatedAt(LocalDateTime.now());

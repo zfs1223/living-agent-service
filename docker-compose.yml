@@ -237,6 +237,50 @@ services:
           memory: 2G
 
   # ===========================================
+  # fuck-u-code - 代码质量分析与AI审查服务
+  # 预构建镜像：image/living-agent-fuck-u-code.tar
+  # AI模型使用模型守护进程(model_daemon.py)的 Qwen3.5-2B (端口8392)
+  # 关联闭环: 49(代码审查工作流闭环) P49-C
+  # ===========================================
+  fuck-u-code:
+    image: living-agent-fuck-u-code:latest
+    container_name: living-agent-fuck-u-code
+    hostname: fuck-u-code
+    restart: unless-stopped
+    environment:
+      # AI模型配置 — 使用模型守护进程的 OpenAI 兼容端点（端口8392）
+      FUCKUCODE_AI_PROVIDER: openai
+      FUCKUCODE_AI_MODEL: qwen3.5-2b
+      FUCKUCODE_AI_BASE_URL: http://living-agent-service:8392/v1
+      FUCKUCODE_AI_API_KEY: ""
+      # 输出语言
+      FUCKUCODE_LOCALE: zh
+      # 并发数（根据宿主机CPU调整）
+      FUCKUCODE_CONCURRENCY: 4
+    volumes:
+      # 挂载项目源码（只读，用于分析）
+      - ${WORKSPACE_PATH:-./..}:/workspace:ro
+      # 持久化fuck-u-code配置缓存
+      - fuck-u-code-cache:/home/node/.cache/fuck-u-code
+    networks:
+      - backend
+    depends_on:
+      living-agent-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node bin/fuck-u-code.js --version || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+
+  # ===========================================
   # RuView Sensing - WiFi 物理感知服务
   # 基于 WiFi CSI 信号实现人员检测、占用统计、生命体征监测
   # 使用本地构建的镜像 (需先运行 docker build -f docker/Dockerfile.rust.nightly -t living-agent-ruview-sensing:nightly .)
@@ -454,11 +498,13 @@ services:
       - MOS_LLM_BACKEND=ollama
       - MOS_LLM_MODEL=qwen3.5:2b
       - MOS_EMBEDDER_BACKEND=ollama
-      - MOS_EMBEDDER_MODEL=qwen2.5:latest
+      - MOS_EMBEDDER_MODEL=nomic-embed-text:latest
       # Internet Retriever LLM 配置 (解决 reader.llm.model_name_or_path 为 None 的问题)
       - MEMRADER_MODEL=qwen3.5:2b
       - MEMRADER_API_BASE=http://host.docker.internal:11434/v1
       - MEMRADER_API_KEY=EMPTY
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - memos-src:/app/src
       - memos-data:/app/data
@@ -726,3 +772,6 @@ volumes:
     name: living-agent-ruview-data
   ruview-models:
     name: living-agent-ruview-models
+  # fuck-u-code volume
+  fuck-u-code-cache:
+    name: living-agent-fuck-u-code-cache

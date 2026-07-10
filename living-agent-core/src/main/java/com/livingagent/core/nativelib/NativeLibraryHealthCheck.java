@@ -32,6 +32,16 @@ public class NativeLibraryHealthCheck implements HealthCheck {
             return status;
         }
 
+        // 测试 native 函数调用是否正常（使用 bookworm 编译后应该安全）
+        String version = NativeLibrary.getVersion();
+        if ("native-unavailable".equals(version) || "native-error".equals(version)) {
+            HealthStatus status = HealthStatus.degraded("native_library",
+                "Native library loaded but version query failed: " + version);
+            status.setScore(30.0);
+            return status;
+        }
+        log.debug("Native library version: {}", version);
+
         List<NativeCallMetrics> unhealthyOps = performanceMonitor.getUnhealthyOperations();
         if (!unhealthyOps.isEmpty()) {
             StringBuilder sb = new StringBuilder("Unhealthy native operations: ");

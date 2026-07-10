@@ -3,6 +3,7 @@ package com.livingagent.gateway.controller;
 import com.livingagent.core.security.AccessGateService;
 import com.livingagent.core.security.AccessLevel;
 import com.livingagent.core.security.AuthContext;
+import com.livingagent.core.security.auth.AuthMetricsService;
 import com.livingagent.core.security.auth.OAuthService;
 import com.livingagent.core.security.auth.UnifiedAuthService;
 import com.livingagent.core.security.auth.UnifiedAuthService.AuthResult;
@@ -54,6 +55,7 @@ public class AuthController {
     private final EnterpriseEmployeeService employeeService;
     private final ClientUserBindingService clientUserBindingService;
     private final TenantController tenantController;
+    private final AuthMetricsService authMetricsService;
 
     /** 是否启用 Cookie 的 Secure 标志（生产环境 true，开发环境 false） */
     @Value("${auth.cookie.secure:true}")
@@ -65,7 +67,8 @@ public class AuthController {
             AccessGateService accessGateService,
             EnterpriseEmployeeService employeeService,
             ClientUserBindingService clientUserBindingService,
-            TenantController tenantController
+            TenantController tenantController,
+            AuthMetricsService authMetricsService
     ) {
         this.unifiedAuthService = unifiedAuthService;
         this.oauthServices = new HashMap<>();
@@ -78,6 +81,7 @@ public class AuthController {
         this.employeeService = employeeService;
         this.clientUserBindingService = clientUserBindingService;
         this.tenantController = tenantController;
+        this.authMetricsService = authMetricsService;
     }
 
     @GetMapping("/oauth/{provider}/url")
@@ -139,9 +143,12 @@ public class AuthController {
         );
 
         if (!result.success()) {
+            authMetricsService.recordFailure("oauth", provider, result.error());
             return ResponseEntity.status(401)
                     .body(ApiResponse.err(result.error(), result.errorDescription()));
         }
+
+        authMetricsService.recordSuccess("oauth", provider);
 
         AuthContext authContext = result.authContext();
 
@@ -342,9 +349,12 @@ public class AuthController {
         Optional<AuthSession> newSessionOpt = unifiedAuthService.refreshSession(oldSessionId);
 
         if (newSessionOpt.isEmpty()) {
+            authMetricsService.recordFailure("refresh", "token", "session_expired");
             return ResponseEntity.status(401)
                     .body(ApiResponse.err("session_expired", "Session has expired or is invalid"));
         }
+
+        authMetricsService.recordSuccess("refresh", "token");
 
         AuthSession newSession = newSessionOpt.get();
 

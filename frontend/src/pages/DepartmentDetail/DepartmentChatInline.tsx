@@ -67,7 +67,8 @@ export default function DepartmentChatInline({ departmentCode, deptName, onExecu
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
   const isEnterprise = Boolean(user && (user.identity === 'INTERNAL_ENTERPRISE' || user.access_level === 'FULL'));
-  const canAccessDepartmentBrain = isEnterprise;
+  const isDepartmentHead = Boolean(user?.department_code === departmentCode && user?.title?.includes('负责人'));
+  const canAccessDepartmentBrain = Boolean(isEnterprise || isDepartmentHead);
 
   const loadConversations = useCallback(async () => {
     if (!departmentCode || !token) return;
@@ -519,7 +520,8 @@ export default function DepartmentChatInline({ departmentCode, deptName, onExecu
           </div>
         )}
         {messages.map((msg, idx) => (
-          <div key={idx} style={{
+          <div key={idx} style={{ display: 'contents' }}>
+          <div style={{
             alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start',
             maxWidth: '85%',
             padding: '8px 12px',
@@ -531,6 +533,21 @@ export default function DepartmentChatInline({ departmentCode, deptName, onExecu
             wordBreak: 'break-word',
           }}>
             {msg.content}
+          </div>
+          {msg.role === 'assistant' && msg.content !== '...' && (
+            <div style={{ display: 'flex', gap: 4, marginTop: 2, alignSelf: 'flex-start' }}>
+              <button
+                onClick={() => fetch('/api/chat/feedback', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token') ?? ''}` }, body: JSON.stringify({ messageIndex: idx, rating: 'positive' }) }).catch(() => undefined) }
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, opacity: 0.5, padding: '0 2px' }}
+                title="有帮助"
+              >👍</button>
+              <button
+                onClick={() => fetch('/api/chat/feedback', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token') ?? ''}` }, body: JSON.stringify({ messageIndex: idx, rating: 'negative' }) }).catch(() => undefined) }
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, opacity: 0.5, padding: '0 2px' }}
+                title="需改进"
+              >👎</button>
+            </div>
+          )}
           </div>
         ))}
         {isWaiting && (

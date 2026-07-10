@@ -6,8 +6,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.livingagent.core.approval.*;
 import com.livingagent.core.database.entity.ApprovalInstanceEntity;
 import com.livingagent.core.database.entity.ApprovalWorkflowEntity;
+import com.livingagent.core.database.entity.ApprovalAuditLogEntity;
 import com.livingagent.core.database.repository.ApprovalInstanceRepository;
 import com.livingagent.core.database.repository.ApprovalWorkflowRepository;
+import com.livingagent.core.database.repository.ApprovalAuditLogRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -32,12 +34,15 @@ public class ApprovalServiceImpl implements ApprovalService {
 
     private final ApprovalInstanceRepository approvalInstanceRepository;
     private final ApprovalWorkflowRepository approvalWorkflowRepository;
+    private final ApprovalAuditLogRepository approvalAuditLogRepository;
     private final List<ApprovalCallback> callbacks = new CopyOnWriteArrayList<>();
 
     public ApprovalServiceImpl(ApprovalInstanceRepository approvalInstanceRepository,
-                                ApprovalWorkflowRepository approvalWorkflowRepository) {
+                                ApprovalWorkflowRepository approvalWorkflowRepository,
+                                ApprovalAuditLogRepository approvalAuditLogRepository) {
         this.approvalInstanceRepository = approvalInstanceRepository;
         this.approvalWorkflowRepository = approvalWorkflowRepository;
+        this.approvalAuditLogRepository = approvalAuditLogRepository;
     }
 
     /**
@@ -95,6 +100,7 @@ public class ApprovalServiceImpl implements ApprovalService {
 
         ApprovalInstanceEntity entity = toEntity(instance);
         approvalInstanceRepository.save(entity);
+        recordAudit(instance, "CREATE", null, request.submitterId(), null);
         log.info("Approval instance created: instanceId={}, workflowId={}", instance.getInstanceId(), request.workflowId());
         return instance;
     }
@@ -153,6 +159,8 @@ public class ApprovalServiceImpl implements ApprovalService {
         updated.setId(entity.getId());
         approvalInstanceRepository.save(updated);
 
+        recordAudit(instance, "APPROVE", stepId, approverId, comment);
+
         if (instance.getStatus() == ApprovalInstance.ApprovalStatus.APPROVED) {
             fireApprovedCallbacks(instance);
         }
@@ -178,6 +186,8 @@ public class ApprovalServiceImpl implements ApprovalService {
         updated.setId(entity.getId());
         approvalInstanceRepository.save(updated);
 
+        recordAudit(instance, "REJECT", stepId, approverId, comment);
+
         fireRejectedCallbacks(instance);
         return instance;
     }
@@ -200,6 +210,8 @@ public class ApprovalServiceImpl implements ApprovalService {
         ApprovalInstanceEntity updated = toEntity(instance);
         updated.setId(entity.getId());
         approvalInstanceRepository.save(updated);
+
+        recordAudit(instance, "RETURN", stepId, approverId, comment);
         return instance;
     }
 
@@ -216,6 +228,8 @@ public class ApprovalServiceImpl implements ApprovalService {
         ApprovalInstanceEntity updated = toEntity(instance);
         updated.setId(entity.getId());
         approvalInstanceRepository.save(updated);
+
+        recordAudit(instance, "CANCEL", null, submitterId, null);
     }
 
     @Override
@@ -275,6 +289,25 @@ public class ApprovalServiceImpl implements ApprovalService {
             } catch (Exception e) {
                 log.warn("ApprovalCallback.onRejected failed: {}", e.getMessage());
             }
+        }
+    }
+
+    /** 16.6: 记录审批审计日志 */
+    private void recordAudit(ApprovalInstance instance, String action, String stepId, String operatorId, String comment) {
+        try {
+            approvalAuditLogRepository.save(ApprovalAuditLogEntity.of(
+                instance.getInstanceId(),
+                instance.getWorkflowId(),
+                instance.getBusinessType(),
+                instance.getBusinessId(),
+                action,
+                stepId,
+                operatorId,
+                comment,
+                instance.getStatus() != null ? instance.getStatus().name() : null
+            ));
+        } catch (Exception e) {
+            log.warn("Failed to record approval audit log for instance={}: {}", instance.getInstanceId(), e.getMessage());
         }
     }
 

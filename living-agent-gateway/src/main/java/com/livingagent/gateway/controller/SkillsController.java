@@ -1,6 +1,7 @@
 package com.livingagent.gateway.controller;
 
 import com.livingagent.core.security.AccessGateService;
+import com.livingagent.core.skill.feedback.SkillEffectivenessTracker;
 import com.livingagent.gateway.controller.common.ApiResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,9 +19,11 @@ public class SkillsController {
 
     private static final Logger log = LoggerFactory.getLogger(SkillsController.class);
     private final AccessGateService accessGateService;
+    private final SkillEffectivenessTracker skillEffectivenessTracker;
 
-    public SkillsController(AccessGateService accessGateService) {
+    public SkillsController(AccessGateService accessGateService, SkillEffectivenessTracker skillEffectivenessTracker) {
         this.accessGateService = accessGateService;
+        this.skillEffectivenessTracker = skillEffectivenessTracker;
     }
 
     @GetMapping
@@ -89,6 +92,7 @@ public class SkillsController {
                 Instant.now()
         );
 
+        skillEffectivenessTracker.recordInvocation(skill.id(), true, 0);
         return ResponseEntity.ok(ApiResponse.ok(skill));
     }
 
@@ -113,6 +117,7 @@ public class SkillsController {
                 Instant.now()
         );
 
+        skillEffectivenessTracker.recordInvocation(id, true, 0);
         return ResponseEntity.ok(ApiResponse.ok(skill));
     }
 
@@ -125,6 +130,7 @@ public class SkillsController {
         }
         log.info("Deleting skill: {}", id);
 
+        skillEffectivenessTracker.recordInvocation(id, true, 0);
         return ResponseEntity.ok(ApiResponse.ok(Map.of("status", "deleted", "id", id)));
     }
 
@@ -236,6 +242,7 @@ public class SkillsController {
         }
         log.info("Installing from ClawHub: {}", request.slug());
 
+        skillEffectivenessTracker.recordInvocation("clawhub:" + request.slug(), true, 0);
         return ResponseEntity.ok(ApiResponse.ok(Map.of("status", "installed", "slug", request.slug())));
     }
 

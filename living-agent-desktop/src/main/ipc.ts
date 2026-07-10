@@ -8,7 +8,7 @@ import { existsSync } from 'fs';
 import { writeFile, readFile, mkdir } from 'fs/promises';
 import { join, dirname } from 'path';
 import { loadToken, saveToken, clearToken } from './auth';
-import { getBackendUrl, setBackendUrl, loadBackendUrl, isBackendConfigured, getPublicTasks, claimTask, getMyCredits, listMyVisibleArtifacts, downloadArtifact, sendSmsCode, phoneLogin, getCurrentUser } from './api-client';
+import { getBackendUrl, setBackendUrl, loadBackendUrl, isBackendConfigured, getPublicTasks, claimTask, getMyCredits, listMyVisibleArtifacts, downloadArtifact, sendSmsCode, phoneLogin, getCurrentUser, getApprovalList, getApprovalDetail, approveApproval, rejectApproval, cancelApproval, getMessages, markMessageRead, markAllMessagesRead, getUnreadCount, listAgents, getAgent, startAgent, stopAgent, listInterventions, respondIntervention, escalateIntervention, listSkills, browseSkills, bindSkill, unbindSkill, getProactiveDigest, listHabits, listProactiveNotifications, listPosts, createPost, likePost, getPlazaStats } from './api-client';
 import { loadConfig, saveConfig, getCachedConfig, resetCachedConfig } from './local-save-config';
 import { localSaveSync, triggerSync, openLocalSaveFolder, getLocalSaveStats } from './local-save-sync';
 import { refreshPendingCount, claimTopPriorityTask } from './task-board-tray';
@@ -19,6 +19,7 @@ import { notify } from './notifications';
 import { showMainWindow, hideMainWindow } from './window';
 import { getOrCreateClientId, getCachedClientId, resetClientId } from './client-id';
 import { winAutomationService } from './win-automation-service';
+import { wsClient } from './ws-client';
 
 const IPC_CHANNELS: readonly string[] = [
   'backend:check', 'backend:get-url', 'backend:is-configured', 'backend:set-url',
@@ -32,7 +33,15 @@ const IPC_CHANNELS: readonly string[] = [
   'credits:get-balance',
   'window:minimize-to-tray', 'window:show', 'window:quit',
   'app:version', 'app:platform', 'app:user-data-path', 'app:client-id', 'app:client-info', 'app:reset-client-id',
-  'win-automation:start', 'win-automation:stop', 'win-automation:status', 'win-automation:execute'
+  'win-automation:start', 'win-automation:stop', 'win-automation:status', 'win-automation:execute',
+  'approval:list', 'approval:detail', 'approval:approve', 'approval:reject', 'approval:cancel',
+  'message:list', 'message:mark-read', 'message:mark-all-read', 'message:unread-count',
+  'ws:connect', 'ws:disconnect', 'ws:switch-channel', 'ws:status', 'ws:send',
+  'agent:list', 'agent:get', 'agent:start', 'agent:stop',
+  'intervention:list', 'intervention:respond', 'intervention:escalate',
+  'skill:list', 'skill:browse', 'skill:bind', 'skill:unbind',
+  'proactive:digest', 'proactive:habits', 'proactive:notifications',
+  'plaza:posts', 'plaza:create', 'plaza:like', 'plaza:stats'
 ];
 
 export function registerIpcHandlers(): void {
@@ -296,6 +305,157 @@ export function registerIpcHandlers(): void {
     } catch (e: any) {
       return { success: false, error: e.message };
     }
+  });
+
+  // ============ 审批 ============
+  ipcMain.handle('approval:list', async (_e, status?: string) => {
+    return getApprovalList(status);
+  });
+
+  ipcMain.handle('approval:detail', async (_e, id: string) => {
+    return getApprovalDetail(id);
+  });
+
+  ipcMain.handle('approval:approve', async (_e, id: string, stepId: string, comment?: string) => {
+    return approveApproval(id, stepId, comment);
+  });
+
+  ipcMain.handle('approval:reject', async (_e, id: string, stepId: string, comment?: string) => {
+    return rejectApproval(id, stepId, comment);
+  });
+
+  ipcMain.handle('approval:cancel', async (_e, id: string) => {
+    return cancelApproval(id);
+  });
+
+  // ============ 消息 ============
+  ipcMain.handle('message:list', async (_e, limit?: number) => {
+    return getMessages(limit);
+  });
+
+  ipcMain.handle('message:mark-read', async (_e, id: string) => {
+    return markMessageRead(id);
+  });
+
+  ipcMain.handle('message:mark-all-read', async () => {
+    return markAllMessagesRead();
+  });
+
+  ipcMain.handle('message:unread-count', async () => {
+    return getUnreadCount();
+  });
+
+  // ============ WebSocket 通道管理 ============
+  ipcMain.handle('ws:connect', async (_e, path: string, params?: Record<string, string>) => {
+    try {
+      await wsClient.connect(path, params ?? {});
+      return { success: true, channel: wsClient.getCurrentChannel() };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('ws:disconnect', async () => {
+    wsClient.disconnect();
+    return { success: true };
+  });
+
+  ipcMain.handle('ws:switch-channel', async (_e, path: string, params?: Record<string, string>) => {
+    try {
+      await wsClient.switchChannel(path, params ?? {});
+      return { success: true, channel: wsClient.getCurrentChannel() };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('ws:status', async () => {
+    return {
+      connected: wsClient.isConnected(),
+      channel: wsClient.getCurrentChannel(),
+    };
+  });
+
+  ipcMain.handle('ws:send', async (_e, type: string, data: any) => {
+    wsClient.send(type, data);
+    return { success: true };
+  });
+
+  // ============ Agent 管理 (P1-1) ============
+  ipcMain.handle('agent:list', async () => {
+    return listAgents();
+  });
+
+  ipcMain.handle('agent:get', async (_e, id: string) => {
+    return getAgent(id);
+  });
+
+  ipcMain.handle('agent:start', async (_e, id: string) => {
+    return startAgent(id);
+  });
+
+  ipcMain.handle('agent:stop', async (_e, id: string) => {
+    return stopAgent(id);
+  });
+
+  // ============ 干预决策 (P1-2) ============
+  ipcMain.handle('intervention:list', async (_e, status?: string) => {
+    return listInterventions(status);
+  });
+
+  ipcMain.handle('intervention:respond', async (_e, id: string, action: string, comment?: string) => {
+    return respondIntervention(id, action, comment);
+  });
+
+  ipcMain.handle('intervention:escalate', async (_e, id: string, reason: string) => {
+    return escalateIntervention(id, reason);
+  });
+
+  // ============ 技能管理 (P1-3) ============
+  ipcMain.handle('skill:list', async () => {
+    return listSkills();
+  });
+
+  ipcMain.handle('skill:browse', async (_e, section: string, params?: Record<string, string>) => {
+    return browseSkills(section, params ?? {});
+  });
+
+  ipcMain.handle('skill:bind', async (_e, agentId: string, skillId: string) => {
+    return bindSkill(agentId, skillId);
+  });
+
+  ipcMain.handle('skill:unbind', async (_e, agentId: string, skillId: string) => {
+    return unbindSkill(agentId, skillId);
+  });
+
+  // ============ 主动服务 (P1-4) ============
+  ipcMain.handle('proactive:digest', async () => {
+    return getProactiveDigest();
+  });
+
+  ipcMain.handle('proactive:habits', async () => {
+    return listHabits();
+  });
+
+  ipcMain.handle('proactive:notifications', async () => {
+    return listProactiveNotifications();
+  });
+
+  // ============ 广场 (P1-5) ============
+  ipcMain.handle('plaza:posts', async (_e, params?: Record<string, string>) => {
+    return listPosts(params ?? {});
+  });
+
+  ipcMain.handle('plaza:create', async (_e, data: { title: string; content: string; tags?: string[] }) => {
+    return createPost(data);
+  });
+
+  ipcMain.handle('plaza:like', async (_e, postId: string) => {
+    return likePost(postId);
+  });
+
+  ipcMain.handle('plaza:stats', async () => {
+    return getPlazaStats();
   });
 }
 

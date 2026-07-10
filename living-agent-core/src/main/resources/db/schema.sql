@@ -1822,7 +1822,7 @@ CREATE INDEX IF NOT EXISTS idx_wan_tenant ON windows_automation_nodes(tenant_id)
 CREATE INDEX IF NOT EXISTS idx_wan_status ON windows_automation_nodes(status);
 CREATE INDEX IF NOT EXISTS idx_wan_user ON windows_automation_nodes(user_id);
 CREATE INDEX IF NOT EXISTS idx_wan_client_id ON windows_automation_nodes(client_id);
-CREATE INDEX IF NOT EXISTS idx_wan_client_id_unique ON windows_automation_nodes(client_id) WHERE client_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_wan_client_id_unique ON windows_automation_nodes(client_id) WHERE client_id IS NOT NULL;
 
 -- ============================================
 -- 20b. Client Device Registry & User Binding (V26)
@@ -2028,6 +2028,21 @@ COMMENT ON COLUMN ledger_transaction.status IS '状态：RECEIVED=已入账，PE
 -- 21.5. Service Admin Tables (V27)
 -- ============================================
 
+-- 主脑管理员凭据表（加密存储外部服务的 admin 凭据）
+CREATE TABLE IF NOT EXISTS service_admin_credential (
+    id BIGSERIAL PRIMARY KEY,
+    service_type VARCHAR(32) NOT NULL,          -- 服务类型: gitlab/openproject/jenkins/memos
+    credential_key VARCHAR(128) NOT NULL,       -- 凭据标识（如 root_token、admin_api_key）
+    credential_value TEXT NOT NULL,             -- 加密后的凭据值
+    metadata JSONB,                             -- 额外元数据（如 scope、expiry）
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (service_type, credential_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_credential_service ON service_admin_credential(service_type, active);
+
 -- 员工外部账号映射表（记录员工在各外部服务中的账号信息）
 CREATE TABLE IF NOT EXISTS employee_external_account (
     id BIGSERIAL PRIMARY KEY,
@@ -2133,6 +2148,44 @@ CREATE INDEX IF NOT EXISTS idx_approval_status ON approval_instances(status);
 CREATE INDEX IF NOT EXISTS idx_approval_workflow_inst ON approval_instances(workflow_id);
 CREATE INDEX IF NOT EXISTS idx_approval_business ON approval_instances(business_type, business_id);
 CREATE INDEX IF NOT EXISTS idx_approval_created_at ON approval_instances(created_at);
+
+-- 16.6: 审批审计日志表（审批全生命周期操作追溯）
+CREATE TABLE IF NOT EXISTS approval_audit_log (
+    id BIGSERIAL PRIMARY KEY,
+    instance_id VARCHAR(100) NOT NULL,
+    workflow_id VARCHAR(100),
+    business_type VARCHAR(64),
+    business_id VARCHAR(200),
+    action VARCHAR(20) NOT NULL,
+    step_id VARCHAR(100),
+    operator_id VARCHAR(200),
+    comment TEXT,
+    result_status VARCHAR(30),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_approval_audit_instance ON approval_audit_log(instance_id);
+CREATE INDEX IF NOT EXISTS idx_approval_audit_operator ON approval_audit_log(operator_id);
+CREATE INDEX IF NOT EXISTS idx_approval_audit_action ON approval_audit_log(action);
+CREATE INDEX IF NOT EXISTS idx_approval_audit_created ON approval_audit_log(created_at);
+
+-- R5: 数据迁移记录表（持久化迁移历史，替代内存列表）
+CREATE TABLE IF NOT EXISTS migration_records (
+    id BIGSERIAL PRIMARY KEY,
+    migration_id VARCHAR(100) NOT NULL UNIQUE,
+    source_type VARCHAR(32) NOT NULL,
+    target_type VARCHAR(32) NOT NULL,
+    total_records INT NOT NULL DEFAULT 0,
+    migrated_records INT NOT NULL DEFAULT 0,
+    success BOOLEAN NOT NULL DEFAULT FALSE,
+    duration_ms BIGINT,
+    started_at TIMESTAMPTZ NOT NULL,
+    completed_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_migration_id ON migration_records(migration_id);
+CREATE INDEX IF NOT EXISTS idx_migration_source ON migration_records(source_type);
+CREATE INDEX IF NOT EXISTS idx_migration_created ON migration_records(started_at);
 
 -- ============================================
 -- 21.8. DAG Task Tables (P2-3)
@@ -2404,7 +2457,7 @@ ON CONFLICT (account_id) DO NOTHING;
 -- Insert default model providers (V2) — 仅保留 ollama（本地部署，无需 API Key）
 INSERT INTO model_providers (id, display_name, protocol, base_url, enabled, default_max_tokens)
 VALUES 
-    ('ollama', 'Ollama', 'OPENAI_COMPATIBLE', 'http://localhost:11434/v1', TRUE, 4096)
+    ('ollama', 'Ollama', 'OPENAI_COMPATIBLE', 'http://host.docker.internal:11434/v1', TRUE, 4096)
 ON CONFLICT (id) DO NOTHING;
 
 -- 默认模型不写入种子数据，由用户通过模型池管理界面自行配置添加

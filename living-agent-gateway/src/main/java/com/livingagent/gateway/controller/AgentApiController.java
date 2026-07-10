@@ -5,6 +5,7 @@ import com.livingagent.core.employee.EmployeeService;
 import com.livingagent.core.employee.EmployeeStatus;
 import com.livingagent.core.employee.EmployeeOrigin;
 import com.livingagent.core.employee.EmployeePersonality;
+import com.livingagent.core.employee.lifecycle.AgentLifecycleMonitor;
 import com.livingagent.core.security.AccessGateService;
 import com.livingagent.core.neuron.Neuron;
 import com.livingagent.core.neuron.NeuronRegistry;
@@ -28,15 +29,18 @@ public class AgentApiController {
     private final EmployeeService employeeService;
     private final NeuronRegistry neuronRegistry;
     private final AccessGateService accessGateService;
+    private final AgentLifecycleMonitor agentLifecycleMonitor;
 
     public AgentApiController(
             EmployeeService employeeService,
             NeuronRegistry neuronRegistry,
-            AccessGateService accessGateService
+            AccessGateService accessGateService,
+            AgentLifecycleMonitor agentLifecycleMonitor
     ) {
         this.employeeService = employeeService;
         this.neuronRegistry = neuronRegistry;
         this.accessGateService = accessGateService;
+        this.agentLifecycleMonitor = agentLifecycleMonitor;
     }
 
     @PostMapping
@@ -109,6 +113,8 @@ public class AgentApiController {
             );
 
             Employee created = employeeService.createEmployee(creationRequest);
+
+            agentLifecycleMonitor.registerAgent(created.getEmployeeId(), "digital");
 
             AgentDetail detail = new AgentDetail(
                     created.getEmployeeId(),
@@ -507,6 +513,7 @@ public class AgentApiController {
 
         try {
             employeeService.updateStatus(agentId, EmployeeStatus.ACTIVE);
+            agentLifecycleMonitor.recordHeartbeat(agentId);
             Employee employee = employeeService.getEmployee(agentId).get();
             AgentStatusDetail status = new AgentStatusDetail(
                     agentId,
@@ -547,6 +554,7 @@ public class AgentApiController {
 
         try {
             employeeService.updateStatus(agentId, EmployeeStatus.OFFLINE);
+            agentLifecycleMonitor.recordHeartbeat(agentId);
             Employee employee = employeeService.getEmployee(agentId).get();
             AgentStatusDetail status = new AgentStatusDetail(
                     agentId,

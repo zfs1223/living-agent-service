@@ -8,6 +8,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface PendingEventRepository extends JpaRepository<PendingEventEntity, String> {
@@ -30,6 +31,13 @@ public interface PendingEventRepository extends JpaRepository<PendingEventEntity
     void deleteBySessionId(@Param("sessionId") String sessionId);
 
     int countBySessionIdAndSentFalse(String sessionId);
+
+    /** R6: 获取指定时间戳之后的待发送事件（游标重连补发） */
+    List<PendingEventEntity> findBySessionIdAndTimestampGreaterThanAndSentFalseOrderByTimestampAsc(
+        String sessionId, long afterTimestamp);
+
+    /** R6: 获取会话最新事件（用于返回游标给客户端） */
+    Optional<PendingEventEntity> findTopBySessionIdOrderByTimestampDesc(String sessionId);
 
     @Modifying
     @Query("DELETE FROM PendingEventEntity e WHERE e.timestamp < :threshold AND e.sent = true")

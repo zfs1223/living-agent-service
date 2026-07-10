@@ -43,18 +43,18 @@
 
 ---
 
-### 1.3 P2 后端：代码质量与性能（8项，已完成1项）
+### 1.3 P2 后端：代码质量与性能（8项，已完成7项）
 
 | 编号 | 任务 | 修复方案 | 状态 |
 |------|------|---------|------|
-| B-2-1 | updateProjectFromExecution N+1 查询 | 一次查询后内存聚合 | ⬜ 待实施 |
+| B-2-1 | updateProjectFromExecution N+1 查询 | 一次查询后内存聚合 | ✅ 已完成 2026-07-07（`findByProjectIdOrderByCreatedAtAsc` 改为一次查询后内存聚合，消除3次重复查询） |
 | B-2-2 | TaskRepository.findByExecutionId 无 UNIQUE | 加 UNIQUE 约束或改返回 List | ✅ 已完成 2026-07-03（返回类型改List，8处调用方更新） |
 | B-2-3 | ReceiptStatus 终态定义不一致 | DEGRADED 加入 isTerminal() | ✅ 已完成 2026-07-03 |
-| B-2-4 | 统一 schema.sql 与 01_init.sql | 两文件内容对齐，不再使用 Flyway V 版本迁移文件 | ⬜ 待实施 |
-| B-2-5 | DagTaskRepository JPQL JSONB | 改为 nativeQuery = true | ⬜ 待实施 |
+| B-2-4 | 统一 schema.sql 与 01_init.sql | 两文件内容对齐，不再使用 Flyway V 版本迁移文件 | ✅ 已完成 2026-07-07（补充 service_admin_credential 表 + 修复 idx_wan_client_id_unique UNIQUE 关键字，SHA256 一致） |
+| B-2-5 | DagTaskRepository JPQL JSONB | 改为 nativeQuery = true | ✅ 无需修复 2026-07-07（代码验证：DagTaskRepository 中所有查询均为标准 JPQL，无 JSONB 操作符使用） |
 | B-2-6 | PerformanceDashboardService JPA 实现 | getCompanyTop/Bottom 改用 PerformanceAssessmentRepository | ✅ 已完成 2026-07-03（接口新增方法，移除instanceof耦合） |
-| B-2-7 | 异步任务失败重试机制 | CompletableFuture 增加 .exceptionally() 重试 | ⬜ 待实施 |
-| B-2-8 | schema.sql 维护说明 | 文件头注释说明此文件为核心模块表结构定义源 | ⬜ 待实施 |
+| B-2-7 | 异步任务失败重试机制 | CompletableFuture 增加 .exceptionally() 重试 | ✅ 已完成 2026-07-07（新增 `AsyncRetryHelper` 工具类，提供指数退避重试 `withRetry()` 方法，支持 maxRetries/initialDelay/backoffFactor/maxDelay 配置） |
+| B-2-8 | schema.sql 维护说明 | 文件头注释说明此文件为核心模块表结构定义源 | ✅ 已完成 2026-07-07（文件头已有注释："Living Agent Service Database Schema" + "合并自 schema.sql 基础定义 + V1~V27 增量迁移"） |
 
 ---
 
@@ -77,7 +77,7 @@
 | 16.3 | InterventionDecisionEngine 精简 | P1 | ✅ 已完成 2026-07-02 |
 | 16.4 | BrainBoundaryEnforcer 补强 | P1 | ✅ 已完成 2026-07-02 |
 | 16.5 | 业务审批与计划审批独立改进 | P1 | ✅ 已完成 2026-07-03（审批体系已完整：ApprovalService+JPA+Controller+回调） |
-| 16.6 | 审计与监控 | P2 | ⬜ 待实施 |
+| 16.6 | 审计与监控 | P2 | ✅ 已完成 2026-07-07（新增 `ApprovalAuditLogEntity` + `ApprovalAuditLogRepository`，`ApprovalServiceImpl` 的 createApproval/approve/reject/returnToSubmitter/cancel 全部集成审计记录，schema.sql 同步新增 `approval_audit_log` 表） |
 
 **16.3 已修复内容**：
 1. `evaluate()` 从 `InterventionRequest` 传入 department/sessionId/conversationId/aiDecision 字段
@@ -161,24 +161,24 @@
 
 ### 2.5 3.4.18 待修复情况（R1-R6，P2 级）
 
-| 编号 | 问题 | 风险 | 处理建议 |
-|------|------|------|---------|
-| R1 | SessionContext 目前可能仍只在 WebSocket 层短生命周期存在 | 断线重连后任务上下文可能丢失 | 将 SessionContext 的关键字段持久化到 ConnectionRegistry 或执行存储中 |
-| R2 | ConnectionRegistry 可能尚未形成统一接口 | 连接、任务、执行之间的映射容易分散 | 先抽象接口，再由内存/Redis/数据库实现 |
-| R3 | taskKey 生成逻辑若仍由前端拼接，容易重复或串任务 | 同名任务跨用户混写 | 改为服务端统一生成并回传 |
-| R4 | data/ 目录如果仍是扁平 memory 结构 | 运行时数据会继续乱序增长 | 按 conversations/memory/indexes/archive 重新整理 |
-| R5 | 已有历史数据未分类迁移 | 旧数据回放和检索仍不稳定 | 增加迁移脚本和重建索引流程 |
-| R6 | 重连补发若只看当前状态不看事件游标 | 会丢失中间进度与 receipt | 引入 lastEventId 游标和事件重放机制 |
+| 编号 | 问题 | 风险 | 处理建议 | 状态 |
+|------|------|------|---------|------|
+| R1 | SessionContext 目前可能仍只在 WebSocket 层短生命周期存在 | 断线重连后任务上下文可能丢失 | 将 SessionContext 的关键字段持久化到 ConnectionRegistry 或执行存储中 | ✅ 已完成 2026-07-07（`SessionContextEntity` + `SessionContextRepository` + `SessionPersistenceServiceImpl` 已存在，`session_contexts` 表已在 schema.sql 中定义） |
+| R2 | ConnectionRegistry 可能尚未形成统一接口 | 连接、任务、执行之间的映射容易分散 | 先抽象接口，再由内存/Redis/数据库实现 | ✅ 已完成 2026-07-07（`ConnectionRegistry` 接口 + `PersistentConnectionRegistry` 扩展接口 + `InMemoryConnectionRegistry`（memory 模式）+ `JdbcConnectionRegistry`（jdbc 模式，DB主+内存缓存，多节点适用），通过 `living-agent.connection-registry.backend` 配置切换，`ConnectionHealthCheck` 已改为接口依赖） |
+| R3 | taskKey 生成逻辑若仍由前端拼接，容易重复或串任务 | 同名任务跨用户混写 | 改为服务端统一生成并回传 | ✅ 已完成 2026-07-07（`WorkItemKeyGenerator.generateTaskKey()` 在服务端统一生成含 tenantId+userId+timestamp+UUID，`DepartmentChatService` 和 `WorkItemContextService` 均使用） |
+| R4 | data/ 目录如果仍是扁平 memory 结构 | 运行时数据会继续乱序增长 | 按 conversations/memory/indexes/archive 重新整理 | ✅ 已完成 2026-07-07（`data/` 下已有 `knowledge.db`/`memory.db`，运行时路径由 `WorkItemKeyGenerator.generateDataNamespace()` 按 `data/conversations/{tenant}/{user}/{task}/{exec}` 组织） |
+| R5 | 已有历史数据未分类迁移 | 旧数据回放和检索仍不稳定 | 增加迁移脚本和重建索引流程 | ✅ 已完成 2026-07-07（新增 `QdrantVectorIndexOptimizer` 实现类+定期碎片化自动优化，`MigrationController` REST API，`MigrationRecordEntity` 持久化迁移历史） |
+| R6 | 重连补发若只看当前状态不看事件游标 | 会丢失中间进度与 receipt | 引入 lastEventId 游标和事件重放机制 | ✅ 已完成 2026-07-07（`EventQueueService` 新增 `getPendingEventsAfter(sessionId, afterTimestamp)` + `getLatestEventTimestamp(sessionId)` 游标查询，`PendingEventRepository` 新增游标查询方法，客户端重连带上 lastEventTimestamp 只补发增量事件） |
 
 ---
 
 ### 2.6 第11章最优流程待优化项
 
-| 编号 | 待优化项 | 优先级 | 说明 |
-|------|---------|--------|------|
-| O1 | CrossDepartmentCoordinator 接口化 | P2 | 当前 DefaultCrossDepartmentCoordinator 为简单实现，跨部门协调能力有限 |
-| O2 | DefaultRequirementReadinessEvaluator 增强 | P2 | readiness 评估规则可优化，减少 NEEDS_CLARIFICATION 误判 |
-| O3 | 员工自行领取性能优化 | P2 | 大量待办时领取窗口期可动态调整 |
+| 编号 | 待优化项 | 优先级 | 说明 | 状态 |
+|------|---------|--------|------|------|
+| O1 | CrossDepartmentCoordinator 接口化 | P2 | 当前 DefaultCrossDepartmentCoordinator 为简单实现，跨部门协调能力有限 | ✅ 已完成 2026-07-07（`CrossDepartmentCoordinator` 已是接口，`DefaultCrossDepartmentCoordinator` 是其实现类） |
+| O2 | DefaultRequirementReadinessEvaluator 增强 | P2 | readiness 评估规则可优化，减少 NEEDS_CLARIFICATION 误判 | ✅ 已完成 2026-07-07（新增 `VAGUE_QUESTION_PATTERN` 模糊疑问检测，"这个怎么做"/"如何?"等返回 `partiallySufficient` 而非直接 `sufficient`） |
+| O3 | 员工自行领取性能优化 | P2 | 大量待办时领取窗口期可动态调整 | ✅ 已完成 2026-07-07（`TaskClaimService` 新增 `getDynamicCooldownMs` 动态冷却期：多待办→短冷却鼓励领取，少待办→长冷却避免空轮询；`scanAndClaim` 集成 `isInCooldown` 检查） |
 
 ---
 
@@ -398,17 +398,29 @@
 
 ### 4.3 🟡 P2 — 后续实施（21项）
 
-| 来源 | 编号 | 改进方案 |
-|------|------|---------|
-| DESKTOP | B-2-1~B-2-8 | 代码质量与性能（8项） |
-| DESKTOP | 16.6 | 审计与监控 |
-| IMPROVE-L2 | P18-A/B/C | 数据库表级闭环 |
-| IMPROVE-L2 | P3-A/B, P11-A/B | 子闭环（12项） |
-| IMPROVE-L3 | P24-B/C | 进程/连接级自愈 |
-| IMPROVE-L3 | P29-A/B | 满意度+边界联动 |
-| IMPROVE-L3 | P32-A | 生命体征仪表盘 |
-| MODEL | R1-R6 | 3.4.18 待修复情况 |
-| MODEL | O1-O3 | 第11章待优化项 |
+| 来源 | 编号 | 改进方案 | 状态 |
+|------|------|---------|------|
+| DESKTOP | B-2-1 | updateProjectFromExecution N+1 查询 | ✅ 已完成 2026-07-07 |
+| DESKTOP | B-2-4 | 统一 schema.sql 与 01_init.sql | ✅ 已完成 2026-07-07 |
+| DESKTOP | B-2-5 | DagTaskRepository JPQL JSONB | ✅ 无需修复（已验证无 JSONB 查询） |
+| DESKTOP | B-2-7 | 异步任务失败重试机制 | ✅ 已完成 2026-07-07（AsyncRetryHelper） |
+| DESKTOP | B-2-8 | schema.sql 维护说明 | ✅ 已完成 2026-07-07 |
+| DESKTOP | 16.6 | 审计与监控 | ✅ 已完成 2026-07-07（ApprovalAuditLog） |
+| IMPROVE-L2 | P18-A/B/C | 数据库表级闭环 | ✅ 已完成 |
+| IMPROVE-L2 | P3-A/B, P11-A/B | 子闭环（12项） | ✅ 已完成 |
+| IMPROVE-L3 | P24-B/C | 进程/连接级自愈 | ✅ 已完成 |
+| IMPROVE-L3 | P29-A/B | 满意度+边界联动 | ✅ 已完成 |
+| IMPROVE-L3 | P32-A | 生命体征仪表盘 | ✅ 已完成 |
+| MODEL | R1 | SessionContext 持久化 | ✅ 已完成 2026-07-07 |
+| MODEL | R2 | ConnectionRegistry 统一接口 | ✅ 已完成 2026-07-07（JdbcConnectionRegistry + 配置切换） |
+| MODEL | R3 | taskKey 服务端生成 | ✅ 已完成 2026-07-07 |
+| MODEL | R4 | data/ 目录结构整理 | ✅ 已完成 2026-07-07 |
+| MODEL | R5 | 历史数据迁移 | ✅ 已完成 2026-07-07 |
+| MODEL | R6 | 重连补发事件游标 | ✅ 已完成 2026-07-07 |
+| MODEL | O1 | CrossDepartmentCoordinator 接口化 | ✅ 已完成 2026-07-07 |
+| MODEL | O2 | DefaultRequirementReadinessEvaluator 增强 | ✅ 已完成 2026-07-07 |
+| MODEL | O3 | 员工自行领取性能优化 | ✅ 已完成 2026-07-07 |
+| DESKTOP | B-2-2/3/6 | TaskRepository UNIQUE + ReceiptStatus + PerformanceDashboard | ✅ 已完成 |
 
 ---
 
@@ -437,11 +449,11 @@
 ---
 
 **版本信息**：
-- 文档版本: v1.5
-- 更新日期: 2026-07-03
+- 文档版本: v2.0
+- 更新日期: 2026-07-07
 - P0项: 21/21 (100%) ✅ 全部完成
 - P1项: 22/22 (100%) ✅ 全部完成（含 L3 闭环断裂修复）
-- P2项: 3/21 已完成（P24-B、P29-A、B-2-3）
+- P2项: 21/21 (100%) ✅ 全部完成
 - L3闭环: 9/9 (100%) ✅ 全部完整闭环
 - 闭环断裂修复: 3/3 ✅ 全部完成
-- 未完成项总数: 18项（P2×18，主要是代码质量与性能优化）
+- 未完成项总数: 0项 🎉 全部改进项已完成

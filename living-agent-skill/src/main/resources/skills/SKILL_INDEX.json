@@ -1,18 +1,18 @@
 {
-  "version": "1.8.0",
-  "updated": "2026-03-13",
+  "version": "1.8.2",
+  "updated": "2026-07-09",
   "statistics": {
-    "total_skills": 71,
+    "total_skills": 77,
     "core_skills": 10,
     "by_brain": {
-      "TechBrain": 25,
-      "AdminBrain": 15,
+      "TechBrain": 27,
+      "AdminBrain": 16,
       "SalesBrain": 4,
       "HrBrain": 3,
       "FinanceBrain": 4,
       "CsBrain": 3,
       "LegalBrain": 3,
-      "OpsBrain": 9
+      "OpsBrain": 12
     }
   },
   "core_skills": {
@@ -23,7 +23,7 @@
       {"name": "proactive-agent", "path": "core/proactive-agent/SKILL.md", "description": "主动代理，定时/条件触发任务执行", "triggers": ["定时", "主动", "任务", "监控"], "required": true},
       {"name": "weather", "path": "core/weather/SKILL.md", "description": "天气查询，获取实时天气和预报", "triggers": ["天气", "weather", "气温", "预报"], "required": true},
       {"name": "mcp-client", "path": "core/mcp-client/SKILL.md", "description": "MCP客户端，连接MCP服务器使用工具和资源", "triggers": ["mcp", "协议", "客户端"], "required": false},
-      {"name": "event-driven-notifier", "path": "core/event-driven-notifier/SKILL.md", "description": "事件驱动通知器，多渠道消息推送", "triggers": ["通知", "推送", "告警", "notify"], "required": true, "status": "🔜 待开发"},
+      {"name": "event-driven-notifier", "path": "core/event-driven-notifier/SKILL.md", "description": "事件驱动通知器，多渠道消息推送", "triggers": ["通知", "推送", "告警", "notify"], "required": true, "status": "✅ 已实现"},
       {"name": "risk-predictor", "path": "core/risk-predictor/SKILL.md", "description": "风险预警预判器，项目/预算/人员风险预测", "triggers": ["风险", "预警", "预测", "risk"], "required": true, "status": "🔜 待开发"},
       {"name": "pattern-predictor", "path": "core/pattern-predictor/SKILL.md", "description": "用户行为模式预测器，习惯识别与需求预测", "triggers": ["习惯", "模式", "预测", "pattern"], "required": false, "status": "🔜 待开发"},
       {"name": "knowledge-graph", "path": "core/knowledge-graph/SKILL.md", "description": "知识图谱，结构化记忆和实体关系管理", "triggers": ["知识图谱", "实体", "关系", "ontology"], "required": true, "source": "ClawHub转换"},
@@ -57,7 +57,9 @@
         {"name": "hugging-face-evaluation", "path": "tech/hugging-face-evaluation/SKILL.md", "description": "模型评估管理", "triggers": ["评估", "evaluation", "benchmark"]},
         {"name": "hugging-face-jobs", "path": "tech/hugging-face-jobs/SKILL.md", "description": "HF Jobs云任务", "triggers": ["jobs", "云任务", "gpu"]},
         {"name": "hugging-face-paper-publisher", "path": "tech/hugging-face-paper-publisher/SKILL.md", "description": "论文发布管理", "triggers": ["论文", "paper", "arxiv"]},
-        {"name": "hugging-face-tool-builder", "path": "tech/hugging-face-tool-builder/SKILL.md", "description": "HF工具构建", "triggers": ["工具构建", "tool-builder"]}
+        {"name": "hugging-face-tool-builder", "path": "tech/hugging-face-tool-builder/SKILL.md", "description": "HF工具构建", "triggers": ["工具构建", "tool-builder"]},
+        {"name": "code-quality-analyzer", "path": "tech/code-quality-analyzer/SKILL.md", "description": "代码质量分析(fuck-u-code)，七维度质量评估", "triggers": ["代码质量", "质量检测", "屎山代码", "analyze"], "source": "2026-07-09新增"},
+        {"name": "claude-cli", "path": "tech/claude-cli/SKILL.md", "description": "Claude CLI工具，代码生成/审查/测试/调试", "triggers": ["claude_cli", "代码生成", "代码审查"], "source": "2026-07-09新增"}
       ]
     },
     "AdminBrain": {
@@ -77,7 +79,8 @@
         {"name": "discord", "path": "admin/discord/SKILL.md", "description": "Discord操作", "triggers": ["discord", "游戏"]},
         {"name": "summarize", "path": "admin/summarize/SKILL.md", "description": "内容摘要", "triggers": ["摘要", "总结", "summarize"]},
         {"name": "doc-coauthoring", "path": "admin/doc-coauthoring/SKILL.md", "description": "文档协作编写，结构化文档创作流程", "triggers": ["写文档", "方案", "prd"], "source": "ClawHub转换"},
-        {"name": "google-workspace", "path": "admin/google-workspace/SKILL.md", "description": "Google Workspace集成，Gmail/日历/Drive操作", "triggers": ["google", "gmail", "日历"], "source": "ClawHub转换"}
+        {"name": "google-workspace", "path": "admin/google-workspace/SKILL.md", "description": "Google Workspace集成，Gmail/日历/Drive操作", "triggers": ["google", "gmail", "日历"], "source": "ClawHub转换"},
+        {"name": "tenant-management", "path": "admin/tenant-management/SKILL.md", "description": "租户管理，多租户生命周期管理", "triggers": ["租户", "tenant", "多租户"], "source": "2026-07-09新增(闭环50)"}
       ]
     },
     "SalesBrain": {
@@ -132,8 +135,11 @@
         {"name": "project-risk-monitor", "path": "ops/project-risk-monitor/SKILL.md", "description": "项目风险监控器，延期风险预警", "triggers": ["项目风险", "延期", "进度"], "status": "🔜 待开发"},
         {"name": "onboarding-automator", "path": "ops/onboarding-automator/SKILL.md", "description": "入职自动化器，新员工入职准备", "triggers": ["入职", "onboarding", "新员工"], "status": "🔜 待开发"},
         {"name": "contract-monitor", "path": "ops/contract-monitor/SKILL.md", "description": "合同监控器，到期提醒与续签预警", "triggers": ["合同", "到期", "续签"], "status": "🔜 待开发"},
-        {"name": "system-health-diagnoser", "path": "ops/system-health-diagnoser/SKILL.md", "description": "系统健康诊断器，主动异常检测与诊断", "triggers": ["诊断", "健康检查", "异常"], "status": "🔜 待开发"},
-        {"name": "data-aggregator", "path": "ops/data-aggregator/SKILL.md", "description": "数据聚合器，多源数据自动汇总分析", "triggers": ["数据汇总", "聚合", "统计"], "status": "🔜 待开发"}
+        {"name": "system-health-diagnoser", "path": "ops/system-health-diagnoser/SKILL.md", "description": "系统健康诊断器，主动异常检测与诊断", "triggers": ["诊断", "健康检查", "异常"], "status": "✅ 已实现"},
+        {"name": "data-aggregator", "path": "ops/data-aggregator/SKILL.md", "description": "数据聚合器，多源数据自动汇总分析", "triggers": ["数据汇总", "聚合", "统计"], "status": "🔜 待开发"},
+        {"name": "workflow-orchestrator", "path": "ops/workflow-orchestrator/SKILL.md", "description": "工作流编排，多阶段业务流程自动化", "triggers": ["工作流", "流程编排", "workflow"], "source": "2026-07-09新增(闭环43)"},
+        {"name": "distributed-deployment", "path": "ops/distributed-deployment/SKILL.md", "description": "分布式部署，多节点集群管理", "triggers": ["分布式", "集群", "部署"], "source": "2026-07-09新增(闭环58)"},
+        {"name": "data-migration", "path": "ops/data-migration/SKILL.md", "description": "数据迁移，数据库迁移和验证", "triggers": ["数据迁移", "migration", "迁移"], "source": "2026-07-09新增(闭环62)"}
       ]
     }
   },

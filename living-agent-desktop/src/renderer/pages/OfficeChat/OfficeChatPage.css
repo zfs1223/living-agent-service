@@ -248,6 +248,90 @@
   border-top-color: #fff2f0;
 }
 
+/* ========== P2-5: 区域导航 ========== */
+.zone-nav {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  background: #fff;
+  border-bottom: 1px solid #e8e8e8;
+}
+
+.zone-nav__btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: 1px solid #d9d9d9;
+  background: #fafafa;
+  color: #595959;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.zone-nav__btn:hover {
+  background: #e6f7ff;
+  border-color: #91d5ff;
+}
+
+.zone-nav__btn--active {
+  background: #1890ff;
+  border-color: #1890ff;
+  color: #fff;
+}
+
+.zone-nav__badge {
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.08);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.zone-nav__btn--active .zone-nav__badge {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* ========== P2-5: 状态统计列表 ========== */
+.status-stats {
+  display: flex;
+  gap: 12px;
+  padding: 12px 16px;
+  background: #fff;
+  border-top: 1px solid #e8e8e8;
+  margin-top: 8px;
+}
+
+.status-stats__item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #595959;
+}
+
+.status-stats__dot {
+  font-size: 10px;
+}
+
+.status-stats__dot--online { color: #52c41a; }
+.status-stats__dot--busy { color: #faad14; }
+.status-stats__dot--away { color: #8c8c8c; }
+.status-stats__dot--offline { color: #d9d9d9; }
+
+.status-stats__label {
+  font-weight: 500;
+}
+
+.status-stats__count {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.04);
+  font-size: 11px;
+}
+
 .pixel-employee__speech-bubble--fault .pixel-employee__speech-text {
   color: #ff4d4f;
 }

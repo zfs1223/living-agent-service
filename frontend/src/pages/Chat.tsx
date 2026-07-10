@@ -9,6 +9,9 @@ import { useAuthStore } from '../stores';
 import { request } from '../services/apiBase';
 import { useToastStore } from '../stores/toastStore';
 import { usePolling } from '../hooks/usePolling';
+import ChannelIndicator from '../components/ChannelIndicator';
+import type { ChannelType } from '../components/ChannelIndicator';
+import { DEPARTMENTS } from '../types';
 
 /* ── Inline SVG Icons ── */
 const Icons = {
@@ -134,6 +137,36 @@ export default function Chat() {
         enabled: !!id,
     });
     const isFixedEmployee = String((agent as any)?.origin || '').toLowerCase() === 'fixed';
+
+    // ── 通道类型判定（用于 ChannelIndicator） ──
+    const isEnterprise = Boolean(user?.identity === 'INTERNAL_ENTERPRISE' || user?.access_level === 'FULL');
+    const deptCode = user?.department_code;
+    let channelType: ChannelType = 'public';
+    let channelName = '';
+    if (id && !isFixedEmployee) {
+        channelType = 'agent';
+        channelName = agent?.name || '';
+    } else if (id && isFixedEmployee) {
+        channelType = 'public';
+        channelName = t('channel.visitorMode', '访客模式');
+    } else if (brainDept) {
+        channelType = 'dept';
+        channelName = deptName || (DEPARTMENTS as any)[brainDept]?.name || brainDept;
+    } else if (!id && !brainDept) {
+        if (!token) {
+            channelType = 'public';
+            channelName = t('channel.visitorMode', '访客模式');
+        } else if (isEnterprise) {
+            channelType = 'enterprise';
+            channelName = t('channel.enterprise', '企业频道');
+        } else if (deptCode) {
+            channelType = 'dept';
+            channelName = (DEPARTMENTS as any)[deptCode]?.name || deptCode;
+        } else {
+            channelType = 'public';
+            channelName = t('channel.visitorMode', '访客模式');
+        }
+    }
 
     const { data: llmModels = [] } = useQuery({
         queryKey: ['llm-models'],
@@ -497,16 +530,7 @@ export default function Chat() {
                         <div style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                             <span className={`status-dot ${connected ? 'running' : 'stopped'}`} />
                             <span style={{ color: 'var(--text-tertiary)' }}>{connected ? t('agent.chat.connected') : t('agent.chat.disconnected')}</span>
-                            {brainDept && (
-                                <span style={{ color: 'var(--accent-text)', marginLeft: '8px', fontSize: '11px' }}>
-                                    {t('chat.departmentBrainMode') || '部门大脑模式'}
-                                </span>
-                            )}
-                            {id && isFixedEmployee && (
-                                <span style={{ color: 'var(--warning)', marginLeft: '8px', fontSize: '11px' }}>
-                                    {t('chat.fixedEmployeeBlocked') || '固定员工不开放直连聊天'}
-                                </span>
-                            )}
+                            <ChannelIndicator channelType={channelType} channelName={channelName} connected={connected} />
                         </div>
                     </div>
                 </div>
@@ -621,6 +645,20 @@ export default function Chat() {
                                 {msg.timestamp && (
                                     <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '4px', opacity: 0.7 }}>
                                         {new Date(msg.timestamp).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                    </div>
+                                )}
+                                {msg.role === 'assistant' && msg.content && !(streaming && i === messages.length - 1) && (
+                                    <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                                        <button
+                                            onClick={() => fetch('/api/chat/feedback', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token') ?? ''}` }, body: JSON.stringify({ messageIndex: i, rating: 'positive' }) }).catch(() => undefined) }
+                                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, opacity: 0.5, padding: '0 2px' }}
+                                            title="有帮助"
+                                        >👍</button>
+                                        <button
+                                            onClick={() => fetch('/api/chat/feedback', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token') ?? ''}` }, body: JSON.stringify({ messageIndex: i, rating: 'negative' }) }).catch(() => undefined) }
+                                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, opacity: 0.5, padding: '0 2px' }}
+                                            title="需改进"
+                                        >👎</button>
                                     </div>
                                 )}
                             </div>

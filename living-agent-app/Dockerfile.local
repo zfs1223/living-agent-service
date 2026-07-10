@@ -147,7 +147,7 @@ COPY scripts/python /opt/python_scripts
 COPY living-agent-app/entrypoint.sh /app/entrypoint.sh
 
 # 设置权限 (基础镜像已配置 livingagent 用户)
-RUN mkdir -p /app/data /app/logs /app/lib /home/livingagent/.cache /home/livingagent/.config && \
+RUN mkdir -p /app/data/skills /app/logs /app/lib /home/livingagent/.cache /home/livingagent/.config && \
     chmod +x /app/entrypoint.sh /opt/python_scripts/*.py 2>/dev/null || true && \
     chown -R livingagent:livingagent /app /opt/python_scripts /home/livingagent 2>/dev/null || true
 

@@ -16,6 +16,9 @@ import type {
 // 重新导出 DesktopUser，方便渲染层直接从 @shared/api-types 导入
 export type { DesktopUser };
 
+/** 员工来源类型 */
+export type EmployeeOrigin = 'fixed' | 'personal' | 'human' | 'evolved';
+
 export interface ClientInfo {
   clientId: string;
   hostname: string;
@@ -128,6 +131,70 @@ export interface LivingAgentAPI {
     status: () => Promise<{ running: boolean }>;
     execute: (operation: string, args?: Record<string, unknown>) =>
       Promise<{ success: boolean; result?: unknown; error?: string }>;
+  };
+
+  /* ============ 审批 ============ */
+  approval: {
+    list: (status?: string) => Promise<any[]>;
+    detail: (id: string) => Promise<any>;
+    approve: (id: string, stepId: string, comment?: string) => Promise<any>;
+    reject: (id: string, stepId: string, comment?: string) => Promise<any>;
+    cancel: (id: string) => Promise<any>;
+  };
+
+  /* ============ 消息 ============ */
+  message: {
+    list: (limit?: number) => Promise<any[]>;
+    markRead: (id: string) => Promise<void>;
+    markAllRead: () => Promise<void>;
+    unreadCount: () => Promise<number>;
+  };
+
+  /* ============ WebSocket 通道管理 ============ */
+  ws: {
+    connect: (path: string, params?: Record<string, string>) => Promise<{ success: boolean; channel?: string; error?: string }>;
+    disconnect: () => Promise<{ success: boolean }>;
+    switchChannel: (path: string, params?: Record<string, string>) => Promise<{ success: boolean; channel?: string; error?: string }>;
+    status: () => Promise<{ connected: boolean; channel: string }>;
+    send: (type: string, data: any) => Promise<{ success: boolean }>;
+  };
+
+  /* ============ Agent 管理 (P1-1) ============ */
+  agent: {
+    list: () => Promise<any[]>;
+    get: (id: string) => Promise<any>;
+    start: (id: string) => Promise<any>;
+    stop: (id: string) => Promise<any>;
+  };
+
+  /* ============ 干预决策 (P1-2) ============ */
+  intervention: {
+    list: (status?: string) => Promise<any[]>;
+    respond: (id: string, action: string, comment?: string) => Promise<any>;
+    escalate: (id: string, reason: string) => Promise<any>;
+  };
+
+  /* ============ 技能管理 (P1-3) ============ */
+  skill: {
+    list: () => Promise<any[]>;
+    browse: (section: string, params?: Record<string, string>) => Promise<any>;
+    bind: (agentId: string, skillId: string) => Promise<any>;
+    unbind: (agentId: string, skillId: string) => Promise<any>;
+  };
+
+  /* ============ 主动服务 (P1-4) ============ */
+  proactive: {
+    digest: () => Promise<any>;
+    habits: () => Promise<any[]>;
+    notifications: () => Promise<any[]>;
+  };
+
+  /* ============ 广场 (P1-5) ============ */
+  plaza: {
+    posts: (params?: Record<string, string>) => Promise<any[]>;
+    create: (data: { title: string; content: string; tags?: string[] }) => Promise<any>;
+    like: (postId: string) => Promise<any>;
+    stats: () => Promise<any>;
   };
 
   /* ============ 事件订阅 ============ */

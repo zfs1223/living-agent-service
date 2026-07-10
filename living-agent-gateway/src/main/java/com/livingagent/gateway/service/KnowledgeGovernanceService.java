@@ -53,4 +53,36 @@ public class KnowledgeGovernanceService {
     public List<KnowledgeEntry> search(String query, int limit) {
         return knowledgeManager.search(query, limit);
     }
+
+    /**
+     * P2-2: Record knowledge effect feedback
+     */
+    private final Map<String, FeedbackStats> feedbackStats = new LinkedHashMap<>();
+
+    public void recordFeedback(String knowledgeId, boolean helpful, String employeeId) {
+        FeedbackStats stats = feedbackStats.computeIfAbsent(knowledgeId, k -> new FeedbackStats());
+        if (helpful) {
+            stats.helpfulCount++;
+        } else {
+            stats.notHelpfulCount++;
+        }
+        stats.lastFeedbackAt = Instant.now();
+        stats.lastFeedbackBy = employeeId;
+    }
+
+    public FeedbackStats getFeedbackStats(String knowledgeId) {
+        return feedbackStats.getOrDefault(knowledgeId, new FeedbackStats());
+    }
+
+    public static class FeedbackStats {
+        public int helpfulCount = 0;
+        public int notHelpfulCount = 0;
+        public Instant lastFeedbackAt = null;
+        public String lastFeedbackBy = null;
+
+        public double getHelpfulRate() {
+            int total = helpfulCount + notHelpfulCount;
+            return total > 0 ? (double) helpfulCount / total : 0;
+        }
+    }
 }

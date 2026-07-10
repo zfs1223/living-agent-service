@@ -2,6 +2,7 @@ package com.livingagent.core.config;
 
 import com.livingagent.core.admin.ServiceAdminBootstrap;
 import com.livingagent.core.admin.impl.DefaultServiceAdminBootstrap;
+import com.livingagent.core.diagnosis.feedback.ServiceBootstrapHealthTracker;
 import com.livingagent.core.tool.ToolRegistry;
 import com.livingagent.core.tool.impl.admin.GitLabAdminTool;
 import com.livingagent.core.tool.impl.admin.JenkinsAdminTool;
@@ -77,8 +78,9 @@ public class AdminConfig {
     @Bean
     public ServiceAdminBootstrap serviceAdminBootstrap(
             ToolRegistry toolRegistry,
-            ServiceAdminBootstrapStateRepository stateRepository) {
+            ServiceAdminBootstrapStateRepository stateRepository,
+            ServiceBootstrapHealthTracker healthTracker) {
         log.info("ServiceAdminBootstrap initialized (enabled, using ToolRegistry)");
-        return new DefaultServiceAdminBootstrap(toolRegistry, stateRepository);
+        return new DefaultServiceAdminBootstrap(toolRegistry, stateRepository, healthTracker);
     }
 }

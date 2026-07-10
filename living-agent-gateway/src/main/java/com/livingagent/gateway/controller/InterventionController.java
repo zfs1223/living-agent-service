@@ -1,6 +1,7 @@
 package com.livingagent.gateway.controller;
 
 import com.livingagent.core.intervention.*;
+import com.livingagent.core.intervention.feedback.InterventionEffectivenessTracker;
 import com.livingagent.core.security.AccessGateService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,10 +20,12 @@ public class InterventionController {
 
     private final InterventionDecisionEngine decisionEngine;
     private final AccessGateService accessGateService;
+    private final InterventionEffectivenessTracker effectivenessTracker;
 
-    public InterventionController(InterventionDecisionEngine decisionEngine, AccessGateService accessGateService) {
+    public InterventionController(InterventionDecisionEngine decisionEngine, AccessGateService accessGateService, InterventionEffectivenessTracker effectivenessTracker) {
         this.decisionEngine = decisionEngine;
         this.accessGateService = accessGateService;
+        this.effectivenessTracker = effectivenessTracker;
     }
 
     @PostMapping("/evaluate")
@@ -96,6 +99,15 @@ public class InterventionController {
 
         decision.setRespondedBy(respondedBy);
         InterventionDecision updated = decisionEngine.applyLearning(decision, humanDecision);
+
+        long responseTimeMs = decision.getCreatedAt() != null && updated.getRespondedAt() != null
+                ? java.time.Duration.between(decision.getCreatedAt(), updated.getRespondedAt()).toMillis()
+                : 0L;
+        InterventionEffectivenessTracker.InterventionOutcome outcome =
+                "approve".equalsIgnoreCase(humanDecision) || "auto".equalsIgnoreCase(updated.getFinalDecision())
+                        ? InterventionEffectivenessTracker.InterventionOutcome.SUCCESS
+                        : InterventionEffectivenessTracker.InterventionOutcome.FALSE_POSITIVE;
+        effectivenessTracker.recordIntervention(decision.getDecisionId(), outcome, responseTimeMs);
 
         log.info("Decision {} responded by {}: {}", decisionId, respondedBy, humanDecision);
 

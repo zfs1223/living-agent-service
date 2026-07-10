@@ -47,6 +47,26 @@ interface Conversation {
 // 区域类型：只有两个区域
 type ZoneId = 'workstation' | 'discussion';
 
+// 状态类型（P2-5）
+type StatusId = 'online' | 'busy' | 'away' | 'offline';
+
+// 状态配置（P2-5）
+const STATUS_CONFIG: Record<StatusId, { title: string; color: string }> = {
+  online: { title: '在线', color: '#52c41a' },
+  busy: { title: '忙碌', color: '#faad14' },
+  away: { title: '离开', color: '#8c8c8c' },
+  offline: { title: '离线', color: '#d9d9d9' },
+};
+
+// 根据状态获取状态ID（P2-5）
+function getStatusId(status: string): StatusId {
+  const s = status.toLowerCase();
+  if (['working', 'active', 'learning', 'evolving', 'online'].includes(s)) return 'online';
+  if (['busy'].includes(s)) return 'busy';
+  if (['idle', 'away', 'dormant'].includes(s)) return 'away';
+  return 'offline';
+}
+
 // 根据状态获取区域（只有两个区域）
 function getZoneByStatus(status: string): ZoneId {
   const s = status.toLowerCase();
@@ -69,13 +89,15 @@ export function OfficeChatPage({
   hasToken,
   currentUser,
   onLogin,
-  department = 'tech'
+  department = 'tech',
+  forceChannel
 }: {
   backendUrl: string;
   hasToken: boolean;
   currentUser: any;
   onLogin: () => void;
   department?: string;
+  forceChannel?: string;
 }) {
   // 员工数据
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -95,6 +117,10 @@ export function OfficeChatPage({
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // P2-5: 区域导航
+  const floorRef = useRef<HTMLDivElement>(null);
+  const [activeZone, setActiveZone] = useState<ZoneId>('workstation');
+
   // 当前部门
   const [currentDept, setCurrentDept] = useState(department);
 
@@ -109,6 +135,15 @@ export function OfficeChatPage({
     { code: 'legal', name: '法务部', icon: '⚖️' },
     { code: 'ops', name: '运营部', icon: '🚚' },
   ];
+
+  // P2-5: 滚动到指定区域
+  const scrollToZone = useCallback((zoneId: ZoneId) => {
+    setActiveZone(zoneId);
+    const zoneEl = document.getElementById(`zone-${zoneId}`);
+    if (zoneEl && floorRef.current) {
+      zoneEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, []);
 
   // 滚动到最新消息
   useEffect(() => {
@@ -314,6 +349,19 @@ export function OfficeChatPage({
 
     async function connectWebSocket() {
       const token = await window.livingAgentAPI.auth.getToken();
+
+      // forceChannel 模式：使用主进程 ws-client（支持 /ws/public 和 /ws/enterprise）
+      if (forceChannel) {
+        const params: Record<string, string> = {};
+        if (conversationId) params.conversationId = conversationId;
+        const result = await window.livingAgentAPI.ws.connect(forceChannel, params);
+        if (result.success) {
+          setConnected(true);
+        }
+        return null;
+      }
+
+      // 标准模式：使用自建 WebSocket 连接部门大脑
       if (!token) return;
 
       // 获取 clientId（用于 win_automation 工具控制本地电脑）
@@ -505,6 +553,33 @@ export function OfficeChatPage({
     };
   }, [backendUrl, currentDept, hasToken, currentUser, conversationId]);
 
+  // forceChannel 模式下监听主进程转发的消息
+  useEffect(() => {
+    if (!forceChannel) return;
+    const off = window.livingAgentAPI.on('ws:message', (data: any) => {
+      try {
+        const msg = typeof data === 'string' ? JSON.parse(data) : data;
+        if (msg.type === 'done') {
+          if (msg.conversationId) setConversationId(msg.conversationId);
+          setMessages(prev => [...prev, {
+            messageId: msg.messageId,
+            content: msg.content || '',
+            userName: msg.brain || 'Assistant',
+            timestamp: msg.timestamp || new Date().toISOString(),
+            isSelf: false,
+            role: 'assistant',
+          }]);
+          setIsWaiting(false);
+        } else if (msg.type === 'thinking') {
+          setIsWaiting(true);
+        }
+      } catch (e) {
+        console.warn('[OfficeChat] Failed to parse ws:message:', e);
+      }
+    });
+    return () => off();
+  }, [forceChannel]);
+
   // 初始加载
   useEffect(() => {
     loadEmployees();
@@ -513,7 +588,7 @@ export function OfficeChatPage({
 
   // 发送消息
   function handleSend() {
-    if (!input.trim() || !connected || !wsRef.current) return;
+    if (!input.trim() || !connected) return;
 
     setMessages(prev => [...prev, {
       content: input,
@@ -525,11 +600,19 @@ export function OfficeChatPage({
     }]);
     setIsWaiting(true);
 
-    wsRef.current.send(JSON.stringify({
-      type: 'CHAT',
-      content: input,
-      conversationId: conversationId,
-    }));
+    if (forceChannel) {
+      // forceChannel 模式：通过主进程 ws-client 发送
+      window.livingAgentAPI.ws.send('CHAT', {
+        content: input,
+        conversationId: conversationId,
+      });
+    } else if (wsRef.current) {
+      wsRef.current.send(JSON.stringify({
+        type: 'CHAT',
+        content: input,
+        conversationId: conversationId,
+      }));
+    }
     setInput('');
   }
 
@@ -567,6 +650,17 @@ export function OfficeChatPage({
     employeesByZone[getZoneByStatus(emp.status)].push(emp);
   });
 
+  // P2-5: 按状态分组员工
+  const employeesByStatus: Record<StatusId, Employee[]> = {
+    online: [],
+    busy: [],
+    away: [],
+    offline: [],
+  };
+  employees.forEach(emp => {
+    employeesByStatus[getStatusId(emp.status)].push(emp);
+  });
+
   return (
     <div className="office-chat-page">
       {/* ========== 左侧：办公室房间 ========== */}
@@ -578,19 +672,39 @@ export function OfficeChatPage({
             onChange={(e) => setCurrentDept(e.target.value)}
             className="dept-selector"
           >
-            {DEPARTMENTS.map(d => (
+            {DEPARTMENTS
+              .filter(d => {
+                // P1-8: 董事长/FULL可访问所有部门，其他仅限本部门
+                const isEnterpriseUser = currentUser?.accessLevel === 'FULL' || currentUser?.identity === 'INTERNAL_ENTERPRISE';
+                return isEnterpriseUser || d.code === currentUser?.department;
+              })
+              .map(d => (
               <option key={d.code} value={d.code}>{d.icon} {d.name}</option>
             ))}
           </select>
         </header>
 
         {/* 办公室楼层 - 只有两个区域 */}
-        <div className="office-floor">
+        <div className="office-floor" ref={floorRef}>
+          {/* P2-5: 区域导航 */}
+          <div className="zone-nav">
+            {(['workstation', 'discussion'] as ZoneId[]).map(zoneId => (
+              <button
+                key={zoneId}
+                className={`zone-nav__btn ${activeZone === zoneId ? 'zone-nav__btn--active' : ''}`}
+                onClick={() => scrollToZone(zoneId)}
+              >
+                {ZONES[zoneId].icon} {ZONES[zoneId].title}
+                <span className="zone-nav__badge">{employeesByZone[zoneId].length}</span>
+              </button>
+            ))}
+          </div>
+
           {loadingEmployees ? (
             <div className="office-floor__loading">加载员工数据...</div>
           ) : (
             (['workstation', 'discussion'] as ZoneId[]).map(zoneId => (
-              <div key={zoneId} className={`office-zone office-zone--${zoneId}`}>
+              <div key={zoneId} id={`zone-${zoneId}`} className={`office-zone office-zone--${zoneId}`}>
                 <div className="office-zone__header">
                   <span className="office-zone__icon">{ZONES[zoneId].icon}</span>
                   <div className="office-zone__title-group">
@@ -620,6 +734,17 @@ export function OfficeChatPage({
               </div>
             ))
           )}
+        </div>
+
+        {/* P2-5: 状态统计列表 */}
+        <div className="status-stats">
+          {(['online', 'busy', 'away', 'offline'] as StatusId[]).map(statusId => (
+            <div key={statusId} className="status-stats__item">
+              <span className={`status-stats__dot status-stats__dot--${statusId}`}>●</span>
+              <span className="status-stats__label">{STATUS_CONFIG[statusId].title}</span>
+              <span className="status-stats__count">{employeesByStatus[statusId].length}</span>
+            </div>
+          ))}
         </div>
 
         {/* 办公室统计 */}

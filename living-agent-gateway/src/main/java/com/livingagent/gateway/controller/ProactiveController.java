@@ -3,6 +3,7 @@ package com.livingagent.gateway.controller;
 import com.livingagent.core.proactive.suggestion.ProactiveSuggestionService;
 import com.livingagent.core.proactive.suggestion.ProactiveSuggestionService.Suggestion;
 import com.livingagent.core.proactive.suggestion.ProactiveSuggestionService.SuggestionType;
+import com.livingagent.core.proactive.feedback.ProactiveEffectivenessTracker;
 import com.livingagent.core.security.AccessGateService;
 import com.livingagent.gateway.controller.common.ApiResponse;
 import org.slf4j.Logger;
@@ -23,10 +24,13 @@ public class ProactiveController {
 
     private final ProactiveSuggestionService suggestionService;
     private final AccessGateService accessGateService;
+    private final ProactiveEffectivenessTracker proactiveEffectivenessTracker;
 
-    public ProactiveController(ProactiveSuggestionService suggestionService, AccessGateService accessGateService) {
+    public ProactiveController(ProactiveSuggestionService suggestionService, AccessGateService accessGateService,
+                               ProactiveEffectivenessTracker proactiveEffectivenessTracker) {
         this.suggestionService = suggestionService;
         this.accessGateService = accessGateService;
+        this.proactiveEffectivenessTracker = proactiveEffectivenessTracker;
     }
 
     @GetMapping("/digest")
@@ -93,6 +97,7 @@ public class ProactiveController {
                 15
         );
 
+        proactiveEffectivenessTracker.recordAccepted("habit", true);
         return ResponseEntity.ok(ApiResponse.ok(result));
     }
 
@@ -219,6 +224,7 @@ public class ProactiveController {
 
         String effectiveUserId = userId != null ? userId : "default";
         suggestionService.acknowledgeSuggestion(effectiveUserId, id);
+        proactiveEffectivenessTracker.recordAccepted("notification", false);
 
         return ResponseEntity.ok(ApiResponse.ok(null));
     }
@@ -318,6 +324,10 @@ public class ProactiveController {
         String effectiveUserId = userId != null ? userId : "default";
 
         List<Suggestion> suggestions = suggestionService.generateSuggestions(effectiveUserId);
+
+        for (Suggestion s : suggestions) {
+            proactiveEffectivenessTracker.recordSuggestion(s.type().name());
+        }
 
         List<SuggestionResponse> response = suggestions.stream()
                 .limit(limit)

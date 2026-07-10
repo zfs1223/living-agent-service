@@ -10,7 +10,9 @@ import com.livingagent.core.employee.Employee;
 import com.livingagent.core.employee.EmployeeCompensationService;
 import com.livingagent.core.employee.EmployeeService;
 import com.livingagent.core.employee.EmployeeStatus;
+import com.livingagent.core.operation.performance.feedback.PerformanceEvaluationCycle;
 import com.livingagent.core.ops.scheduler.TaskCheckout;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 
@@ -36,6 +38,9 @@ public class JpaPerformanceAssessmentService implements PerformanceAssessmentSer
     private final PerformanceAssessmentRepository assessmentRepository;
     private final PerformanceIndicatorRepository indicatorRepository;
     private final PerformanceTrendRepository trendRepository;
+
+    @Autowired(required = false)
+    private PerformanceEvaluationCycle performanceEvaluationCycle;
 
     public JpaPerformanceAssessmentService(EmployeeService employeeService,
                                            TaskCheckout taskCheckout,
@@ -80,6 +85,12 @@ public class JpaPerformanceAssessmentService implements PerformanceAssessmentSer
         PerformanceAssessmentEntity entity = PerformanceAssessmentEntity.fromDomain(assessment);
         assessmentRepository.save(entity);
         trendRepository.save(toTrendSnapshot(entity));
+
+        // 闭环53: 绩效评估时记录
+        if (performanceEvaluationCycle != null) {
+            performanceEvaluationCycle.recordEvaluation(employeeId, overall, PerformanceAssessment.PerformanceGrade.fromScore(overall).getCode());
+        }
+
         return assessment;
     }
 

@@ -968,6 +968,13 @@ export const knowledgeExtendedApi = {
 
     removeFavorite: (id: string) =>
         request<void>(`/knowledge/${id}/favorite`, { method: 'DELETE' }),
+
+    // P2-2: Knowledge effect feedback
+    submitFeedback: (id: string, helpful: boolean) =>
+        request<void>(`/knowledge/${id}/feedback`, {
+            method: 'POST',
+            body: JSON.stringify({ helpful }),
+        }),
 };
 
 // ─── Intervention Extended ───────────────────────────────
@@ -1155,11 +1162,34 @@ export const evolutionExtendedApi = {
 
 // ─── VoicePrint Extended ─────────────────────────────────
 export const voicePrintExtendedApi = {
-    login: (data: any) =>
-        request<any>('/auth/voiceprint/login', { method: 'POST', body: JSON.stringify(data) }),
+    login: (audioBlob: Blob, threshold?: number) => {
+        const formData = new FormData();
+        formData.append('audio', audioBlob, 'recording.webm');
+        if (threshold) formData.append('threshold', String(threshold));
+        return request<any>('/auth/voiceprint/login', { method: 'POST', body: formData as any });
+    },
 
     getStatus: () =>
         request<any>('/auth/voiceprint/status'),
+
+    register: (audioBlob: Blob, speakerId: string, name?: string) => {
+        const formData = new FormData();
+        formData.append('audio', audioBlob, 'recording.webm');
+        formData.append('speaker_id', speakerId);
+        if (name) formData.append('name', name);
+        return request<any>('/auth/voiceprint/register', { method: 'POST', body: formData as any });
+    },
+
+    list: () =>
+        request<any[]>('/auth/voiceprint'),
+
+    verify: (audioBlob: Blob, speakerId: string, threshold?: number) => {
+        const formData = new FormData();
+        formData.append('audio', audioBlob, 'recording.webm');
+        formData.append('speaker_id', speakerId);
+        if (threshold) formData.append('threshold', String(threshold));
+        return request<any>('/auth/voiceprint/verify', { method: 'POST', body: formData as any });
+    },
 };
 
 // ─── System Settings Extended ────────────────────────────
@@ -1232,5 +1262,56 @@ export const miscApi = {
 
     getUnreadNotifications: () =>
         request<{ unread_count: number }>('/notifications/unread-count'),
+};
+
+// ─── Vital Signs Dashboard (P0-4) ──────────────────────
+export const vitalsApi = {
+    getCurrent: () =>
+        request<any>('/vitals'),
+
+    getHistory: (minutes?: number) =>
+        request<any[]>(`/vitals/history?minutes=${minutes || 30}`),
+};
+
+// ─── Code Review (P0-2) ────────────────────────────────
+export const codeReviewApi = {
+    listReviews: (status?: string) =>
+        request<any[]>(`/collaborations?type=PEER_REVIEW${status ? `&status=${status}` : ''}`),
+
+    getReview: (id: string) =>
+        request<any>(`/collaborations/${id}`),
+
+    submitCode: (id: string, data: any) =>
+        request<any>(`/collaborations/${id}/submit`, { method: 'POST', body: JSON.stringify(data) }),
+
+    approveReview: (id: string, comment?: string) =>
+        request<any>(`/collaborations/${id}/approve`, { method: 'POST', body: JSON.stringify({ comment }) }),
+
+    requestChanges: (id: string, comment: string) =>
+        request<any>(`/collaborations/${id}/request-changes`, { method: 'POST', body: JSON.stringify({ comment }) }),
+};
+
+// ─── Memory Management (P0-3) ─────────────────────────────
+export const memoryApi = {
+    getMemories: (params?: { employeeId?: string; type?: string; limit?: number }) => {
+        const qs = new URLSearchParams();
+        if (params?.employeeId) qs.set('employeeId', params.employeeId);
+        if (params?.type) qs.set('type', params.type);
+        if (params?.limit) qs.set('limit', String(params.limit));
+        const query = qs.toString();
+        return request<any[]>(`/memories${query ? '?' + query : ''}`);
+    },
+
+    getMemory: (id: string) =>
+        request<any>(`/memories/${id}`),
+
+    deleteMemory: (id: string) =>
+        request<void>(`/memories/${id}`, { method: 'DELETE' }),
+
+    getMemoryStats: () =>
+        request<any>('/memories/stats'),
+
+    searchMemories: (query: string) =>
+        request<any[]>(`/memories/search?q=${encodeURIComponent(query)}`),
 };
 

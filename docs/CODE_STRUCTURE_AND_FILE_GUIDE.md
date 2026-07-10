@@ -2,7 +2,7 @@
 
 > 目的：把 `docker/living-agent-service` 的代码结构、关键文件职责和修改入口整理成一份索引，避免后续改代码时重复实现、重复落点、重复造服务。
 >
-> 更新时间：2026-07-03
+> 更新时间：2026-07-09
 >
 > 适用范围：后端 Java/Spring Boot、前端 React/Vite、Rust Native、Python model daemon、Windows 自动化（pywinauto）、Docker 编排、数据库脚本、项目文档。
 
@@ -13,7 +13,7 @@
 ```text
 docker/living-agent-service/
 ├── pom.xml                         # Maven 父工程，聚合 Java 多模块
-├── docker-compose.yml              # 本地 Docker 编排，包含后端、前端、PostgreSQL、Redis、Kafka、Qdrant、Memos、OpenProject 等
+├── docker-compose.yml              # 本地 Docker 编排，包含后端、前端、PostgreSQL、Redis、Kafka、Qdrant、Memos、OpenProject、fuck-u-code 等
 ├── living-agent-app/               # Spring Boot 启动模块，负责组装 core/gateway/skill/perception
 ├── living-agent-core/              # 核心领域层：大脑、神经元、员工、模型、工具、知识、进化、权限、工作流等
 ├── living-agent-gateway/           # API/WebSocket 网关层：Controller、WebSocket、前端服务适配
@@ -84,7 +84,7 @@ living-agent-app/
     └── resources/
         ├── application.yml
         └── claude/
-            ├── mcp.json                    # Claude Code MCP Server 配置（filesystem/memory/sequential-thinking）
+            ├── mcp.json                    # Claude Code MCP Server 配置（filesystem/memory/sequential-thinking/fuck-u-code）
             └── plugins/                    # Claude Code 插件（commit-commands/code-review/feature-dev/security-guidance）
 ```
 
@@ -711,6 +711,9 @@ com.livingagent.core/
 | `employee/registry/FixedEmployeeRegistry.java`                                      | 固定数字员工注册表   | 32 个固定数字员工定义、部门员工映射 |
 | `employee/EmployeeLifecycleService.java` / `impl/EmployeeLifecycleServiceImpl.java` | 员工生命周期管理    | 入职、离职、状态流转          |
 | `employee/EmployeeCompensationService.java`                                         | 员工薪酬/激励服务接口 | 数字员工奖励、补偿           |
+| `employee/lifecycle/AgentLifecycleMonitor.java`                                     | P39-A: Agent生命周期监控（闭环39） | 心跳超时60s/错误率30%，异常触发CrossLoopEventBus |
+| `employee/lifecycle/AgentHealthMetrics.java`                                        | P39-B: Agent指标采集（闭环39） | uptime/errorCount/avgResponseTime采集 |
+| `employee/lifecycle/AgentAutoRecovery.java`                                         | P39-C: Agent自动恢复（闭环39） | 最大重启3次/冷却30s/降级配置/永久故障沉淀经验 |
 | `employee/impl/JpaEmployeeCompensationService.java`                                 | 薪酬 JPA 实现，record()/definePlan()/assignPlan() 已添加 @Transactional   | 持久化薪酬记录             |
 | `employee/impl/InMemoryEmployeeCompensationService.java`                            | 内存薪酬实现      | 本地或测试               |
 | `employee/neuron/EmployeeNeuron.java`                                               | 员工和神经元适配    | 让数字员工以神经元形式执行       |
@@ -877,6 +880,8 @@ com.livingagent.core/
 | `skill/bounty/BountyHunterService.java`                           | 赏金猎手服务            | 赏金任务执行               |
 | `skill/bounty/BountyTask.java`                                    | 赏金任务              | 赏金任务定义               |
 | `skill/SkillResult.java`                                          | 技能执行结果            | 技能输出和状态              |
+| `skill/feedback/SkillEffectivenessTracker.java`                   | P42-A: 技能效果追踪（闭环42） | 调用成功率/耗时追踪，<80%标记低效 |
+| `skill/feedback/SkillRecommendationEngine.java`                   | P42-B: 技能推荐（闭环42） | 低效技能建议替换，耗时>5s建议优化 |
 
 **living-agent-skill 模块：**
 
@@ -933,6 +938,8 @@ com.livingagent.core/
 | `memory/impl/MemPalaceBackend.java`                                          | MemPalace 记忆后端；已有 @jakarta.annotation.PreDestroy + destroy() 优雅关闭 MCP 子进程 | MemPalace 集成         |
 | `memory/MemoryCategory.java`                                                 | 记忆分类枚举         | EPISODIC/SEMANTIC/PROCEDURAL |
 | `knowledge/KnowledgeConsumptionFeedback.java`                                | P26-A: 知识消费反馈        | recordFeedback(key,helpful,context,consumerId)，helpfulRate≥80%提升confidence(+0.15)，≤30%降低(-0.2) |
+| `memory/feedback/MemoryConversionTracker.java`                               | P48-A: 记忆转化追踪（闭环48） | 记忆→知识转化率/引用率/归档率追踪 |
+| `memory/feedback/MemoryConsolidationService.java`                            | P48-B: 记忆整合（闭环48） | 转化率<10%建议降低阈值，自动整合相似记忆 |
 
 避免重复建议：
 
@@ -1053,6 +1060,9 @@ com.livingagent.core/
 | `profile/UserProfileService.java`                            | 用户画像服务         | 画像数据管理                              |
 | `DepartmentAccessService.java`                               | 部门访问服务         | 部门权限控制                              |
 | `SandboxViolationTracker.java`                              | P30-A: 沙箱违规追踪        | 3次违规/1h→自动黑名单，BlacklistEntry含expiresAt(TTL 1h)，isBlacklisted()检查TTL自动恢复 |
+| `auth/AuthMetricsService.java`                             | P38-A: 认证指标收集（闭环38）   | 按method/source/success/failure/reason聚合，失败率>30%触发告警 |
+| `auth/AuthFeedbackService.java`                            | P38-B/C: 认证反馈+声纹质量（闭环38） | 失败率超阈值自动调整策略，声纹质量闭环 |
+| `client/feedback/ClientDeviceHealthMonitor.java`           | P61-A: 客户端设备健康（闭环61） | 设备异常操作>=5次建议自动解绑，通过CrossLoopEventBus发布告警 |
 
 避免重复建议：
 
@@ -1212,6 +1222,8 @@ com.livingagent.core/
 | `workflow/handlers/OperationHandler.java`                          | **【新增】** 运维阶段处理器            | 监控运维、故障处理                              |
 | `workflow/handlers/AfterSalesHandler.java`                         | **【新增】** 售后阶段处理器            | 客户支持、问题反馈                              |
 | `workflow/WorkflowMonitor.java`                                   | 工作流监控和超时检查                    | 超时、失败、健康检查                          |
+| `workflow/monitor/WorkflowStageMonitor.java`                      | P43-A: 工作流阶段监控（闭环43） | 阶段耗时/卡点/超时检测，阈值30min |
+| `workflow/monitor/WorkflowOptimizationService.java`               | P43-B: 工作流优化（闭环43） | 基于历史数据动态优化阶段超时阈值 |
 | `workflow/HeartbeatProvider.java`                                 | 心跳提供者                          | 工作流心跳                              |
 | `workflow/PhaseHandler.java`                                      | 阶段处理器                          | 工作流阶段处理                            |
 | `project/ProjectService.java` / `impl/ProjectServiceImpl.java`    | 项目服务                          | 长周期项目管理。已注入 ProjectRepository 同步持久化 |
@@ -1225,6 +1237,9 @@ com.livingagent.core/
 | `approval/ApprovalRecord.java`                                    | 审批记录                          | 审批操作记录                              |
 | `approval/ApprovalStep.java`                                      | 审批步骤                          | 审批流程步骤                              |
 | `approval/ApprovalWorkflow.java`                                  | 审批工作流                         | 审批流程定义                              |
+| `project/monitor/ProjectHealthMonitor.java`                       | P40-A: 项目健康监控（闭环40） | 偏差阈值20%，HEALTHY/CAUTION/WARNING/CRITICAL |
+| `project/monitor/ProjectDeviationDetector.java`                   | P40-B: 项目偏差识别（闭环40） | SEVERE_DEVIATION/INCREASING/STABLE/MINOR模式 |
+| `project/retro/ProjectRetroService.java`                          | P40-C: 项目复盘（闭环40） | 自动生成复盘报告+EvolutionSignal沉淀经验 |
 
 避免重复建议：
 
@@ -1313,6 +1328,8 @@ com.livingagent.core.proxy.anthropic/
 | `alert/impl/WebhookAlertNotifier.java`                                                            | Webhook 通知器                                                   | 通用 Webhook 告警                          |
 | `habit/HabitTrackerCoach.java`                                                                    | 习惯追踪教练                                                       | 用户习惯分析和提醒                              |
 | `habit/UserHabitAnalyzer.java`                                                                    | 用户习惯分析器                                                      | 行为模式识别                                 |
+| `feedback/ProactiveEffectivenessTracker.java`                                                     | P47-A: 主动服务效果追踪（闭环47） | 采纳率/行为改变率，采纳率<20%触发优化 |
+| `feedback/ProactiveStrategyOptimizer.java`                                                         | P47-B: 主动策略优化（闭环47） | 基于采纳率优化建议频率和内容 |
 | `meeting/MeetingNotesHandler.java`                                                                | 会议纪要处理器                                                      | 自动会议纪要                                |
 | `scheduler/ProactiveTask.java`                                                                    | 主动任务                                                         | 主动任务定义                                 |
 | `scenario/EmployeeOnboardingHandler.java`                                                         | 入职场景处理器                                                      | 新员工入职引导                               |
@@ -1335,6 +1352,7 @@ com.livingagent.core.proxy.anthropic/
 | `diagnosis/StartupRecoveryService.java`         | P12-D: 启动恢复服务       | 降级模式下@Scheduled(fixedRate=60000)重试HealthMonitor.checkHealth()，集成DegradedTrafficCanary |
 | `diagnosis/DegradedTrafficCanary.java`          | P27-A: 降级小流量回归      | 10%流量探测+5次成功promoteToFull+3次失败rollback+5min超时 |
 | `diagnosis/VitalSignsService.java`              | P32-A: 生命体征服务       | 聚合HealthMonitor+连接数+降级模式+JVM内存，支持历史趋势快照 |
+| `diagnosis/feedback/ServiceBootstrapHealthTracker.java` | P60-A: 服务初始化追踪（闭环60） | 初始化成功/失败率追踪，失败时触发CrossLoopEventBus |
 
 #### `compliance` 合规管理包
 
@@ -1344,6 +1362,8 @@ com.livingagent.core.proxy.anthropic/
 | `compliance/ComplianceRule.java`                | 合规规则           | 规则定义和匹配             |
 | `compliance/ComplianceReport.java`              | 合规报告           | 审计报告生成              |
 | `compliance/ComplianceViolation.java`           | 合规违规           | 违规记录                |
+| `compliance/feedback/ComplianceViolationTracker.java` | P45-A: 违规追踪（闭环45） | 违规频率/整改率/重复违规率追踪 |
+| `compliance/feedback/ComplianceRuleAutoUpdater.java` | P45-B: 规则自动更新（闭环45） | 重复违规率>30%建议加强拦截 |
 
 #### `intervention` 人工干预包
 
@@ -1360,6 +1380,8 @@ com.livingagent.core.proxy.anthropic/
 | `intervention/impl/RiskAssessmentServiceImpl.java` | 风险评估实现         | 多维度风险计算             |
 | `intervention/ImpactAnalyzer.java`              | 影响分析接口         | 操作影响评估              |
 | `intervention/impl/ImpactAnalyzerImpl.java`     | 影响分析实现         | 依赖链影响分析             |
+| `intervention/feedback/InterventionEffectivenessTracker.java` | P41-A: 干预效果追踪（闭环41） | SUCCESS/FALSE_POSITIVE/MISSED_DETECTION，按ruleId聚合 |
+| `intervention/feedback/InterventionRuleOptimizer.java` | P41-B/C: 干预规则优化（闭环41） | 误报率>40%→INCREASE_THRESHOLD，成功率<50%→DECREASE_PRIORITY |
 
 #### `operation` 运营包
 
@@ -1372,6 +1394,7 @@ com.livingagent.core.proxy.anthropic/
 | `operation/performance`                                 | 绩效评估、指标、趋势、JPA/内存实现       |                     |
 | `operation/performance/PerformanceAssessmentServiceImpl.java` | 绩效评估实现                   | 绩效计算和排名；接口已新增 getCompanyTopPerformers/getCompanyBottomPerformers 方法             |
 | `operation/performance/PerformanceIndicator.java`        | 绩效指标                     | KPI 定义和计算           |
+| `operation/performance/feedback/PerformanceEvaluationCycle.java` | P53-A: 绩效评估闭环（闭环53） | 评估→培训→再评估，低绩效预警+培训效果追踪 |
 | `operation/metrics`                                     | 运行指标采集                   |                     |
 
 ### 6.16a `ops` 运营支撑包
@@ -1390,6 +1413,7 @@ com.livingagent.core.proxy.anthropic/
 | `autonomous/config/AutonomousOperationConfig.java` | 自主运营配置                               |
 | `autonomous/bounty/*`                              | 赏金任务扫描、执行、Ledger、成本估算                |
 | `autonomous/bounty/impl/*`                         | GitHub/Freelance/BugBounty 扫描器、复合执行器 |
+| `autonomous/bounty/feedback/CreditEconomyMonitor.java` | P54-A: 积分经济监控（闭环54） | 通胀(velocity>2.0)/通缩(velocity<0.3)检测 |
 | `autonomous/incentive/*`                           | 激励、积分账户、进化追踪                         |
 | `autonomous/payout/*`                              | 支付账户、支付记录、支付服务                       |
 | `autonomous/evolution/*`                           | 硬件升级、自主进化管理（注意：`EvolutionManager` 和 `HardwareUpgradeService` 已迁移至 `core/evolution` 包）                          |
@@ -1463,6 +1487,8 @@ com.livingagent.core.proxy.anthropic/
 | `conversation/ConversationServiceImpl.java`     | 对话服务实现         | 对话会话创建/查询/权限        |
 | `conversation/ConversationPermissionService.java` | 对话权限服务         | 对话访问权限检查            |
 | `conversation/ConversationStatus.java`          | 对话状态枚举         | ACTIVE/ARCHIVED/DELETED |
+| `conversation/feedback/ConversationQualityService.java` | P46-A: 对话质量评估（闭环46） | 解决率/澄清率/满意度评估 |
+| `conversation/feedback/ConversationArchiveService.java` | P46-B: 对话归档（闭环46） | 归档时自动沉淀经验到知识库 |
 
 #### `session` 会话管理包
 
@@ -1489,6 +1515,7 @@ com.livingagent.core.proxy.anthropic/
 | ---------------------------------------------- | -------------- | ------------------- |
 | `migration/DataMigrationService.java`           | 数据迁移接口         | 版本升级数据迁移            |
 | `migration/impl/DataMigrationServiceImpl.java`  | 数据迁移实现         | schema.sql 变更后数据修复      |
+| `migration/feedback/MigrationVerificationService.java` | P62-A: 迁移验证（闭环62） | 迁移→验证→回滚→审计闭环 |
 
 #### `task` 任务状态包
 
@@ -1519,6 +1546,7 @@ com.livingagent.core.proxy.anthropic/
 | `budget/BudgetAllocationRepository.java`        | 预算分配 Repository | JPA 查询              |
 | `budget/BudgetTransactionEntity.java`           | 预算交易实体         | JPA 实体              |
 | `budget/BudgetTransactionRepository.java`       | 预算交易 Repository | JPA 查询              |
+| `budget/feedback/BudgetHealthMonitor.java`      | P52-A: 预算健康监控（闭环52） | 使用率>90%预警，OVERSPENT/WARNING/HEALTHY |
 
 #### `tech/config` 技术部门配置子包
 
@@ -1533,6 +1561,7 @@ com.livingagent.core.proxy.anthropic/
 | `anomaly/AnomalyDetector.java`                  | 异常检测器          | 异常模式识别              |
 | `anomaly/AnomalyContext.java`                   | 异常上下文          | 异常发生时的环境信息          |
 | `anomaly/AnomalyResult.java`                    | 异常检测结果         | 异常类型/严重度/建议         |
+| `anomaly/feedback/AnomalyDetectionFeedbackLoop.java` | P59-A: 异常检测反馈（闭环59） | 误报率>40%触发模型优化 |
 
 #### `config` 核心配置包
 
@@ -1558,6 +1587,7 @@ com.livingagent.core.proxy.anthropic/
 | ---------------------------------------------- | -------------- | ------------------- |
 | `deployment/DistributedDeploymentService.java`  | 分布式部署接口        | 节点管理和任务分发           |
 | `deployment/impl/DistributedDeploymentServiceImpl.java` | 分布式部署实现        | 基于 Redis 的节点协调      |
+| `cluster/feedback/ClusterHealthMonitor.java`    | P58-A: 集群健康监控（闭环58） | 节点注册/健康检查/负载因子/自动重平衡 |
 
 #### `distributed` 分布式基础设施包
 
@@ -1677,6 +1707,82 @@ tool:
 service-admin:
   enabled: true  # 默认 false，需要时手动启用
 ```
+
+### 6.20 L4 用户业务闭环反馈服务汇总（2026-07-08 新增）
+
+> **关联文档**：`docs/IMPROVEMENT_PLAN_L4_BUSINESS_LOOPS.md`、`docs/IMPROVEMENT_PLAN_INDEX.md`
+>
+> **架构定位**：L4层闭环=用户可感知的业务功能生命周期闭环，通过feedback子包与CrossLoopEventBus实现 feedback→improvement 链路。
+> **Bean注册**：所有L4反馈服务在 `gateway/config/GatewayConfig.java` 中注册（共42个Bean：P0×10 + P1×16 + P2×14 + P1通知2个）。
+
+#### P0 核心入口闭环（闭环38-41）
+
+| 闭环 | 包路径 | 服务类 | 功能 |
+|------|--------|--------|------|
+| 38 | `security/auth/` | AuthMetricsService | 认证指标按method/source聚合，失败率>30%告警 |
+| 38 | `security/auth/` | AuthFeedbackService | 认证失败策略自动调整+声纹质量闭环 |
+| 39 | `employee/lifecycle/` | AgentLifecycleMonitor | Agent心跳/错误率监控，异常触发事件 |
+| 39 | `employee/lifecycle/` | AgentHealthMetrics | Agent级指标采集(uptime/errorCount/avgResponseTime) |
+| 39 | `employee/lifecycle/` | AgentAutoRecovery | 自动重启/配置降级/经验沉淀 |
+| 40 | `project/monitor/` | ProjectHealthMonitor | 项目进度偏差>20%预警 |
+| 40 | `project/monitor/` | ProjectDeviationDetector | 偏差模式识别(SEVERE/INCREASING/STABLE/MINOR) |
+| 40 | `project/retro/` | ProjectRetroService | 项目完成自动复盘+经验沉淀 |
+| 41 | `intervention/feedback/` | InterventionEffectivenessTracker | 干预效果按ruleId聚合(成功/误报/漏报) |
+| 41 | `intervention/feedback/` | InterventionRuleOptimizer | 误报率>40%提高阈值，成功率<50%降低优先级 |
+
+#### P1 运营支撑闭环（闭环42-49）
+
+| 闭环 | 包路径 | 服务类 | 功能 |
+|------|--------|--------|------|
+| 42 | `skill/feedback/` | SkillEffectivenessTracker | 技能调用成功率/耗时，<80%标记低效 |
+| 42 | `skill/feedback/` | SkillRecommendationEngine | 低效技能建议替换，耗时>5s建议优化 |
+| 43 | `workflow/monitor/` | WorkflowStageMonitor | 阶段耗时/卡点/超时，阈值30min |
+| 43 | `workflow/monitor/` | WorkflowOptimizationService | 阶段超时阈值动态优化 |
+| 44 | `notification/feedback/` | NotificationMetricsService | 消息触达率/已读率追踪 |
+| 44 | `notification/feedback/` | NotificationStrategyOptimizer | 触达率<50%告警 |
+| 45 | `compliance/feedback/` | ComplianceViolationTracker | 违规频率/整改率/重复违规追踪 |
+| 45 | `compliance/feedback/` | ComplianceRuleAutoUpdater | 重复违规率>30%建议加强拦截 |
+| 46 | `conversation/feedback/` | ConversationQualityService | 对话解决率/澄清率/满意度评估 |
+| 46 | `conversation/feedback/` | ConversationArchiveService | 对话归档+知识沉淀 |
+| 47 | `proactive/feedback/` | ProactiveEffectivenessTracker | 主动建议采纳率/行为改变率 |
+| 47 | `proactive/feedback/` | ProactiveStrategyOptimizer | 采纳率<20%优化策略 |
+| 48 | `memory/feedback/` | MemoryConversionTracker | 记忆→知识转化率/引用率追踪 |
+| 48 | `memory/feedback/` | MemoryConsolidationService | 转化率<10%建议降低阈值 |
+| 49 | `codereview/feedback/` | CodeReviewMetricsService | 审查通过率/返工次数追踪 + 基线评分记录(P49-C) |
+| 49 | `codereview/feedback/` | CodeReviewQualityOptimizer | 平均返工>2次建议优化 + 阈值动态调整(P49-C) |
+| 49 | `codereview/client/` | FuckUCodeClient | docker exec调用fuck-u-code analyze/ai-review（P49-C） |
+
+#### P2 特定领域闭环（闭环50-63）
+
+| 闭环 | 包路径 | 服务类 | 功能 |
+|------|--------|--------|------|
+| 50 | `tenant/feedback/` | TenantHealthMonitor | 配额使用率>80%预警+活跃度监控 |
+| 51 | `visitor/feedback/` | VisitorConversionTracker | 访客转化率<10%建议优化接待话术 |
+| 52 | `budget/feedback/` | BudgetHealthMonitor | 预算使用率>90%超支预警 |
+| 53 | `operation/performance/feedback/` | PerformanceEvaluationCycle | 低绩效预警+培训效果追踪 |
+| 54 | `autonomous/bounty/feedback/` | CreditEconomyMonitor | 积分通胀/通缩检测 |
+| 55 | `social/feedback/` | PlazaEngagementTracker | 广场活跃度<15%建议优化推荐 |
+| 56 | `office/feedback/` | OfficeStateSyncMonitor | 办公室同步延迟>30s告警 |
+| 57 | `settings/feedback/` | SettingsChangeImpactTracker | 设置回滚率>30%建议加审批 |
+| 58 | `cluster/feedback/` | ClusterHealthMonitor | 节点健康/负载/自动重平衡 |
+| 59 | `anomaly/feedback/` | AnomalyDetectionFeedbackLoop | 误报率>40%触发模型优化 |
+| 60 | `diagnosis/feedback/` | ServiceBootstrapHealthTracker | 服务初始化失败率追踪 |
+| 61 | `security/client/feedback/` | ClientDeviceHealthMonitor | 设备异常操作>=5次自动解绑 |
+| 62 | `migration/feedback/` | MigrationVerificationService | 迁移→验证→回滚→审计 |
+| 63 | `model/proxy/feedback/` | ClaudeProxyMetricsService | 代理成功率/延迟/路由优化 |
+
+#### 尚未在现有包中注册的全新包
+
+| 包路径 | 闭环 | 说明 |
+|--------|------|------|
+| `tenant/feedback/` | 50 | 租户管理闭环，新包 |
+| `visitor/feedback/` | 51 | 接待/访客闭环，新包 |
+| `social/feedback/` | 55 | 广场/社交闭环，新包 |
+| `office/feedback/` | 56 | 虚拟办公室闭环，新包 |
+| `settings/feedback/` | 57 | 系统设置闭环，新包 |
+| `cluster/feedback/` | 58 | 分布式部署闭环，新包 |
+| `codereview/feedback/` | 49 | 代码审查闭环，新包 |
+| `notification/feedback/` | 44 | 消息通知闭环，新包 |
 
 ***
 
@@ -1829,11 +1935,11 @@ frontend/
 | ------------------------------------------------ | ---------------------- | ------------------------------------------------------------------- |
 | `pages/Login.tsx`                                | 登录页，手机号验证码、登录跳转        | `PhoneAuthController`、`AuthController`                              |
 | `pages/CompanySetup.tsx`                         | 企业初始化                  | `EnterpriseController`、`TenantController`                           |
-| `pages/Layout.tsx`                               | 主布局                    | 用户信息、导航、通知                                                          |
+| `pages/Layout.tsx`                               | 主布局（侧边栏：我的大脑快捷入口+企业频道入口+部门权限过滤）                    | 用户信息、导航、通知                                                          |
 | `pages/Dashboard.tsx`                            | 首页 Dashboard           | `DashboardController`                                               |
 | `pages/PlatformDashboard.tsx`                    | 平台看板                   | Dashboard/Monitoring                                                |
-| `pages/Dashboard/EnterpriseDashboard.tsx`        | 企业 Dashboard 子页面       | `DashboardController`                                               |
-| `pages/Chat.tsx`                                 | 聊天页面，部门聊天/Agent 聊天入口   | `DepartmentWebSocketHandler`、`AgentWebSocketHandler`                |
+| `pages/Dashboard/EnterpriseDashboard.tsx`        | 企业 Dashboard 子页面（含系统健康VitalSignsDashboard区块）       | `DashboardController`、`VitalSignsController`                                               |
+| `pages/Chat.tsx`                                 | 聊天页面（嵌入 ChannelIndicator 通道状态指示）   | `DepartmentWebSocketHandler`、`AgentWebSocketHandler`                |
 | `pages/DepartmentDetail/DepartmentDetail.tsx`    | 部门详情主页面                | 部门、固定员工、Office、聊天                                                   |
 | `pages/DepartmentDetail/*`                       | 部门办公室、员工工位、活动流、脑图/状态组件 | `DepartmentController`、`FixedEmployeeController`、`OfficeController` |
 | `pages/DepartmentDetail2.tsx`                    | 旧/备用部门详情页              | 如无引用应逐步清理                                                           |
@@ -1842,6 +1948,8 @@ frontend/
 | `pages/MyTasks.tsx`                              | 我的任务                   | `TaskController`、`AgentTaskController`                              |
 | `pages/Projects.tsx`                             | 项目管理                   | `ProjectController`                                                 |
 | `pages/Approvals.tsx`                            | 审批                     | `ApprovalController`                                                |
+| `pages/CodeReview.tsx`                           | 代码审查（3Tab+列表+详情+操作，前端骨架，后端待就绪） | `CollaborationController`                                           |
+| `pages/MemoryBrowser.tsx`                        | 记忆管理（统计+搜索+筛选+列表+详情+删除，前端骨架，后端待就绪） | `MemoryController`                                                  |
 | `pages/Plaza.tsx`                                | 广场/公开任务                | `PlazaController`                                                   |
 | `pages/UserManagement.tsx`                       | 用户/员工管理（详情弹窗+权限级别+激活/停用） | `EmployeeController`、`OrgController`                                |
 | `pages/EnterpriseSettings.tsx`                   | 公司设置页面（12 Tab: info/llm/brain/knowledge/tools/skills/users/org/invites/quotas/approvals/audit），含CompanyLogoUploader(Logo上传+本地预览fallback)、KnowledgeTab(知识CRUD+搜索+分类+统计+收藏+文件+治理+状态流转+晋升审核+有效性标记+搜索高亮)、ApprovalsTab(分Tab+筛选+详情+步骤+评论+取消)、AuditLogTab(搜索+分页+导出+详情+时间范围)、SkillsTab(文件+绑定+统计+热更新+自动生成)、CreditOverview(积分+排行榜)、DeptTree(部门CRUD)、OrgTab、工具搜索+部门筛选 | `EnterpriseController`、`SystemSettingsController`、`KnowledgeController`、`ApprovalController`、`DepartmentController` |
@@ -1864,6 +1972,8 @@ frontend/
 | `components/EvolvedEmployeeSettings.tsx` | 进化员工设置            |
 | `components/PublicTaskBoard.tsx`         | 公开任务板             |
 | `components/Toast.tsx` / `Toast.css`    | Toast 提示组件（替代 alert） |
+| `components/ChannelIndicator.tsx`       | 通道状态指示组件，支持4种通道类型（dept/enterprise/public/agent），显示通道名称+连接状态 |
+| `components/VitalSignsDashboard.tsx`    | 生命体征仪表盘组件，5个卡片（健康分数/内存/连接/组件/运行模式），15秒自动刷新 |
 
 避免重复建议：
 
@@ -1879,7 +1989,7 @@ frontend/
 ```text
 scripts/
 ├── python/
-│   ├── model_daemon.py             # 模型守护进程，处理 named pipe 控制和会话请求
+│   ├── model_daemon.py             # 模型守护进程，处理 named pipe 控制和会话请求 + OpenAI兼容HTTP(8392)
 │   ├── llm/run_qwen35.py           # Qwen3.5 LLM 调用脚本
 │   ├── llm/run_qwen3.py            # Qwen3 本地推理服务
 │   ├── asr/run_sherpa_ncnn.py      # Sherpa-NCNN ASR 推理服务
@@ -1895,7 +2005,7 @@ scripts/
 
 | 文件                          | 功能说明                                                     | 修改建议                            |
 | --------------------------- | -------------------------------------------------------- | ------------------------------- |
-| `python/model_daemon.py`    | 与 Java `NamedPipeModelClient` 配合，创建 session、读写请求/响应 pipe | 管道协议、超时、session 生命周期必须和 Java 同步 |
+| `python/model_daemon.py`    | 与 Java `NamedPipeModelClient` 配合，创建 session、读写请求/响应 pipe；8392端口暴露OpenAI兼容HTTP端点供外部工具调用 | 管道协议、超时、session 生命周期必须和 Java 同步；LLM HTTP端点与fuck-u-code集成(闭环49) |
 | `python/llm/run_qwen35.py`  | Qwen3.5 推理入口                                             | 本地 Qwen 模型路径和推理参数               |
 | `python/llm/run_qwen3.py`   | Qwen3 本地推理服务                                             | Qwen3 模型路径和推理参数                |
 | `python/asr/run_sherpa_ncnn.py` | Sherpa-NCNN ASR 推理服务                                  | ASR 模型路径、推理参数、语言配置             |
@@ -1985,18 +2095,30 @@ AI 大脑 → ToolNeuron → WindowsAutomationTool (Java, 服务器端)
 - `WindowsAppTool.java` 的 API 路径和 `server.py` 的端点必须同步修改。
 - 新增可自动化的 Windows 应用时，在 `config.json` 的 `applications` 中添加配置即可，无需改 Java 代码。
 
+### 10.3 桌面端模块更新（P0-7 多通道WebSocket + P1-1/P1-2 Agent/干预管理 + P1-3/P1-4/P1-5 技能/主动/广场 + P1-7 固定员工防护 + P1-8 部门权限校验）
+
+| 文件 | 功能说明 | 修改建议 |
+| --- | --- | --- |
+| `src/main/ws-client.ts` | WebSocket客户端，支持4种通道（AGENT/DEPT/ENTERPRISE/PUBLIC），switchChannel方法，固定员工(origin=fixed)直连防护 | 新增通道或修改重连逻辑时改这里 |
+| `src/main/ipc.ts` | IPC处理器，包含ws + agent + intervention + skill + proactive + plaza 全部通道 | 新增IPC通道时改这里 |
+| `src/main/api-client.ts` | REST API客户端，含Agent管理、干预、技能、主动服务、广场API | 新增API时改这里 |
+| `src/shared/api-types.ts` | LivingAgentAPI类型契约，包含ws/agent/intervention/skill/proactive/plaza命名空间 + EmployeeOrigin类型 | 新增API类型时改这里 |
+| `src/preload/index.ts` | Preload脚本，暴露ws/agent/intervention/skill/proactive/plaza IPC通道 | 新增暴露时改这里 |
+| `src/renderer/App.tsx` | 桌面端React根组件，含闲聊+企业频道+智能体+干预+技能+主动服务+广场导航 | 新增View时改这里 |
+| `src/renderer/pages/OfficeChat/OfficeChatPage.tsx` | 办公室聊天页，支持forceChannel prop + 部门选择器权限过滤 | 修改聊天行为时改这里 |
+
 ***
 
 ## 11. Docker 与部署文件
 
 | 文件/目录                          | 功能说明                                                           | 修改建议                           |
 | ------------------------------ | -------------------------------------------------------------- | ------------------------------ |
-| `docker-compose.yml`           | 本地整体编排：后端、前端、PostgreSQL、Redis、Kafka、Qdrant、Memos、OpenProject 等；已拆分为 frontend/backend 双网络隔离；基础设施服务已添加内存限制；Kafka 已禁止自动创建 Topic；数据库密码强制环境变量注入 | 服务端口、依赖、healthcheck、环境变量       |
+| `docker-compose.yml`           | 本地整体编排：后端、前端、PostgreSQL、Redis、Kafka、Qdrant、Memos、OpenProject、fuck-u-code 等；已拆分为 frontend/backend 双网络隔离；基础设施服务已添加内存限制；Kafka 已禁止自动创建 Topic；数据库密码强制环境变量注入；fuck-u-code 使用模型守护进程8392端口Qwen3.5-2B | 服务端口、依赖、healthcheck、环境变量       |
 | `.dockerignore`                | Docker 构建忽略                                                    | 排除 target/node\_modules/logs 等 |
 | `.gitignore`                   | Git 忽略                                                         | 避免提交构建产物和敏感信息                  |
 | `Dockerfile.rust-native`       | Rust native 构建镜像                                               | 构建 `.so`                       |
 | `image/Dockerfile.system-deps` | 系统依赖镜像                                                         | 离线/基础依赖                        |
-| `image/download_images.py`     | 镜像下载辅助                                                         | 离线镜像准备                         |
+| `image/download_images.py`     | 镜像下载辅助（含 fuck-u-code 本地源码构建）                                      | 离线镜像准备                         |
 | `image/load_images.ps1`        | Windows 加载镜像脚本                                                 | 本地导入镜像                         |
 | `image/codegraph/codegraph-linux-x64.tar.gz` | CodeGraph v1.2.0 Linux x64 预编译二进制；Dockerfile.local 中 COPY 并解压到 /opt/codegraph，链接到 /usr/local/bin/codegraph | 离线部署 CodeGraph 代码索引工具         |
 | `init-db/01_init.sql`          | 初始化数据库                                                         | 初次启动基础表/数据                     |

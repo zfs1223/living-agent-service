@@ -2,8 +2,10 @@ package com.livingagent.core.deployment.impl;
 
 import com.livingagent.core.deployment.DistributedDeploymentService;
 import com.livingagent.core.distributed.cache.DistributedCacheService;
+import com.livingagent.core.cluster.feedback.ClusterHealthMonitor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -23,7 +25,10 @@ public class DistributedDeploymentServiceImpl implements DistributedDeploymentSe
     private final Map<String, NodeInfo> nodes = new ConcurrentHashMap<>();
     private final Map<String, ShardInfo> shards = new ConcurrentHashMap<>();
     private final DistributedCacheService cacheService;
-    
+
+    @Autowired(required = false)
+    private ClusterHealthMonitor clusterHealthMonitor;
+
     private final AtomicInteger nodeCounter = new AtomicInteger(0);
     private final AtomicInteger shardCounter = new AtomicInteger(0);
 
@@ -142,8 +147,12 @@ public class DistributedDeploymentServiceImpl implements DistributedDeploymentSe
         
         nodes.put(nodeId, node);
         cacheService.addToSet("cluster:nodes", nodeId);
+
+        if (clusterHealthMonitor != null) {
+            clusterHealthMonitor.registerNode(nodeId);
+        }
         
-        log.info("Registered node: {} ({}) at {}:{}", 
+        log.info("Registered node: {} ({}) at {}:{}",
             nodeId, registration.role(), registration.host(), registration.port());
         
         return node;
@@ -183,6 +192,10 @@ public class DistributedDeploymentServiceImpl implements DistributedDeploymentSe
         );
         
         nodes.put(nodeId, updated);
+
+        if (clusterHealthMonitor != null) {
+            clusterHealthMonitor.recordNodeHealth(nodeId, true, health.cpuUsage());
+        }
     }
 
     @Override
@@ -220,6 +233,10 @@ public class DistributedDeploymentServiceImpl implements DistributedDeploymentSe
     @Override
     public void rebalanceShards() {
         log.info("Starting shard rebalancing...");
+
+        if (clusterHealthMonitor != null) {
+            clusterHealthMonitor.recordRebalance("shard rebalance triggered");
+        }
         
         List<NodeInfo> onlineNodes = nodes.values().stream()
             .filter(n -> n.status() == NodeStatus.ONLINE)

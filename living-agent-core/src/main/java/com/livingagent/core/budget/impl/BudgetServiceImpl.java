@@ -1,8 +1,10 @@
 package com.livingagent.core.budget.impl;
 
 import com.livingagent.core.budget.*;
+import com.livingagent.core.budget.feedback.BudgetHealthMonitor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,6 +25,9 @@ public class BudgetServiceImpl implements BudgetService {
 
     private final BudgetAllocationRepository allocationRepository;
     private final BudgetTransactionRepository transactionRepository;
+
+    @Autowired(required = false)
+    private BudgetHealthMonitor budgetHealthMonitor;
 
     public BudgetServiceImpl(BudgetAllocationRepository allocationRepository, 
                             BudgetTransactionRepository transactionRepository) {
@@ -56,7 +61,12 @@ public class BudgetServiceImpl implements BudgetService {
                 "Initial allocation", null, null);
         
         log.info("Created budget allocation: {} for {}/{}", allocationId, request.budgetType(), request.ownerId());
-        
+
+        // 闭环52: 预算分配时记录
+        if (budgetHealthMonitor != null) {
+            budgetHealthMonitor.recordAllocation(allocationId, request.allocatedAmountCents());
+        }
+
         return toBudgetAllocation(entity);
     }
 
@@ -126,7 +136,12 @@ public class BudgetServiceImpl implements BudgetService {
         long remaining = entity.getAllocatedAmountCents() - entity.getUsedAmountCents() - entity.getReservedAmountCents();
         
         log.info("Used budget: {} amount: {} remaining: {}", allocationId, amountCents, remaining);
-        
+
+        // 闭环52: 预算支出时记录
+        if (budgetHealthMonitor != null) {
+            budgetHealthMonitor.recordSpending(allocationId, entity.getUsedAmountCents());
+        }
+
         return new BudgetUsageResult(true, "Budget used successfully", remaining, transactionId);
     }
 
@@ -205,7 +220,12 @@ public class BudgetServiceImpl implements BudgetService {
         long remaining = entity.getAllocatedAmountCents() - entity.getUsedAmountCents() - entity.getReservedAmountCents();
         
         log.info("Confirmed reservation: {} amount: {}", transactionId, amount);
-        
+
+        // 闭环52: 预留确认(实际支出)时记录
+        if (budgetHealthMonitor != null) {
+            budgetHealthMonitor.recordSpending(allocationId, entity.getUsedAmountCents());
+        }
+
         return new BudgetUsageResult(true, "Reservation confirmed", remaining, null);
     }
 

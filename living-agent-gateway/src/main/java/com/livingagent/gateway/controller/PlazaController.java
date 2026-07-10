@@ -2,9 +2,11 @@ package com.livingagent.gateway.controller;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.livingagent.core.security.AccessGateService;
+import com.livingagent.core.social.feedback.PlazaEngagementTracker;
 import com.livingagent.gateway.controller.common.ApiResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -17,6 +19,9 @@ public class PlazaController {
 
     private static final Logger log = LoggerFactory.getLogger(PlazaController.class);
     private final AccessGateService accessGateService;
+
+    @Autowired(required = false)
+    private PlazaEngagementTracker plazaEngagementTracker;
 
     public PlazaController(AccessGateService accessGateService) {
         this.accessGateService = accessGateService;
@@ -81,8 +86,13 @@ public class PlazaController {
         }
         log.info("Creating plaza post: {}", request.content());
 
+        String postId = "post_" + System.currentTimeMillis();
+        if (plazaEngagementTracker != null) {
+            plazaEngagementTracker.recordPost(postId);
+        }
+
         PostInfo post = new PostInfo(
-                "post_" + System.currentTimeMillis(),
+                postId,
                 "user_" + System.currentTimeMillis(),
                 "human",
                 "当前用户",
@@ -106,6 +116,9 @@ public class PlazaController {
             return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.info("Liking post: {}", postId);
+        if (plazaEngagementTracker != null) {
+            plazaEngagementTracker.recordLike(postId);
+        }
         return ResponseEntity.ok(ApiResponse.ok(null));
     }
 

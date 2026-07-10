@@ -131,9 +131,10 @@ public class LivingAgentCoreConfig {
 
     @Bean
     public CodeReviewWorkflowService codeReviewWorkflowService(CodeReviewStateRepository codeReviewStateRepository,
-                                                                com.livingagent.core.autonomy.ArtifactRecordService artifactRecordService) {
-        log.info("Initializing JpaCodeReviewWorkflowService");
-        return new JpaCodeReviewWorkflowService(codeReviewStateRepository, artifactRecordService);
+                                                                com.livingagent.core.autonomy.ArtifactRecordService artifactRecordService,
+                                                                com.livingagent.core.codereview.feedback.CodeReviewMetricsService codeReviewMetricsService) {
+        log.info("Initializing JpaCodeReviewWorkflowService with CodeReviewMetricsService");
+        return new JpaCodeReviewWorkflowService(codeReviewStateRepository, artifactRecordService, codeReviewMetricsService);
     }
 
     @Bean

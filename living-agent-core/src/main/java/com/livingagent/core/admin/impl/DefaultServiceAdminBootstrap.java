@@ -4,6 +4,7 @@ import com.livingagent.core.admin.AdminOperationResult;
 import com.livingagent.core.admin.ServiceAdminBootstrap;
 import com.livingagent.core.database.entity.ServiceAdminBootstrapStateEntity;
 import com.livingagent.core.database.repository.ServiceAdminBootstrapStateRepository;
+import com.livingagent.core.diagnosis.feedback.ServiceBootstrapHealthTracker;
 import com.livingagent.core.tool.Tool;
 import com.livingagent.core.tool.ToolRegistry;
 import com.livingagent.core.tool.Tool.ToolParams;
@@ -29,16 +30,21 @@ public class DefaultServiceAdminBootstrap implements ServiceAdminBootstrap {
 
     private final ToolRegistry toolRegistry;
     private final ServiceAdminBootstrapStateRepository stateRepository;
+    private final ServiceBootstrapHealthTracker healthTracker;
 
     public DefaultServiceAdminBootstrap(ToolRegistry toolRegistry,
-                                        ServiceAdminBootstrapStateRepository stateRepository) {
+                                        ServiceAdminBootstrapStateRepository stateRepository,
+                                        ServiceBootstrapHealthTracker healthTracker) {
         this.toolRegistry = toolRegistry;
         this.stateRepository = stateRepository;
+        this.healthTracker = healthTracker;
     }
 
     @Override
     public BootstrapResult bootstrapAll() {
         log.info("ServiceAdminBootstrap: starting full initialization (using ToolRegistry)");
+        healthTracker.recordBootstrapStart("all");
+        long startTime = System.currentTimeMillis();
         List<BootstrapResult> results = new ArrayList<>();
         results.add(bootstrapService("gitlab"));
         results.add(bootstrapService("openproject"));
@@ -54,12 +60,20 @@ public class DefaultServiceAdminBootstrap implements ServiceAdminBootstrap {
             totalSteps, successSteps, skippedSteps, failedSteps);
         log.info("ServiceAdminBootstrap: {}", summary);
 
+        if (allSuccess) {
+            healthTracker.recordBootstrapComplete("all", System.currentTimeMillis() - startTime);
+        } else {
+            healthTracker.recordBootstrapFailure("all", summary);
+        }
+
         return new BootstrapResult(allSuccess, "all", totalSteps, successSteps, skippedSteps, failedSteps, summary);
     }
 
     @Override
     public BootstrapResult bootstrapService(String serviceType) {
         log.info("ServiceAdminBootstrap: initializing service {} (via ToolRegistry)", serviceType);
+        healthTracker.recordBootstrapStart(serviceType);
+        long startTime = System.currentTimeMillis();
         List<AdminOperationResult> stepResults = new ArrayList<>();
 
         switch (serviceType) {
@@ -82,6 +96,12 @@ public class DefaultServiceAdminBootstrap implements ServiceAdminBootstrap {
         String summary = String.format("%s: total=%d, success=%d, skipped=%d, failed=%d",
             serviceType, total, success, skipped, failed);
         log.info("ServiceAdminBootstrap: {}", summary);
+
+        if (failed == 0) {
+            healthTracker.recordBootstrapComplete(serviceType, System.currentTimeMillis() - startTime);
+        } else {
+            healthTracker.recordBootstrapFailure(serviceType, summary);
+        }
 
         return failed == 0
             ? BootstrapResult.success(serviceType, total, success, skipped, summary)

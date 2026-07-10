@@ -23,7 +23,12 @@ import java.util.concurrent.ConcurrentHashMap;
  * 通过 {@link SessionContextRepository} 查询 DB 中最新的 session，并按 lastActivity 过滤过期会话。
  */
 @Component
-public class InMemoryConnectionRegistry implements ConnectionRegistry, PersistentConnectionRegistry {
+@org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
+    name = "living-agent.connection-registry.backend",
+    havingValue = "memory",
+    matchIfMissing = true
+)
+public class InMemoryConnectionRegistry implements PersistentConnectionRegistry {
 
     private static final Logger log = LoggerFactory.getLogger(InMemoryConnectionRegistry.class);
     /** 会话视为"活跃"的最大空闲时间，超过则视为已断开 */
@@ -306,6 +311,14 @@ public class InMemoryConnectionRegistry implements ConnectionRegistry, Persisten
     }
 
     @Override
+    public List<EventQueueService.PendingEvent> getPendingEventsAfter(String sessionId, long afterTimestamp) {
+        if (eventQueueService != null) {
+            return eventQueueService.getPendingEventsAfter(sessionId, afterTimestamp);
+        }
+        return List.of();
+    }
+
+    @Override
     public void markEventSent(String sessionId, String eventId) {
         if (eventQueueService != null) {
             eventQueueService.markEventSent(sessionId, eventId);
@@ -317,6 +330,14 @@ public class InMemoryConnectionRegistry implements ConnectionRegistry, Persisten
         if (eventQueueService != null) {
             eventQueueService.clearSentEvents(sessionId);
         }
+    }
+
+    @Override
+    public Optional<Long> getLatestEventTimestamp(String sessionId) {
+        if (eventQueueService != null) {
+            return eventQueueService.getLatestEventTimestamp(sessionId);
+        }
+        return Optional.empty();
     }
 
     public Optional<ConnectionContext> findByTaskKey(String taskKey) {

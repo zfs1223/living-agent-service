@@ -3,9 +3,11 @@ package com.livingagent.gateway.controller;
 import com.livingagent.core.database.entity.VisitorEntity;
 import com.livingagent.core.database.repository.VisitorRepository;
 import com.livingagent.core.security.AccessGateService;
+import com.livingagent.core.visitor.feedback.VisitorConversionTracker;
 import com.livingagent.gateway.controller.common.ApiResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -21,6 +23,9 @@ public class ReceptionController {
     private static final String RECEPTIONIST_NAME = "前台小助手";
     private final AccessGateService accessGateService;
     private final VisitorRepository visitorRepository;
+
+    @Autowired(required = false)
+    private VisitorConversionTracker visitorConversionTracker;
 
     public ReceptionController(AccessGateService accessGateService, VisitorRepository visitorRepository) {
         this.accessGateService = accessGateService;
@@ -58,6 +63,13 @@ public class ReceptionController {
         String sessionId = visitorId != null ? visitorId : "visitor_" + UUID.randomUUID().toString().substring(0, 8);
         try {
             log.info("[Reception] Visitor {} sent message: {}", sessionId, request.message());
+
+            // 闭环51: 访客聊天时记录
+            if (visitorConversionTracker != null) {
+                visitorConversionTracker.recordVisit(sessionId);
+                visitorConversionTracker.recordChat(sessionId);
+            }
+
             String response = processReceptionChat(sessionId, request.message());
             ChatResponse chatResponse = new ChatResponse(sessionId, response, System.currentTimeMillis());
             return ResponseEntity.ok(ApiResponse.ok(chatResponse));
@@ -103,6 +115,12 @@ public class ReceptionController {
                 null, Instant.now(), null, "checked_in"
         );
         visitorRepository.save(entity);
+
+        // 闭环51: 访客签到(注册)时记录
+        if (visitorConversionTracker != null) {
+            visitorConversionTracker.recordVisit(vid);
+            visitorConversionTracker.recordRegistration(vid);
+        }
 
         return ResponseEntity.ok(ApiResponse.ok(toVisitorInfo(entity)));
     }

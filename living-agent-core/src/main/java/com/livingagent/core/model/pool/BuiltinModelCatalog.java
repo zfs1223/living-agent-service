@@ -22,7 +22,7 @@ public class BuiltinModelCatalog {
     private static final Logger log = LoggerFactory.getLogger(BuiltinModelCatalog.class);
 
     private static final String[] OLLAMA_BASE_URLS = {
-        "http://localhost:11434",
+        "http://host.docker.internal:11434",
         "http://host.docker.internal:11434"
     };
 

@@ -9,6 +9,7 @@ import com.livingagent.core.channel.Channel;
 import com.livingagent.core.channel.ChannelManager;
 import com.livingagent.core.channel.ChannelMessage;
 import com.livingagent.core.workflow.handlers.*;
+import com.livingagent.core.workflow.monitor.WorkflowStageMonitor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,6 +30,7 @@ public class WorkflowOrchestrator {
     private final Map<String, PhaseHandler> phaseHandlers = new ConcurrentHashMap<>();
     private final Map<String, WorkflowExecution> activeWorkflows = new ConcurrentHashMap<>();
     private WorkflowMonitor monitor;
+    private WorkflowStageMonitor stageMonitor;
 
     public WorkflowOrchestrator(ProjectService projectService, ChannelManager channelManager, TaskRepository taskRepository) {
         this.projectService = projectService;
@@ -42,6 +44,14 @@ public class WorkflowOrchestrator {
         this.monitor = monitor;
         if (monitor != null) {
             log.info("WorkflowOrchestrator: WorkflowMonitor enabled");
+        }
+    }
+
+    @Autowired(required = false)
+    public void setStageMonitor(WorkflowStageMonitor stageMonitor) {
+        this.stageMonitor = stageMonitor;
+        if (stageMonitor != null) {
+            log.info("[闭环43] WorkflowOrchestrator: WorkflowStageMonitor enabled");
         }
     }
 
@@ -124,6 +134,10 @@ public class WorkflowOrchestrator {
         if (monitor != null) {
             monitor.registerExecution(projectId, phase, "workflow-orchestrator");
         }
+
+        if (stageMonitor != null) {
+            stageMonitor.recordStageStart(projectId, phase.getCode());
+        }
         
         publishPhaseStart(projectId, phase);
         
@@ -137,6 +151,10 @@ public class WorkflowOrchestrator {
             
             if (monitor != null) {
                 monitor.failExecution(projectId, e.getMessage());
+            }
+
+            if (stageMonitor != null) {
+                stageMonitor.recordStageComplete(projectId, phase.getCode(), false);
             }
         }
     }
@@ -161,6 +179,10 @@ public class WorkflowOrchestrator {
 
         if (monitor != null) {
             monitor.completeExecution(projectId);
+        }
+
+        if (stageMonitor != null) {
+            stageMonitor.recordStageComplete(projectId, phase.getCode(), true);
         }
 
         publishPhaseComplete(projectId, phase, result);

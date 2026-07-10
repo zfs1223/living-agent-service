@@ -11,21 +11,28 @@ import com.livingagent.core.memory.Memory;
 import com.livingagent.core.memory.MemoryBackend;
 import com.livingagent.core.memory.MemoryCategory;
 import com.livingagent.core.memory.MemoryEntry;
+import com.livingagent.core.memory.feedback.MemoryConversionTracker;
 
 public class MemoryServiceImpl implements Memory {
-    
+
     private static final Logger log = LoggerFactory.getLogger(MemoryServiceImpl.class);
-    
+
     private final MemoryBackend backend;
     private final String name;
-    
+    private final MemoryConversionTracker memoryConversionTracker;
+
     public MemoryServiceImpl(MemoryBackend backend) {
-        this(backend, "default");
+        this(backend, "default", null);
     }
-    
+
     public MemoryServiceImpl(MemoryBackend backend, String name) {
+        this(backend, name, null);
+    }
+
+    public MemoryServiceImpl(MemoryBackend backend, String name, MemoryConversionTracker memoryConversionTracker) {
         this.backend = backend;
         this.name = name;
+        this.memoryConversionTracker = memoryConversionTracker;
     }
     
     @Override
@@ -36,6 +43,9 @@ public class MemoryServiceImpl implements Memory {
     @Override
     public CompletableFuture<Void> store(String key, String content, MemoryCategory category, String sessionId) {
         log.debug("Storing memory: key={}, category={}, session={}", key, category, sessionId);
+        if (memoryConversionTracker != null) {
+            memoryConversionTracker.recordMemoryCreated();
+        }
         return backend.store(key, content, category, sessionId);
     }
     
@@ -60,6 +70,9 @@ public class MemoryServiceImpl implements Memory {
     @Override
     public CompletableFuture<Boolean> forget(String key) {
         log.debug("Forgetting memory: key={}", key);
+        if (memoryConversionTracker != null) {
+            memoryConversionTracker.recordMemoryArchived();
+        }
         return backend.forget(key);
     }
     

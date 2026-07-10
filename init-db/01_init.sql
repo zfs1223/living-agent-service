@@ -2149,6 +2149,44 @@ CREATE INDEX IF NOT EXISTS idx_approval_workflow_inst ON approval_instances(work
 CREATE INDEX IF NOT EXISTS idx_approval_business ON approval_instances(business_type, business_id);
 CREATE INDEX IF NOT EXISTS idx_approval_created_at ON approval_instances(created_at);
 
+-- 16.6: 审批审计日志表（审批全生命周期操作追溯）
+CREATE TABLE IF NOT EXISTS approval_audit_log (
+    id BIGSERIAL PRIMARY KEY,
+    instance_id VARCHAR(100) NOT NULL,
+    workflow_id VARCHAR(100),
+    business_type VARCHAR(64),
+    business_id VARCHAR(200),
+    action VARCHAR(20) NOT NULL,
+    step_id VARCHAR(100),
+    operator_id VARCHAR(200),
+    comment TEXT,
+    result_status VARCHAR(30),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_approval_audit_instance ON approval_audit_log(instance_id);
+CREATE INDEX IF NOT EXISTS idx_approval_audit_operator ON approval_audit_log(operator_id);
+CREATE INDEX IF NOT EXISTS idx_approval_audit_action ON approval_audit_log(action);
+CREATE INDEX IF NOT EXISTS idx_approval_audit_created ON approval_audit_log(created_at);
+
+-- R5: 数据迁移记录表（持久化迁移历史，替代内存列表）
+CREATE TABLE IF NOT EXISTS migration_records (
+    id BIGSERIAL PRIMARY KEY,
+    migration_id VARCHAR(100) NOT NULL UNIQUE,
+    source_type VARCHAR(32) NOT NULL,
+    target_type VARCHAR(32) NOT NULL,
+    total_records INT NOT NULL DEFAULT 0,
+    migrated_records INT NOT NULL DEFAULT 0,
+    success BOOLEAN NOT NULL DEFAULT FALSE,
+    duration_ms BIGINT,
+    started_at TIMESTAMPTZ NOT NULL,
+    completed_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_migration_id ON migration_records(migration_id);
+CREATE INDEX IF NOT EXISTS idx_migration_source ON migration_records(source_type);
+CREATE INDEX IF NOT EXISTS idx_migration_created ON migration_records(started_at);
+
 -- ============================================
 -- 21.8. DAG Task Tables (P2-3)
 -- 任务依赖图持久化

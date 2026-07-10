@@ -2,6 +2,7 @@ package com.livingagent.core.security.client;
 
 import com.livingagent.core.database.entity.ClientUserBindingEntity;
 import com.livingagent.core.database.repository.ClientUserBindingRepository;
+import com.livingagent.core.security.client.feedback.ClientDeviceHealthMonitor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -20,9 +21,12 @@ public class ClientUserBindingService {
     private static final Logger log = LoggerFactory.getLogger(ClientUserBindingService.class);
 
     private final ClientUserBindingRepository repository;
+    private final ClientDeviceHealthMonitor deviceHealthMonitor;
 
-    public ClientUserBindingService(ClientUserBindingRepository repository) {
+    public ClientUserBindingService(ClientUserBindingRepository repository,
+                                    ClientDeviceHealthMonitor deviceHealthMonitor) {
         this.repository = repository;
+        this.deviceHealthMonitor = deviceHealthMonitor;
     }
 
     /**
@@ -52,6 +56,7 @@ public class ClientUserBindingService {
             entity.setLastActiveAt(now);
             repository.save(entity);
             log.info("新建客户端-用户绑定：clientId={}, userId={}, accessLevel={}", clientId, userId, accessLevel);
+            deviceHealthMonitor.recordOperation(clientId, true);
         } else {
             // 更新绑定（可能是同一用户重新登录）
             for (ClientUserBindingEntity entity : existing) {
@@ -60,6 +65,7 @@ public class ClientUserBindingService {
                 entity.setDepartmentCode(departmentCode != null ? departmentCode : entity.getDepartmentCode());
                 repository.save(entity);
             }
+            deviceHealthMonitor.recordOperation(clientId, true);
             log.info("更新客户端-用户绑定：clientId={}, userId={}, accessLevel={}", clientId, userId, accessLevel);
         }
     }
@@ -76,6 +82,7 @@ public class ClientUserBindingService {
 
         repository.findByClientIdAndUserId(clientId, userId).ifPresent(entity -> {
             repository.delete(entity);
+            deviceHealthMonitor.recordOperation(clientId, true);
             log.info("解绑客户端-用户：clientId={}, userId={}", clientId, userId);
         });
     }

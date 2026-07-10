@@ -50,7 +50,7 @@ public class LlmProviderRegistry {
         Map.entry("vllm", new ProviderEntry("vllm", "vLLM", "OPENAI_COMPATIBLE",
             "http://localhost:8000/v1", true, 4096)),
         Map.entry("ollama", new ProviderEntry("ollama", "Ollama", "OPENAI_COMPATIBLE",
-            "http://localhost:11434/v1", true, 4096)),
+            "http://host.docker.internal:11434/v1", true, 4096)),
         Map.entry("sglang", new ProviderEntry("sglang", "SGLang", "OPENAI_COMPATIBLE",
             "http://localhost:30000/v1", true, 4096)),
         Map.entry("siliconflow", new ProviderEntry("siliconflow", "硅基流动 (SiliconFlow)", "OPENAI_COMPATIBLE",

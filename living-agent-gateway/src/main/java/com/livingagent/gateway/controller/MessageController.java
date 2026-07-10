@@ -2,6 +2,7 @@ package com.livingagent.gateway.controller;
 
 import com.livingagent.core.database.entity.MessageEntity;
 import com.livingagent.core.database.repository.MessageRepository;
+import com.livingagent.core.notification.feedback.NotificationMetricsService;
 import com.livingagent.gateway.controller.common.ApiResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,9 +19,11 @@ public class MessageController {
 
     private static final Logger log = LoggerFactory.getLogger(MessageController.class);
     private final MessageRepository messageRepository;
+    private final NotificationMetricsService notificationMetricsService;
 
-    public MessageController(MessageRepository messageRepository) {
+    public MessageController(MessageRepository messageRepository, NotificationMetricsService notificationMetricsService) {
         this.messageRepository = messageRepository;
+        this.notificationMetricsService = notificationMetricsService;
     }
 
     @GetMapping("/inbox")
@@ -35,6 +38,7 @@ public class MessageController {
             messages = messages.subList(0, limit);
         }
         List<MessageInfo> result = messages.stream().map(this::toMessageInfo).toList();
+        notificationMetricsService.recordSent("inbox");
         return ResponseEntity.ok(ApiResponse.ok(result));
     }
 
@@ -67,6 +71,7 @@ public class MessageController {
         if (entity.getReadAt() == null) {
             entity.setReadAt(Instant.now());
             messageRepository.save(entity);
+            notificationMetricsService.recordRead(entity.getType() != null ? entity.getType() : "default");
         }
         return ResponseEntity.ok(ApiResponse.ok());
     }
@@ -80,6 +85,9 @@ public class MessageController {
         }
         int updated = messageRepository.markAllAsReadByRecipientId(employeeId, Instant.now());
         log.info("Marked {} messages as read for employee: {}", updated, employeeId);
+        for (int i = 0; i < updated; i++) {
+            notificationMetricsService.recordRead("bulk");
+        }
         return ResponseEntity.ok(ApiResponse.ok());
     }
 

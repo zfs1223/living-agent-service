@@ -254,6 +254,12 @@ export default function Login() {
                             )}
                         </button>
                     </form>
+
+                    <div style={{ textAlign: 'center', marginTop: 16, fontSize: 12, color: 'var(--text-tertiary)' }}>
+                        <Link to="/frontdesk" style={{ color: 'var(--accent)', textDecoration: 'none' }}>
+                            {t('phoneLogin.tryChat', '先去闲聊')} →
+                        </Link>
+                    </div>
                 </div>
             </div>
         </div>

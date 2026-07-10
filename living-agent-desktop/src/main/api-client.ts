@@ -305,3 +305,141 @@ export async function downloadArtifact(artifactId: string): Promise<Buffer> {
   const arr = await res.arrayBuffer();
   return Buffer.from(arr);
 }
+
+/* ============ 审批 API ============ */
+
+export async function getApprovalList(status?: string): Promise<any[]> {
+  const qs = status ? `?status=${encodeURIComponent(status)}` : '';
+  return apiRequest<any[]>(`/api/approvals${qs}`);
+}
+
+export async function getApprovalDetail(id: string): Promise<any> {
+  return apiRequest<any>(`/api/approvals/${id}`);
+}
+
+export async function approveApproval(id: string, stepId: string, comment?: string): Promise<any> {
+  return apiRequest<any>(`/api/approvals/${id}/steps/${stepId}/approve`, {
+    method: 'POST',
+    body: JSON.stringify({ comment: comment || '' })
+  });
+}
+
+export async function rejectApproval(id: string, stepId: string, comment?: string): Promise<any> {
+  return apiRequest<any>(`/api/approvals/${id}/steps/${stepId}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({ comment: comment || '' })
+  });
+}
+
+export async function cancelApproval(id: string): Promise<any> {
+  return apiRequest<any>(`/api/approvals/${id}/cancel`, { method: 'POST' });
+}
+
+/* ============ 消息 API ============ */
+
+export async function getMessages(limit?: number): Promise<any[]> {
+  const qs = limit ? `?limit=${limit}` : '';
+  return apiRequest<any[]>(`/api/messages/inbox${qs}`);
+}
+
+export async function markMessageRead(id: string): Promise<void> {
+  await apiRequest<void>(`/api/messages/${id}/read`, { method: 'PUT' });
+}
+
+export async function markAllMessagesRead(): Promise<void> {
+  await apiRequest<void>('/api/messages/read-all', { method: 'PUT' });
+}
+
+export async function getUnreadCount(): Promise<number> {
+  const result = await apiRequest<{ unread_count: number }>('/api/messages/unread-count');
+  return result?.unread_count ?? 0;
+}
+
+// ─── Agent Management (P1-1) ──────────────────────────────
+export async function listAgents(): Promise<any[]> {
+  return apiRequest<any[]>('/api/agents');
+}
+
+export async function getAgent(id: string): Promise<any> {
+  return apiRequest<any>(`/api/agents/${encodeURIComponent(id)}`);
+}
+
+export async function startAgent(id: string): Promise<any> {
+  return apiRequest<any>(`/api/agents/${encodeURIComponent(id)}/start`, { method: 'POST' });
+}
+
+export async function stopAgent(id: string): Promise<any> {
+  return apiRequest<any>(`/api/agents/${encodeURIComponent(id)}/stop`, { method: 'POST' });
+}
+
+// ─── Interventions (P1-2) ──────────────────────────────────
+export async function listInterventions(status?: string): Promise<any[]> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : '';
+  return apiRequest<any[]>(`/api/interventions${query}`);
+}
+
+export async function respondIntervention(id: string, action: string, comment?: string): Promise<any> {
+  return apiRequest<any>(`/api/interventions/${encodeURIComponent(id)}/respond`, {
+    method: 'POST',
+    body: JSON.stringify({ action, comment: comment || '' }),
+  });
+}
+
+export async function escalateIntervention(id: string, reason: string): Promise<any> {
+  return apiRequest<any>(`/api/interventions/${encodeURIComponent(id)}/escalate`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+}
+
+// ─── Skills (P1-3) ─────────────────────────────────────────
+export async function listSkills(): Promise<any[]> {
+  return apiRequest<any[]>('/api/skills');
+}
+
+export async function browseSkills(section: string, params: Record<string, string> = {}): Promise<any> {
+  const qs = new URLSearchParams(params).toString();
+  return apiRequest<any>(`/api/skills/browse/${section}${qs ? '?' + qs : ''}`);
+}
+
+export async function bindSkill(agentId: string, skillId: string): Promise<any> {
+  return apiRequest<any>(`/api/agents/${encodeURIComponent(agentId)}/skills/${encodeURIComponent(skillId)}`, { method: 'POST' });
+}
+
+export async function unbindSkill(agentId: string, skillId: string): Promise<any> {
+  return apiRequest<any>(`/api/agents/${encodeURIComponent(agentId)}/skills/${encodeURIComponent(skillId)}`, { method: 'DELETE' });
+}
+
+// ─── Proactive (P1-4) ──────────────────────────────────────
+export async function getProactiveDigest(): Promise<any> {
+  return apiRequest<any>('/api/proactive/digest');
+}
+
+export async function listHabits(): Promise<any[]> {
+  return apiRequest<any[]>('/api/proactive/habits');
+}
+
+export async function listProactiveNotifications(): Promise<any[]> {
+  return apiRequest<any[]>('/api/proactive/notifications');
+}
+
+// ─── Plaza (P1-5) ──────────────────────────────────────────
+export async function listPosts(params: Record<string, string> = {}): Promise<any[]> {
+  const qs = new URLSearchParams(params).toString();
+  return apiRequest<any[]>(`/api/plaza/posts${qs ? '?' + qs : ''}`);
+}
+
+export async function createPost(data: { title: string; content: string; tags?: string[] }): Promise<any> {
+  return apiRequest<any>('/api/plaza/posts', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function likePost(postId: string): Promise<any> {
+  return apiRequest<any>(`/api/plaza/posts/${encodeURIComponent(postId)}/like`, { method: 'POST' });
+}
+
+export async function getPlazaStats(): Promise<any> {
+  return apiRequest<any>('/api/plaza/stats');
+}

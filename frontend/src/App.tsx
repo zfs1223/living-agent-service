@@ -21,6 +21,8 @@ const AdminCompanies = lazy(() => import('./pages/AdminCompanies'));
 const SSOEntry = lazy(() => import('./pages/SSOEntry'));
 const Projects = lazy(() => import('./pages/Projects'));
 const Approvals = lazy(() => import('./pages/Approvals'));
+const CodeReview = lazy(() => import('./pages/CodeReview'));
+const MemoryBrowser = lazy(() => import('./pages/MemoryBrowser'));
 const DepartmentDetail = lazy(() => import('./pages/DepartmentDetail'));
 const Neurons = lazy(() => import('./pages/Neurons'));
 const Interventions = lazy(() => import('./pages/Interventions'));
@@ -29,6 +31,8 @@ const Reception = lazy(() => import('./pages/Reception'));
 const VoicePrintLogin = lazy(() => import('./pages/VoicePrintLogin'));
 const Office = lazy(() => import('./pages/Office'));
 const Autonomous = lazy(() => import('./pages/Autonomous'));
+const FrontDesk = lazy(() => import('./pages/FrontDesk'));
+const VoicePrintSettings = lazy(() => import('./pages/VoicePrintSettings'));
 
 function getStoredTenantId() {
     return localStorage.getItem('current_tenant_id') || '';
@@ -229,6 +233,7 @@ export default function App() {
             <Toast />
             <Suspense fallback={<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: 'var(--text-tertiary)' }}>加载中...</div>}>
                 <Routes>
+                    <Route path="/frontdesk" element={<FrontDesk />} />
                     <Route path="/login" element={<Login />} />
                     <Route path="/forgot-password" element={<ForgotPassword />} />
                     <Route path="/reset-password" element={<ResetPassword />} />
@@ -251,6 +256,8 @@ export default function App() {
                         {/* Projects and Approvals */}
                         <Route path="projects" element={<Projects />} />
                         <Route path="approvals" element={<Approvals />} />
+                        <Route path="code-reviews" element={<CodeReview />} />
+                        <Route path="memories" element={<MemoryBrowser />} />
                         {/* Neuron & Intervention */}
                             <Route path="neurons" element={<Neurons />} />
                             <Route path="interventions" element={<Interventions />} />
@@ -259,6 +266,7 @@ export default function App() {
                             <Route path="reception" element={<Reception />} />
                             {/* Voice & Office */}
                             <Route path="voiceprint" element={<VoicePrintLogin />} />
+                            <Route path="voiceprint-settings" element={<VoicePrintSettings />} />
                             <Route path="office" element={<Office />} />
                             {/* Autonomous */}
                             <Route path="autonomous" element={<Autonomous />} />

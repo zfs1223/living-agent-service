@@ -3,8 +3,10 @@ package com.livingagent.core.anomaly.impl;
 import com.livingagent.core.anomaly.AnomalyContext;
 import com.livingagent.core.anomaly.AnomalyDetector;
 import com.livingagent.core.anomaly.AnomalyResult;
+import com.livingagent.core.anomaly.feedback.AnomalyDetectionFeedbackLoop;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
@@ -21,7 +23,10 @@ public class PerformanceAnomalyDetector implements AnomalyDetector {
     private static final long RESPONSE_TIME_ERROR_THRESHOLD = 10000;
     private static final double ERROR_RATE_WARNING_THRESHOLD = 0.05;
     private static final double ERROR_RATE_ERROR_THRESHOLD = 0.15;
-    
+
+    @Autowired(required = false)
+    private AnomalyDetectionFeedbackLoop anomalyFeedbackLoop;
+
     private boolean enabled = true;
     private final Map<String, AtomicLong> requestCounts = new ConcurrentHashMap<>();
     private final Map<String, AtomicLong> errorCounts = new ConcurrentHashMap<>();
@@ -94,7 +99,14 @@ public class PerformanceAnomalyDetector implements AnomalyDetector {
                 result.addDetail("cpuUsage", cpuUsage);
             }
         }
-        
+
+        if (anomalyFeedbackLoop != null && result.isAnomalyDetected()) {
+            String alertId = "perf_" + context.getSessionId() + "_" + System.currentTimeMillis();
+            boolean confirmed = result.getLevel() == AnomalyResult.AnomalyLevel.ERROR
+                    || result.getLevel() == AnomalyResult.AnomalyLevel.CRITICAL;
+            anomalyFeedbackLoop.recordAlert(alertId, confirmed);
+        }
+
         return result;
     }
     

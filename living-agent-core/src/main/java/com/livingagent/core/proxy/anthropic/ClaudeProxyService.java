@@ -2,6 +2,7 @@ package com.livingagent.core.proxy.anthropic;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.livingagent.core.model.pool.ModelHealthRegistry;
+import com.livingagent.core.model.proxy.feedback.ClaudeProxyMetricsService;
 import com.livingagent.core.proxy.anthropic.converter.AnthropicToOpenAiConverter;
 import com.livingagent.core.proxy.anthropic.sse.AnthropicSseBuilder;
 import com.livingagent.core.proxy.anthropic.sse.OpenAiStreamChunkParser;
@@ -29,18 +30,21 @@ public class ClaudeProxyService {
     private final ClaudeProxyAuditService auditService;
     private final ClaudeCliProperties properties;
     private final ModelHealthRegistry modelHealthRegistry;
+    private final ClaudeProxyMetricsService proxyMetricsService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public ClaudeProxyService(ClaudeProxyModelRouter modelRouter,
                               AnthropicToOpenAiConverter converter,
                               ClaudeProxyAuditService auditService,
                               ClaudeCliProperties properties,
-                              ModelHealthRegistry modelHealthRegistry) {
+                              ModelHealthRegistry modelHealthRegistry,
+                              ClaudeProxyMetricsService proxyMetricsService) {
         this.modelRouter = modelRouter;
         this.converter = converter;
         this.auditService = auditService;
         this.properties = properties;
         this.modelHealthRegistry = modelHealthRegistry;
+        this.proxyMetricsService = proxyMetricsService;
     }
 
     public void createMessage(AnthropicMessagesRequest request, ClaudeProxyRequestContext context, SseEmitter emitter) {
@@ -84,6 +88,7 @@ public class ClaudeProxyService {
                 String errorBody = readStream(conn.getErrorStream());
                 modelHealthRegistry.recordFailure(routing.actualModel(), routing.provider().getId(), "HTTP " + responseCode);
                 auditService.recordFailed(context.requestId(), "provider_error", errorBody, System.currentTimeMillis() - startTime);
+                proxyMetricsService.recordRequest(routing.provider().getDisplayName(), false, System.currentTimeMillis() - startTime);
                 return buildNonStreamError("provider_error", "Provider returned " + responseCode + ": " + errorBody);
             }
 
@@ -120,6 +125,7 @@ public class ClaudeProxyService {
 
             auditService.recordCompleted(context.requestId(), stopReason, inputTokens, outputTokens, System.currentTimeMillis() - startTime);
             modelHealthRegistry.recordSuccess(routing.actualModel(), routing.provider().getId(), System.currentTimeMillis() - startTime);
+            proxyMetricsService.recordRequest(routing.provider().getDisplayName(), true, System.currentTimeMillis() - startTime);
 
             Map<String, Object> message = new LinkedHashMap<>();
             message.put("id", "msg_" + System.currentTimeMillis());
@@ -137,6 +143,7 @@ public class ClaudeProxyService {
             log.error("Claude proxy non-stream request failed: {}", e.getMessage());
             modelHealthRegistry.recordFailure(routing.actualModel(), routing.provider().getId(), e.getMessage());
             auditService.recordFailed(context.requestId(), "provider_error", e.getMessage(), System.currentTimeMillis() - startTime);
+            proxyMetricsService.recordRequest(routing.provider().getDisplayName(), false, System.currentTimeMillis() - startTime);
             return buildNonStreamError("provider_error", e.getMessage());
         }
     }
@@ -200,6 +207,7 @@ public class ClaudeProxyService {
             if (responseCode != HttpURLConnection.HTTP_OK) {
                 String errorBody = readStream(conn.getErrorStream());
                 modelHealthRegistry.recordFailure(routing.actualModel(), routing.provider().getId(), "HTTP " + responseCode);
+                proxyMetricsService.recordRequest(routing.provider().getDisplayName(), false, System.currentTimeMillis() - startTime);
                 throw new RuntimeException("Provider returned " + responseCode + ": " + errorBody);
             }
 
@@ -249,6 +257,7 @@ public class ClaudeProxyService {
                             sseBuilder.messageStop(stopReason);
                             modelHealthRegistry.recordSuccess(routing.actualModel(), routing.provider().getId(), System.currentTimeMillis() - startTime);
                             auditService.recordCompleted(context.requestId(), stopReason, inputTokens, outputTokens, System.currentTimeMillis() - startTime);
+                            proxyMetricsService.recordRequest(routing.provider().getDisplayName(), true, System.currentTimeMillis() - startTime);
                             emitter.complete();
                         }
                     }
@@ -260,6 +269,7 @@ public class ClaudeProxyService {
         } catch (Exception e) {
             log.error("Claude proxy request failed: {}", e.getMessage());
             modelHealthRegistry.recordFailure(routing.actualModel(), routing.provider().getId(), e.getMessage());
+            proxyMetricsService.recordRequest(routing.provider().getDisplayName(), false, System.currentTimeMillis() - startTime);
             emitError(emitter, context, "provider_error", e.getMessage(), startTime);
         }
     }

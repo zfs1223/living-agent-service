@@ -1,9 +1,12 @@
 package com.livingagent.core.migration.impl;
 
 import com.livingagent.core.database.vector.QdrantVectorService;
+import com.livingagent.core.database.entity.MigrationRecordEntity;
+import com.livingagent.core.database.repository.MigrationRecordRepository;
 import com.livingagent.core.embedding.EmbeddingService;
 import com.livingagent.core.knowledge.*;
 import com.livingagent.core.migration.DataMigrationService;
+import com.livingagent.core.migration.feedback.MigrationVerificationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -25,25 +28,31 @@ public class DataMigrationServiceImpl implements DataMigrationService {
     private final KnowledgeManager knowledgeManager;
     private final QdrantVectorService qdrantVectorService;
     private final EmbeddingService embeddingService;
+    private final MigrationRecordRepository migrationRecordRepository;
+    private final MigrationVerificationService migrationVerificationService;
 
     private final Map<String, MigrationStatus> activeMigrations = new ConcurrentHashMap<>();
-    private final List<MigrationRecord> migrationHistory = Collections.synchronizedList(new ArrayList<>());
 
     public DataMigrationServiceImpl(
             DataSource postgresDataSource,
             KnowledgeManager knowledgeManager,
             QdrantVectorService qdrantVectorService,
-            EmbeddingService embeddingService) {
+            EmbeddingService embeddingService,
+            MigrationRecordRepository migrationRecordRepository,
+            MigrationVerificationService migrationVerificationService) {
         this.postgresDataSource = postgresDataSource;
         this.knowledgeManager = knowledgeManager;
         this.qdrantVectorService = qdrantVectorService;
         this.embeddingService = embeddingService;
+        this.migrationRecordRepository = migrationRecordRepository;
+        this.migrationVerificationService = migrationVerificationService;
     }
 
     @Override
     public MigrationResult migrateKnowledgeToPostgres(MigrationConfig config) {
         String migrationId = "migrate_pg_" + System.currentTimeMillis();
         log.info("Starting migration to PostgreSQL: {}", migrationId);
+        migrationVerificationService.recordMigrationStart(migrationId, "SQLite -> PostgreSQL");
 
         long startTime = System.currentTimeMillis();
         List<MigrationError> errors = new ArrayList<>();
@@ -95,6 +104,7 @@ public class DataMigrationServiceImpl implements DataMigrationService {
 
             recordMigration(migrationId, "sqlite", "postgres", total, migrated.get(), result.success(), duration);
             activeMigrations.remove(migrationId);
+            migrationVerificationService.recordMigrationComplete(migrationId, result.success());
 
             log.info("Migration to PostgreSQL completed: {} records migrated, {} failed, {}ms",
                 migrated.get(), failed.get(), duration);
@@ -103,6 +113,7 @@ public class DataMigrationServiceImpl implements DataMigrationService {
 
         } catch (Exception e) {
             log.error("Migration to PostgreSQL failed: {}", e.getMessage(), e);
+            migrationVerificationService.recordMigrationComplete(migrationId, false);
             return MigrationResult.failure(migrationId, List.of(MigrationError.of("N/A", "MIGRATION_ERROR", e.getMessage())));
         }
     }
@@ -111,6 +122,7 @@ public class DataMigrationServiceImpl implements DataMigrationService {
     public MigrationResult migrateKnowledgeToQdrant(MigrationConfig config) {
         String migrationId = "migrate_qdrant_" + System.currentTimeMillis();
         log.info("Starting migration to Qdrant: {}", migrationId);
+        migrationVerificationService.recordMigrationStart(migrationId, "PostgreSQL -> Qdrant");
 
         long startTime = System.currentTimeMillis();
         List<MigrationError> errors = new ArrayList<>();
@@ -181,6 +193,7 @@ public class DataMigrationServiceImpl implements DataMigrationService {
 
             recordMigration(migrationId, "postgres", "qdrant", total, migrated.get(), result.success(), duration);
             activeMigrations.remove(migrationId);
+            migrationVerificationService.recordMigrationComplete(migrationId, result.success());
 
             log.info("Migration to Qdrant completed: {} records migrated, {} failed, {}ms",
                 migrated.get(), failed.get(), duration);
@@ -189,6 +202,7 @@ public class DataMigrationServiceImpl implements DataMigrationService {
 
         } catch (Exception e) {
             log.error("Migration to Qdrant failed: {}", e.getMessage(), e);
+            migrationVerificationService.recordMigrationComplete(migrationId, false);
             return MigrationResult.failure(migrationId, List.of(MigrationError.of("N/A", "MIGRATION_ERROR", e.getMessage())));
         }
     }
@@ -213,41 +227,45 @@ public class DataMigrationServiceImpl implements DataMigrationService {
 
     @Override
     public List<MigrationRecord> getMigrationHistory(int limit) {
-        return migrationHistory.stream()
-            .sorted(Comparator.comparing(MigrationRecord::startedAt).reversed())
+        return migrationRecordRepository.findAllByOrderByStartedAtDesc().stream()
             .limit(limit)
+            .map(e -> new MigrationRecord(
+                e.getMigrationId(), e.getSourceType(), e.getTargetType(),
+                e.getTotalRecords(), e.getMigratedRecords(), e.isSuccess(),
+                e.getStartedAt(), e.getCompletedAt(),
+                Map.of("durationMs", e.getDurationMs() != null ? e.getDurationMs() : 0L)
+            ))
             .toList();
     }
 
     @Override
     public ValidationResult validateMigration(String migrationId) {
-        Optional<MigrationRecord> record = migrationHistory.stream()
-            .filter(r -> r.migrationId().equals(migrationId))
-            .findFirst();
+        Optional<MigrationRecordEntity> recordOpt = migrationRecordRepository.findByMigrationId(migrationId);
 
-        if (record.isEmpty()) {
+        if (recordOpt.isEmpty()) {
             return new ValidationResult(migrationId, false, 0, 0, 0, 0, List.of(), List.of(), Map.of("error", "Migration not found"));
         }
 
-        MigrationRecord r = record.get();
-        boolean valid = r.totalRecords() == r.migratedRecords();
+        MigrationRecordEntity r = recordOpt.get();
+        boolean valid = r.getTotalRecords() == r.getMigratedRecords();
 
         return new ValidationResult(
             migrationId,
             valid,
-            r.totalRecords(),
-            r.migratedRecords(),
-            valid ? 0 : r.totalRecords() - r.migratedRecords(),
+            r.getTotalRecords(),
+            r.getMigratedRecords(),
+            valid ? 0 : r.getTotalRecords() - r.getMigratedRecords(),
             0,
             List.of(),
             List.of(),
-            Map.of("success", r.success())
+            Map.of("success", r.isSuccess())
         );
     }
 
     @Override
     public boolean rollbackMigration(String migrationId) {
         log.warn("Rollback requested for migration: {}", migrationId);
+        migrationVerificationService.recordRollback(migrationId, "Rollback requested");
         return false;
     }
 
@@ -393,10 +411,20 @@ public class DataMigrationServiceImpl implements DataMigrationService {
     }
 
     private void recordMigration(String id, String source, String target, int total, int migrated, boolean success, long duration) {
-        migrationHistory.add(new MigrationRecord(
-            id, source, target, total, migrated, success,
-            Instant.now().minusMillis(duration), Instant.now(),
-            Map.of("durationMs", duration)
-        ));
+        try {
+            MigrationRecordEntity entity = new MigrationRecordEntity();
+            entity.setMigrationId(id);
+            entity.setSourceType(source);
+            entity.setTargetType(target);
+            entity.setTotalRecords(total);
+            entity.setMigratedRecords(migrated);
+            entity.setSuccess(success);
+            entity.setDurationMs(duration);
+            entity.setStartedAt(Instant.now().minusMillis(duration));
+            entity.setCompletedAt(Instant.now());
+            migrationRecordRepository.save(entity);
+        } catch (Exception e) {
+            log.warn("Failed to persist migration record {}: {}", id, e.getMessage());
+        }
     }
 }

@@ -68,4 +68,25 @@ public class KnowledgeController {
         }
         return ResponseEntity.ok(promotionAuditService.history(key));
     }
+
+    /**
+     * P2-2: POST /api/knowledge/{id}/feedback - 知识效果反馈
+     */
+    @PostMapping("/{id}/feedback")
+    public ResponseEntity<ApiResponse<Void>> submitFeedback(
+            @PathVariable String id,
+            @RequestBody Map<String, Object> request,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+        
+        Boolean helpful = (Boolean) request.get("helpful");
+        if (helpful == null) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.err("invalid_request", "Missing 'helpful' field"));
+        }
+        
+        // Log feedback (P2-2: knowledge effect feedback tracking)
+        governanceService.recordFeedback(id, helpful, employeeId);
+        
+        return ResponseEntity.ok(ApiResponse.ok(null));
+    }
 }

@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { dashboardApi } from '../../services/dashboardApi';
 import { useAuthStore } from '../../stores';
 import type { EnterpriseSummary, DepartmentHealth, RiskAlert } from '../../services/dashboardApi';
+import VitalSignsDashboard from '../../components/VitalSignsDashboard';
 
 const Icons = {
     users: (
@@ -444,6 +445,30 @@ export default function EnterpriseDashboard() {
             </div>
 
             <StatsBar data={summary} />
+
+            {/* 系统健康体征 */}
+            <div style={{
+                border: '1px solid var(--border-subtle)',
+                borderRadius: '20px',
+                overflow: 'hidden',
+                background: 'rgba(255,255,255,0.02)',
+            }}>
+                <div style={{
+                    padding: '12px 16px',
+                    borderBottom: '1px solid var(--border-subtle)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    background: 'rgba(255,255,255,0.03)',
+                }}>
+                    <h3 style={{ margin: 0, fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)' }}>
+                        {t('dashboard.vitalSigns', '系统健康')}
+                    </h3>
+                </div>
+                <div style={{ padding: '12px' }}>
+                    <VitalSignsDashboard />
+                </div>
+            </div>
 
             <div style={{
                 border: '1px solid var(--border-subtle)',

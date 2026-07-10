@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../stores';
 import { useIdleTimeout } from '../hooks/useIdleTimeout';
-import { agentApi } from '../services/api';
+import { agentApi, vitalsApi } from '../services/api';
 import { request } from '../services/apiBase';
 import type { User } from '../types';
 import {
@@ -31,7 +31,8 @@ import {
     IconScale,
     IconSettingsAutomation,
     IconFolder,
-    IconChecklist
+    IconChecklist,
+    IconBrain
 } from '@tabler/icons-react';
 import { DEPARTMENTS, type DepartmentCode } from '../types';
 import { useAppStore } from '../stores';
@@ -205,6 +206,21 @@ export default function Layout() {
         queryClient.invalidateQueries({ queryKey: ['notifications'] });
     };
 
+    // System health status (P2-3)
+    const { data: vitals } = useQuery({
+        queryKey: ['vitals-status'],
+        queryFn: () => vitalsApi.getCurrent(),
+        refetchInterval: 60000,
+        enabled: !!user,
+    });
+    const systemStatus: 'healthy' | 'degraded' | 'error' = (() => {
+        if (!vitals) return 'healthy';
+        const score = vitals.healthScore ?? vitals.health_score ?? 100;
+        if (score >= 80) return 'healthy';
+        if (score >= 50) return 'degraded';
+        return 'error';
+    })();
+
     // Theme
     const [theme, setTheme] = useState<'dark' | 'light'>(() => {
         return (localStorage.getItem('theme') as 'dark' | 'light') || 'dark';
@@ -305,6 +321,27 @@ export default function Layout() {
                             </span>
                             <span className="sidebar-item-text">{t('nav.dashboard')}</span>
                         </NavLink>
+                        {/* 我的部门大脑快捷入口（仅已登录有部门的用户） */}
+                        {user?.department_code && (DEPARTMENTS as any)[user.department_code] && (
+                            <NavLink
+                                to={`/chat?brain=${user.department_code}&dept=${(DEPARTMENTS as any)[user.department_code].name}`}
+                                className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}
+                            >
+                                <span className="sidebar-item-icon" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                                    <IconBrain size={14} stroke={1.5} />
+                                </span>
+                                <span className="sidebar-item-text">{i18n.language?.startsWith('zh') ? (DEPARTMENTS as any)[user.department_code].name : (DEPARTMENTS as any)[user.department_code].name_en}{t('department.brain.suffix', ' 大脑')}</span>
+                            </NavLink>
+                        )}
+                        {/* 企业频道快捷入口（仅董事长/FULL用户） */}
+                        {(user?.identity === 'INTERNAL_ENTERPRISE' || user?.access_level === 'FULL') && (
+                            <NavLink to="/chat" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}>
+                                <span className="sidebar-item-icon" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                                    <IconWorld size={14} stroke={1.5} />
+                                </span>
+                                <span className="sidebar-item-text">{t('nav.enterpriseChannel', '企业频道')}</span>
+                            </NavLink>
+                        )}
                         <NavLink to="/plaza" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}>
                             <span className="sidebar-item-icon" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
                                 <IconBuildingMonument size={14} stroke={1.5} />
@@ -323,6 +360,22 @@ export default function Layout() {
                             </span>
                             <span className="sidebar-item-text">{t('nav.approvals', '审批')}</span>
                         </NavLink>
+                        {user && (
+                        <NavLink to="/code-reviews" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}>
+                            <span className="sidebar-item-icon" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                                <IconCode size={14} stroke={1.5} />
+                            </span>
+                            <span className="sidebar-item-text">{t('nav.codeReview', '代码审查')}</span>
+                        </NavLink>
+                        )}
+                        {user && (
+                        <NavLink to="/memories" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}>
+                            <span className="sidebar-item-icon" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                                🧠
+                            </span>
+                            <span className="sidebar-item-text">{t('nav.memories', '记忆管理')}</span>
+                        </NavLink>
+                        )}
                         <NavLink to="/autonomous" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}>
                             <span className="sidebar-item-icon" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
                                 <IconCoin size={14} stroke={1.5} />
@@ -333,7 +386,13 @@ export default function Layout() {
 
                     <div className="sidebar-section">
                         <div className="sidebar-section-title">{t('layout.departments')}</div>
-                        {Object.entries(DEPARTMENTS).map(([code, info]) => (
+                        {Object.entries(DEPARTMENTS)
+                            .filter(([code]) => {
+                                // 董事长/FULL可查看所有部门，其他仅显示本部门
+                                const isEnterpriseUser = user?.identity === 'INTERNAL_ENTERPRISE' || user?.access_level === 'FULL';
+                                return isEnterpriseUser || code === user?.department_code;
+                            })
+                            .map(([code, info]) => (
                             <NavLink
                                 key={code}
                                 to={`/departments/${code}/overview`}
@@ -376,6 +435,12 @@ export default function Layout() {
                                 <IconScale size={14} stroke={1.5} />
                             </span>
                             <span className="sidebar-item-text">{t('nav.voiceprint', '声纹')}</span>
+                        </NavLink>
+                        <NavLink to="/voiceprint-settings" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}>
+                            <span className="sidebar-item-icon" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                                <IconBrain size={14} stroke={1.5} />
+                            </span>
+                            <span className="sidebar-item-text">{t('nav.voiceprintSettings', '声纹管理')}</span>
                         </NavLink>
                         <NavLink to="/office" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}>
                             <span className="sidebar-item-icon" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
@@ -598,6 +663,18 @@ export default function Layout() {
             )}
 
             <main className="main-content">
+                {systemStatus !== 'healthy' && (
+                    <div style={{
+                        padding: '6px 16px', textAlign: 'center', fontSize: 12,
+                        background: systemStatus === 'degraded' ? 'rgba(245,158,11,0.15)' : 'rgba(229,62,62,0.15)',
+                        color: systemStatus === 'degraded' ? '#f59e0b' : '#e53e3e',
+                        borderBottom: `1px solid ${systemStatus === 'degraded' ? 'rgba(245,158,11,0.3)' : 'rgba(229,62,62,0.3)'}`,
+                    }}>
+                        {systemStatus === 'degraded'
+                            ? '⚠️ 系统当前以精简模式运行，部分功能可能受限'
+                            : '🔴 系统异常，核心服务可能不可用，请联系管理员'}
+                    </div>
+                )}
                 <Outlet />
             </main>
 

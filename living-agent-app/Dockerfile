@@ -114,7 +114,7 @@ RUN --mount=type=bind,from=builder,source=/build/living-agent-native/target/rele
 COPY living-agent-skill/src/main/resources/skills /app/skills
 
 # 创建必要目录
-RUN mkdir -p /app/data /app/logs /app/.cache /app/.config && \
+RUN mkdir -p /app/data/skills /app/logs /app/.cache /app/.config && \
     mkdir -p /home/livingagent/.cache /home/livingagent/.config && \
     chown -R livingagent:livingagent /app /home/livingagent
 

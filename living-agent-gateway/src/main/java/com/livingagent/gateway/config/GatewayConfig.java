@@ -499,7 +499,7 @@ public class GatewayConfig {
 
     @Bean
     public com.livingagent.gateway.websocket.ConnectionHealthCheck connectionHealthCheck(
-            com.livingagent.gateway.websocket.InMemoryConnectionRegistry connectionRegistry,
+            com.livingagent.gateway.websocket.ConnectionRegistry connectionRegistry,
             com.livingagent.core.diagnosis.HealthMonitor healthMonitor,
             org.springframework.context.ApplicationEventPublisher eventPublisher) {
         com.livingagent.gateway.websocket.ConnectionHealthCheck check =
@@ -512,7 +512,7 @@ public class GatewayConfig {
     @Bean
     public com.livingagent.core.diagnosis.VitalSignsService vitalSignsService(
             com.livingagent.core.diagnosis.HealthMonitor healthMonitor,
-            com.livingagent.gateway.websocket.InMemoryConnectionRegistry connectionRegistry,
+            com.livingagent.gateway.websocket.ConnectionRegistry connectionRegistry,
             org.springframework.context.ApplicationEventPublisher eventPublisher,
             com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
         return new com.livingagent.core.diagnosis.VitalSignsService(
@@ -522,5 +522,333 @@ public class GatewayConfig {
             eventPublisher,
             crossLoopEventBus
         );
+    }
+
+    // ===== 闭环38: 认证全生命周期闭环 =====
+
+    @Bean
+    public com.livingagent.core.security.auth.AuthMetricsService authMetricsService() {
+        log.info("[闭环38] Initializing AuthMetricsService (P38-A)");
+        return new com.livingagent.core.security.auth.AuthMetricsService();
+    }
+
+    @Bean
+    public com.livingagent.core.security.auth.AuthFeedbackService authFeedbackService(
+            com.livingagent.core.security.auth.AuthMetricsService authMetricsService) {
+        log.info("[闭环38] Initializing AuthFeedbackService (P38-B/C)");
+        return new com.livingagent.core.security.auth.AuthFeedbackService(authMetricsService);
+    }
+
+    // ===== 闭环39: 智能体(Agent)生命周期闭环 =====
+
+    @Bean
+    public com.livingagent.core.employee.lifecycle.AgentLifecycleMonitor agentLifecycleMonitor(
+            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
+        log.info("[闭环39] Initializing AgentLifecycleMonitor (P39-A)");
+        return new com.livingagent.core.employee.lifecycle.AgentLifecycleMonitor(crossLoopEventBus);
+    }
+
+    @Bean
+    public com.livingagent.core.employee.lifecycle.AgentHealthMetrics agentHealthMetrics(
+            com.livingagent.core.employee.lifecycle.AgentLifecycleMonitor agentLifecycleMonitor) {
+        log.info("[闭环39] Initializing AgentHealthMetrics (P39-B)");
+        return new com.livingagent.core.employee.lifecycle.AgentHealthMetrics(agentLifecycleMonitor);
+    }
+
+    @Bean
+    public com.livingagent.core.employee.lifecycle.AgentAutoRecovery agentAutoRecovery(
+            com.livingagent.core.employee.lifecycle.AgentLifecycleMonitor agentLifecycleMonitor,
+            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
+        log.info("[闭环39] Initializing AgentAutoRecovery (P39-C)");
+        return new com.livingagent.core.employee.lifecycle.AgentAutoRecovery(agentLifecycleMonitor, crossLoopEventBus);
+    }
+
+    // ===== 闭环40: 项目管理闭环 =====
+
+    @Bean
+    public com.livingagent.core.project.monitor.ProjectHealthMonitor projectHealthMonitor(
+            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
+        log.info("[闭环40] Initializing ProjectHealthMonitor (P40-A)");
+        return new com.livingagent.core.project.monitor.ProjectHealthMonitor(crossLoopEventBus);
+    }
+
+    @Bean
+    public com.livingagent.core.project.monitor.ProjectDeviationDetector projectDeviationDetector() {
+        log.info("[闭环40] Initializing ProjectDeviationDetector (P40-B)");
+        return new com.livingagent.core.project.monitor.ProjectDeviationDetector();
+    }
+
+    @Bean
+    public com.livingagent.core.project.monitor.ProjectRetroService projectRetroService(
+            com.livingagent.core.project.monitor.ProjectHealthMonitor projectHealthMonitor,
+            com.livingagent.core.project.monitor.ProjectDeviationDetector projectDeviationDetector,
+            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
+        log.info("[闭环40] Initializing ProjectRetroService (P40-C)");
+        return new com.livingagent.core.project.monitor.ProjectRetroService(
+            projectHealthMonitor, projectDeviationDetector, crossLoopEventBus);
+    }
+
+    // ===== 闭环41: 人工干预决策闭环 =====
+
+    @Bean
+    public com.livingagent.core.intervention.feedback.InterventionEffectivenessTracker interventionEffectivenessTracker() {
+        log.info("[闭环41] Initializing InterventionEffectivenessTracker (P41-A)");
+        return new com.livingagent.core.intervention.feedback.InterventionEffectivenessTracker();
+    }
+
+    @Bean
+    public com.livingagent.core.intervention.feedback.InterventionRuleOptimizer interventionRuleOptimizer(
+            com.livingagent.core.intervention.feedback.InterventionEffectivenessTracker effectivenessTracker,
+            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
+        log.info("[闭环41] Initializing InterventionRuleOptimizer (P41-B/C)");
+        return new com.livingagent.core.intervention.feedback.InterventionRuleOptimizer(effectivenessTracker, crossLoopEventBus);
+    }
+
+    // ===== 闭环42: 技能管理闭环 =====
+
+    @Bean
+    public com.livingagent.core.skill.feedback.SkillEffectivenessTracker skillEffectivenessTracker() {
+        log.info("[闭环42] Initializing SkillEffectivenessTracker (P42-A)");
+        return new com.livingagent.core.skill.feedback.SkillEffectivenessTracker();
+    }
+
+    @Bean
+    public com.livingagent.core.skill.feedback.SkillRecommendationEngine skillRecommendationEngine(
+            com.livingagent.core.skill.feedback.SkillEffectivenessTracker effectivenessTracker) {
+        log.info("[闭环42] Initializing SkillRecommendationEngine (P42-B)");
+        return new com.livingagent.core.skill.feedback.SkillRecommendationEngine(effectivenessTracker);
+    }
+
+    // ===== 闭环43: 工作流编排闭环 =====
+
+    @Bean
+    public com.livingagent.core.workflow.monitor.WorkflowStageMonitor workflowStageMonitor(
+            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
+        log.info("[闭环43] Initializing WorkflowStageMonitor (P43-A)");
+        return new com.livingagent.core.workflow.monitor.WorkflowStageMonitor(crossLoopEventBus);
+    }
+
+    @Bean
+    public com.livingagent.core.workflow.monitor.WorkflowOptimizationService workflowOptimizationService(
+            com.livingagent.core.workflow.monitor.WorkflowStageMonitor stageMonitor) {
+        log.info("[闭环43] Initializing WorkflowOptimizationService (P43-B)");
+        return new com.livingagent.core.workflow.monitor.WorkflowOptimizationService(stageMonitor);
+    }
+
+    // ===== 闭环44: 消息通知闭环 =====
+
+    @Bean
+    public com.livingagent.core.notification.feedback.NotificationMetricsService notificationMetricsService() {
+        log.info("[闭环44] Initializing NotificationMetricsService (P44-A)");
+        return new com.livingagent.core.notification.feedback.NotificationMetricsService();
+    }
+
+    @Bean
+    public com.livingagent.core.notification.feedback.NotificationStrategyOptimizer notificationStrategyOptimizer(
+            com.livingagent.core.notification.feedback.NotificationMetricsService metricsService) {
+        log.info("[闭环44] Initializing NotificationStrategyOptimizer (P44-B)");
+        return new com.livingagent.core.notification.feedback.NotificationStrategyOptimizer(metricsService);
+    }
+
+    // ===== 闭环45: 合规管理闭环 =====
+
+    @Bean
+    public com.livingagent.core.compliance.feedback.ComplianceViolationTracker complianceViolationTracker() {
+        log.info("[闭环45] Initializing ComplianceViolationTracker (P45-A)");
+        return new com.livingagent.core.compliance.feedback.ComplianceViolationTracker();
+    }
+
+    @Bean
+    public com.livingagent.core.compliance.feedback.ComplianceRuleAutoUpdater complianceRuleAutoUpdater(
+            com.livingagent.core.compliance.feedback.ComplianceViolationTracker tracker,
+            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
+        log.info("[闭环45] Initializing ComplianceRuleAutoUpdater (P45-B)");
+        return new com.livingagent.core.compliance.feedback.ComplianceRuleAutoUpdater(tracker, crossLoopEventBus);
+    }
+
+    // ===== 闭环46: 对话管理闭环 =====
+
+    @Bean
+    public com.livingagent.core.conversation.feedback.ConversationQualityService conversationQualityService() {
+        log.info("[闭环46] Initializing ConversationQualityService (P46-A)");
+        return new com.livingagent.core.conversation.feedback.ConversationQualityService();
+    }
+
+    @Bean
+    public com.livingagent.core.conversation.feedback.ConversationArchiveService conversationArchiveService(
+            KnowledgeManager knowledgeManager) {
+        log.info("[闭环46] Initializing ConversationArchiveService (P46-B)");
+        return new com.livingagent.core.conversation.feedback.ConversationArchiveService(knowledgeManager);
+    }
+
+    // ===== 闭环47: 主动服务闭环 =====
+
+    @Bean
+    public com.livingagent.core.proactive.feedback.ProactiveEffectivenessTracker proactiveEffectivenessTracker() {
+        log.info("[闭环47] Initializing ProactiveEffectivenessTracker (P47-A)");
+        return new com.livingagent.core.proactive.feedback.ProactiveEffectivenessTracker();
+    }
+
+    @Bean
+    public com.livingagent.core.proactive.feedback.ProactiveStrategyOptimizer proactiveStrategyOptimizer(
+            com.livingagent.core.proactive.feedback.ProactiveEffectivenessTracker tracker) {
+        log.info("[闭环47] Initializing ProactiveStrategyOptimizer (P47-B)");
+        return new com.livingagent.core.proactive.feedback.ProactiveStrategyOptimizer(tracker);
+    }
+
+    // ===== 闭环48: 记忆管理闭环 =====
+
+    @Bean
+    public com.livingagent.core.memory.feedback.MemoryConversionTracker memoryConversionTracker() {
+        log.info("[闭环48] Initializing MemoryConversionTracker (P48-A)");
+        return new com.livingagent.core.memory.feedback.MemoryConversionTracker();
+    }
+
+    @Bean
+    public com.livingagent.core.memory.feedback.MemoryConsolidationService memoryConsolidationService(
+            com.livingagent.core.memory.feedback.MemoryConversionTracker conversionTracker) {
+        log.info("[闭环48] Initializing MemoryConsolidationService (P48-B)");
+        return new com.livingagent.core.memory.feedback.MemoryConsolidationService(conversionTracker);
+    }
+
+    // ===== 闭环49: 代码审查工作流闭环 =====
+
+    @Bean
+    public com.livingagent.core.codereview.feedback.CodeReviewMetricsService codeReviewMetricsService() {
+        log.info("[闭环49] Initializing CodeReviewMetricsService (P49-A)");
+        return new com.livingagent.core.codereview.feedback.CodeReviewMetricsService();
+    }
+
+    @Bean
+    public com.livingagent.core.codereview.feedback.CodeReviewQualityOptimizer codeReviewQualityOptimizer(
+            com.livingagent.core.codereview.feedback.CodeReviewMetricsService metricsService) {
+        log.info("[闭环49] Initializing CodeReviewQualityOptimizer (P49-B)");
+        return new com.livingagent.core.codereview.feedback.CodeReviewQualityOptimizer(metricsService);
+    }
+
+    // ===== 闭环50: 租户管理闭环 =====
+
+    @Bean
+    public com.livingagent.core.tenant.feedback.TenantHealthMonitor tenantHealthMonitor(
+            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
+        log.info("[闭环50] Initializing TenantHealthMonitor (P50-A)");
+        return new com.livingagent.core.tenant.feedback.TenantHealthMonitor(crossLoopEventBus);
+    }
+
+    // ===== 闭环51: 接待/访客闭环 =====
+
+    @Bean
+    public com.livingagent.core.visitor.feedback.VisitorConversionTracker visitorConversionTracker(
+            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
+        log.info("[闭环51] Initializing VisitorConversionTracker (P51-A)");
+        return new com.livingagent.core.visitor.feedback.VisitorConversionTracker(crossLoopEventBus);
+    }
+
+    // ===== 闭环52: 预算管理闭环 =====
+
+    @Bean
+    public com.livingagent.core.budget.feedback.BudgetHealthMonitor budgetHealthMonitor(
+            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
+        log.info("[闭环52] Initializing BudgetHealthMonitor (P52-A)");
+        return new com.livingagent.core.budget.feedback.BudgetHealthMonitor(crossLoopEventBus);
+    }
+
+    // ===== 闭环53: 绩效考核闭环 =====
+
+    @Bean
+    public com.livingagent.core.operation.performance.feedback.PerformanceEvaluationCycle performanceEvaluationCycle(
+            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
+        log.info("[闭环53] Initializing PerformanceEvaluationCycle (P53-A)");
+        return new com.livingagent.core.operation.performance.feedback.PerformanceEvaluationCycle(crossLoopEventBus);
+    }
+
+    // ===== 闭环54: 积分/薪酬闭环 =====
+
+    @Bean
+    public com.livingagent.core.autonomous.bounty.feedback.CreditEconomyMonitor creditEconomyMonitor(
+            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
+        log.info("[闭环54] Initializing CreditEconomyMonitor (P54-A)");
+        return new com.livingagent.core.autonomous.bounty.feedback.CreditEconomyMonitor(crossLoopEventBus);
+    }
+
+    // ===== 闭环55: 广场/社交闭环 =====
+
+    @Bean
+    public com.livingagent.core.social.feedback.PlazaEngagementTracker plazaEngagementTracker(
+            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
+        log.info("[闭环55] Initializing PlazaEngagementTracker (P55-A)");
+        return new com.livingagent.core.social.feedback.PlazaEngagementTracker(crossLoopEventBus);
+    }
+
+    // ===== 闭环56: 虚拟办公室闭环 =====
+
+    @Bean
+    public com.livingagent.core.office.feedback.OfficeStateSyncMonitor officeStateSyncMonitor(
+            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
+        log.info("[闭环56] Initializing OfficeStateSyncMonitor (P56-A)");
+        return new com.livingagent.core.office.feedback.OfficeStateSyncMonitor(crossLoopEventBus);
+    }
+
+    // ===== 闭环57: 系统设置闭环 =====
+
+    @Bean
+    public com.livingagent.core.settings.feedback.SettingsChangeImpactTracker settingsChangeImpactTracker(
+            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
+        log.info("[闭环57] Initializing SettingsChangeImpactTracker (P57-A)");
+        return new com.livingagent.core.settings.feedback.SettingsChangeImpactTracker(crossLoopEventBus);
+    }
+
+    // ===== 闭环58: 分布式部署闭环 =====
+
+    @Bean
+    public com.livingagent.core.cluster.feedback.ClusterHealthMonitor clusterHealthMonitor(
+            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
+        log.info("[闭环58] Initializing ClusterHealthMonitor (P58-A)");
+        return new com.livingagent.core.cluster.feedback.ClusterHealthMonitor(crossLoopEventBus);
+    }
+
+    // ===== 闭环59: 异常检测闭环 =====
+
+    @Bean
+    public com.livingagent.core.anomaly.feedback.AnomalyDetectionFeedbackLoop anomalyDetectionFeedbackLoop(
+            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
+        log.info("[闭环59] Initializing AnomalyDetectionFeedbackLoop (P59-A)");
+        return new com.livingagent.core.anomaly.feedback.AnomalyDetectionFeedbackLoop(crossLoopEventBus);
+    }
+
+    // ===== 闭环60: 服务管理闭环 =====
+
+    @Bean
+    public com.livingagent.core.diagnosis.feedback.ServiceBootstrapHealthTracker serviceBootstrapHealthTracker(
+            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
+        log.info("[闭环60] Initializing ServiceBootstrapHealthTracker (P60-A)");
+        return new com.livingagent.core.diagnosis.feedback.ServiceBootstrapHealthTracker(crossLoopEventBus);
+    }
+
+    // ===== 闭环61: 客户端设备闭环 =====
+
+    @Bean
+    public com.livingagent.core.security.client.feedback.ClientDeviceHealthMonitor clientDeviceHealthMonitor(
+            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
+        log.info("[闭环61] Initializing ClientDeviceHealthMonitor (P61-A)");
+        return new com.livingagent.core.security.client.feedback.ClientDeviceHealthMonitor(crossLoopEventBus);
+    }
+
+    // ===== 闭环62: 数据迁移闭环 =====
+
+    @Bean
+    public com.livingagent.core.migration.feedback.MigrationVerificationService migrationVerificationService(
+            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
+        log.info("[闭环62] Initializing MigrationVerificationService (P62-A)");
+        return new com.livingagent.core.migration.feedback.MigrationVerificationService(crossLoopEventBus);
+    }
+
+    // ===== 闭环63: Claude Proxy闭环 =====
+
+    @Bean
+    public com.livingagent.core.model.proxy.feedback.ClaudeProxyMetricsService claudeProxyMetricsService(
+            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
+        log.info("[闭环63] Initializing ClaudeProxyMetricsService (P63-A)");
+        return new com.livingagent.core.model.proxy.feedback.ClaudeProxyMetricsService(crossLoopEventBus);
     }
 }

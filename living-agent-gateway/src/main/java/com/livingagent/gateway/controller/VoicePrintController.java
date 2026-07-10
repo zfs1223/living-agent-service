@@ -1,6 +1,7 @@
 package com.livingagent.gateway.controller;
 
 import com.livingagent.core.security.AccessGateService;
+import com.livingagent.core.security.auth.AuthMetricsService;
 import com.livingagent.gateway.controller.common.ApiResponse;
 import com.livingagent.core.service.voice.SpeakerVerificationService;
 import com.livingagent.core.service.voice.SpeakerVerificationResult;
@@ -26,10 +27,12 @@ public class VoicePrintController {
 
     private final SpeakerVerificationService speakerVerificationService;
     private final AccessGateService accessGateService;
+    private final AuthMetricsService authMetricsService;
 
-    public VoicePrintController(SpeakerVerificationService speakerVerificationService, AccessGateService accessGateService) {
+    public VoicePrintController(SpeakerVerificationService speakerVerificationService, AccessGateService accessGateService, AuthMetricsService authMetricsService) {
         this.speakerVerificationService = speakerVerificationService;
         this.accessGateService = accessGateService;
+        this.authMetricsService = authMetricsService;
     }
 
     @PostMapping("/register")
@@ -56,7 +59,7 @@ public class VoicePrintController {
                         audio.getBytes(),
                         name
                 );
-                return buildResponse(result);
+                return buildResponse(result, "voiceprint_register");
             } else {
                 Path tempFile = Files.createTempFile("voice_", ".wav");
                 audio.transferTo(tempFile.toFile());
@@ -68,7 +71,7 @@ public class VoicePrintController {
                 );
 
                 Files.deleteIfExists(tempFile);
-                return buildResponse(result);
+                return buildResponse(result, "voiceprint_register");
             }
         } catch (IOException e) {
             log.error("Failed to process audio file", e);
@@ -108,6 +111,7 @@ public class VoicePrintController {
             }
 
             if (result.isSuccess() && result.isVerified()) {
+                authMetricsService.recordSuccess("voiceprint_login", "VoicePrintController");
                 VoicePrintLoginResponse response = new VoicePrintLoginResponse(
                         result.getSpeakerId(),
                         result.getName(),
@@ -116,6 +120,7 @@ public class VoicePrintController {
                 );
                 return ResponseEntity.ok(ApiResponse.ok(response));
             } else {
+                authMetricsService.recordFailure("voiceprint_login", "VoicePrintController", "verification_failed");
                 VoicePrintLoginResponse response = new VoicePrintLoginResponse(
                         null,
                         null,
@@ -163,7 +168,7 @@ public class VoicePrintController {
                 Files.deleteIfExists(tempFile);
             }
 
-            return buildResponse(result);
+            return buildResponse(result, "voiceprint_verify");
         } catch (IOException e) {
             log.error("Failed to process audio file", e);
             return ResponseEntity.badRequest()
@@ -205,8 +210,13 @@ public class VoicePrintController {
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 
-    private ResponseEntity<ApiResponse<VoicePrintResponse>> buildResponse(SpeakerVerificationResult result) {
+    private ResponseEntity<ApiResponse<VoicePrintResponse>> buildResponse(SpeakerVerificationResult result, String method) {
         if (result.isSuccess()) {
+            if (result.isVerified()) {
+                authMetricsService.recordSuccess(method, "VoicePrintController");
+            } else {
+                authMetricsService.recordFailure(method, "VoicePrintController", "not_verified");
+            }
             VoicePrintResponse response = new VoicePrintResponse(
                     result.getSpeakerId(),
                     result.getName(),
@@ -218,6 +228,7 @@ public class VoicePrintController {
             );
             return ResponseEntity.ok(ApiResponse.ok(response));
         } else {
+            authMetricsService.recordFailure(method, "VoicePrintController", result.getMessage() != null ? result.getMessage() : "verification_failed");
             return ResponseEntity.badRequest()
                     .body(ApiResponse.err("verification_failed", result.getMessage()));
         }

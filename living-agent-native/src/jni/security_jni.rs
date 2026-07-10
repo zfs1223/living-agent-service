@@ -1,13 +1,14 @@
 use jni::objects::{JClass, JString};
 use jni::sys::{jlong, jint};
-use jni::Env;
+use jni::errors::ThrowRuntimeExAndDefault;
+use jni::EnvUnowned;
 use crate::security::{SecurityValidator, SecurityContext, SecurityLevel};
 use crate::jni::jstring_to_string;
 
 #[no_mangle]
 pub extern "system" fn Java_com_livingagent_core_nativelib_SecurityNative_createValidator(
-    _env: Env,
-    _class: JClass,
+    _unowned_env: EnvUnowned<'_>,
+    _class: JClass<'_>,
 ) -> jlong {
     let validator = SecurityValidator::new();
     let boxed = Box::new(validator);
@@ -16,8 +17,8 @@ pub extern "system" fn Java_com_livingagent_core_nativelib_SecurityNative_create
 
 #[no_mangle]
 pub extern "system" fn Java_com_livingagent_core_nativelib_SecurityNative_destroyValidator(
-    _env: Env,
-    _class: JClass,
+    _unowned_env: EnvUnowned<'_>,
+    _class: JClass<'_>,
     handle: jlong,
 ) {
     if handle != 0 {
@@ -29,124 +30,142 @@ pub extern "system" fn Java_com_livingagent_core_nativelib_SecurityNative_destro
 
 #[no_mangle]
 pub extern "system" fn Java_com_livingagent_core_nativelib_SecurityNative_validateCommand(
-    mut env: Env,
-    _class: JClass,
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass<'_>,
     handle: jlong,
-    command: JString,
-    user_id: JString,
-    session_id: JString,
+    command: JString<'_>,
+    user_id: JString<'_>,
+    session_id: JString<'_>,
     security_level: jint,
 ) -> bool {
-    if handle == 0 {
-        return false;
-    }
-    
-    let validator = unsafe { &*(handle as *const SecurityValidator) };
-    
-    let command_str = match jstring_to_string(&mut env, command) {
-        Ok(s) => s,
-        Err(_) => return false,
-    };
-    let user_id_str = match jstring_to_string(&mut env, user_id) {
-        Ok(s) => s,
-        Err(_) => return false,
-    };
-    let session_id_str = match jstring_to_string(&mut env, session_id) {
-        Ok(s) => s,
-        Err(_) => return false,
-    };
-    
-    let level = match security_level {
-        0 => SecurityLevel::ReadOnly,
-        1 => SecurityLevel::Supervised,
-        2 => SecurityLevel::Full,
-        _ => SecurityLevel::Supervised,
-    };
-    
-    let context = SecurityContext::new(&user_id_str, &session_id_str).with_level(level);
-    
-    let result = validator.validate_command(&command_str, &context);
-    
-    result.is_valid
+    unowned_env
+        .with_env(|env| -> jni::errors::Result<bool> {
+            if handle == 0 {
+                return Ok(false);
+            }
+
+            let validator = unsafe { &*(handle as *const SecurityValidator) };
+
+            let command_str = match jstring_to_string(env, &command) {
+                Ok(s) => s,
+                Err(_) => return Ok(false),
+            };
+            let user_id_str = match jstring_to_string(env, &user_id) {
+                Ok(s) => s,
+                Err(_) => return Ok(false),
+            };
+            let session_id_str = match jstring_to_string(env, &session_id) {
+                Ok(s) => s,
+                Err(_) => return Ok(false),
+            };
+
+            let level = match security_level {
+                0 => SecurityLevel::ReadOnly,
+                1 => SecurityLevel::Supervised,
+                2 => SecurityLevel::Full,
+                _ => SecurityLevel::Supervised,
+            };
+
+            let context = SecurityContext::new(&user_id_str, &session_id_str).with_level(level);
+
+            let result = validator.validate_command(&command_str, &context);
+
+            Ok(result.is_valid)
+        })
+        .resolve::<ThrowRuntimeExAndDefault>()
 }
 
 #[no_mangle]
 pub extern "system" fn Java_com_livingagent_core_nativelib_SecurityNative_validatePath(
-    mut env: Env,
-    _class: JClass,
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass<'_>,
     handle: jlong,
-    path: JString,
-    user_id: JString,
-    session_id: JString,
+    path: JString<'_>,
+    user_id: JString<'_>,
+    session_id: JString<'_>,
     security_level: jint,
 ) -> bool {
-    if handle == 0 {
-        return false;
-    }
-    
-    let validator = unsafe { &*(handle as *const SecurityValidator) };
-    
-    let path_str = match jstring_to_string(&mut env, path) {
-        Ok(s) => s,
-        Err(_) => return false,
-    };
-    let user_id_str = match jstring_to_string(&mut env, user_id) {
-        Ok(s) => s,
-        Err(_) => return false,
-    };
-    let session_id_str = match jstring_to_string(&mut env, session_id) {
-        Ok(s) => s,
-        Err(_) => return false,
-    };
-    
-    let level = match security_level {
-        0 => SecurityLevel::ReadOnly,
-        1 => SecurityLevel::Supervised,
-        2 => SecurityLevel::Full,
-        _ => SecurityLevel::Supervised,
-    };
-    
-    let context = SecurityContext::new(&user_id_str, &session_id_str).with_level(level);
-    
-    let result = validator.validate_path(&path_str, &context);
-    
-    result.is_valid
+    unowned_env
+        .with_env(|env| -> jni::errors::Result<bool> {
+            if handle == 0 {
+                return Ok(false);
+            }
+
+            let validator = unsafe { &*(handle as *const SecurityValidator) };
+
+            let path_str = match jstring_to_string(env, &path) {
+                Ok(s) => s,
+                Err(_) => return Ok(false),
+            };
+            let user_id_str = match jstring_to_string(env, &user_id) {
+                Ok(s) => s,
+                Err(_) => return Ok(false),
+            };
+            let session_id_str = match jstring_to_string(env, &session_id) {
+                Ok(s) => s,
+                Err(_) => return Ok(false),
+            };
+
+            let level = match security_level {
+                0 => SecurityLevel::ReadOnly,
+                1 => SecurityLevel::Supervised,
+                2 => SecurityLevel::Full,
+                _ => SecurityLevel::Supervised,
+            };
+
+            let context = SecurityContext::new(&user_id_str, &session_id_str).with_level(level);
+
+            let result = validator.validate_path(&path_str, &context);
+
+            Ok(result.is_valid)
+        })
+        .resolve::<ThrowRuntimeExAndDefault>()
 }
 
 #[no_mangle]
 pub extern "system" fn Java_com_livingagent_core_nativelib_SecurityNative_addAllowedPath(
-    mut env: Env,
-    _class: JClass,
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass<'_>,
     handle: jlong,
-    path: JString,
+    path: JString<'_>,
 ) {
-    if handle == 0 {
-        return;
-    }
-    
-    let validator = unsafe { &mut *(handle as *mut SecurityValidator) };
-    let path_str = match jstring_to_string(&mut env, path) {
-        Ok(s) => s,
-        Err(_) => return,
-    };
-    validator.add_allowed_path(&path_str);
+    unowned_env
+        .with_env(|env| -> jni::errors::Result<()> {
+            if handle == 0 {
+                return Ok(());
+            }
+
+            let validator = unsafe { &mut *(handle as *mut SecurityValidator) };
+            let path_str = match jstring_to_string(env, &path) {
+                Ok(s) => s,
+                Err(_) => return Ok(()),
+            };
+            validator.add_allowed_path(&path_str);
+            Ok(())
+        })
+        .resolve::<ThrowRuntimeExAndDefault>()
 }
 
 #[no_mangle]
 pub extern "system" fn Java_com_livingagent_core_nativelib_SecurityNative_addDeniedPath(
-    mut env: Env,
-    _class: JClass,
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass<'_>,
     handle: jlong,
-    path: JString,
+    path: JString<'_>,
 ) {
-    if handle == 0 {
-        return;
-    }
-    
-    let validator = unsafe { &mut *(handle as *mut SecurityValidator) };
-    let path_str = match jstring_to_string(&mut env, path) {
-        Ok(s) => s,
-        Err(_) => return,
-    };
-    validator.add_denied_path(&path_str);
+    unowned_env
+        .with_env(|env| -> jni::errors::Result<()> {
+            if handle == 0 {
+                return Ok(());
+            }
+
+            let validator = unsafe { &mut *(handle as *mut SecurityValidator) };
+            let path_str = match jstring_to_string(env, &path) {
+                Ok(s) => s,
+                Err(_) => return Ok(()),
+            };
+            validator.add_denied_path(&path_str);
+            Ok(())
+        })
+        .resolve::<ThrowRuntimeExAndDefault>()
 }

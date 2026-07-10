@@ -1,6 +1,7 @@
 /**
  * WebSocket 客户端
  * - 连接到后端（默认 /ws/agent）
+ * - 支持4种通道切换：/ws/agent, /ws/dept/*, /ws/enterprise, /ws/public
  * - 自动重连（指数退避）
  * - 事件分发到本地监听器
  * - 携带设备信息 + 应用列表上报
@@ -13,6 +14,16 @@ import { getCachedClientId, getCachedClientInfo } from './client-id';
 import { getInstalledAppsString } from './app-scanner';
 import { winAutomationService } from './win-automation-service';
 import { SHARED_CONSTANTS } from '../shared/constants';
+
+/** 4种WebSocket通道常量 */
+export const WS_CHANNELS = {
+    AGENT: '/ws/agent',
+    PUBLIC: '/ws/public',
+    DEPT: '/ws/dept',
+    ENTERPRISE: '/ws/enterprise',
+} as const;
+
+export type WsChannelPath = typeof WS_CHANNELS[keyof typeof WS_CHANNELS];
 
 export type WsEventType =
   | 'public_task_published'
@@ -36,12 +47,20 @@ class WSClient {
   private pingTimer: NodeJS.Timeout | null = null;
   private isQuitting = false;
   private currentPath = '/ws/agent';
+  private lastParams: Record<string, string> = {};
   private reconnectAttempts = 0;
   private cachedApps: string | null = null;
   private lastPongAt = 0;
 
   async connect(path: string = '/ws/agent', params: Record<string, string> = {}): Promise<void> {
+    // P1-7: 固定员工直连防护 — 连接 /ws/agent 时检查 origin=fixed 则拒绝
+    if (path === '/ws/agent' && params.origin === 'fixed') {
+      console.warn('[ws-client] Blocked: cannot directly connect to fixed employee via /ws/agent');
+      throw new Error('固定数字员工不开放直连，请使用部门大脑对话');
+    }
+
     this.currentPath = path;
+    this.lastParams = params;
     const token = await loadToken();
     if (!token) {
       console.warn('[ws-client] No token, cannot connect');
@@ -139,7 +158,7 @@ class WSClient {
           this.reconnectAttempts++;
           console.log('[ws-client] Reconnecting in', delay, 'ms (attempt', this.reconnectAttempts, ')');
           this.reconnectTimer = setTimeout(() => {
-            this.connect(path, params).catch((e) => {
+            this.connect(this.currentPath, this.lastParams).catch((e) => {
               // 重连失败的错误已在 connect() 内部处理（触发下一轮重连）
               // 这里只是捕获 Promise rejection，避免 UnhandledPromiseRejectionWarning
               console.debug('[ws-client] Reconnect attempt failed:', e.message);
@@ -178,6 +197,22 @@ class WSClient {
    */
   isConnected(): boolean {
     return this.socket !== null && this.socket.readyState === WebSocket.OPEN;
+  }
+
+  /**
+   * 切换到指定通道（断开当前连接 → 连接新通道）
+   */
+  async switchChannel(path: string, params: Record<string, string> = {}): Promise<void> {
+    console.log('[ws-client] Switching channel from', this.currentPath, 'to', path);
+    this.disconnect();
+    return this.connect(path, params);
+  }
+
+  /**
+   * 获取当前连接的通道路径
+   */
+  getCurrentChannel(): string {
+    return this.currentPath;
   }
 
   send(type: string, data: any): void {
@@ -228,7 +263,7 @@ class WSClient {
       if (Date.now() - this.lastPongAt > 2 * pingInterval) {
         console.warn('[ws-client] Pong timeout, last pong was', Date.now() - this.lastPongAt, 'ms ago, reconnecting');
         this.disconnect();
-        this.connect(this.currentPath);
+        this.connect(this.currentPath, this.lastParams);
         return;
       }
       this.send('ping', {});

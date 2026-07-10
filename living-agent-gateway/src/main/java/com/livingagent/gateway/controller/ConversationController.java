@@ -3,6 +3,7 @@ package com.livingagent.gateway.controller;
 import com.livingagent.core.conversation.ConversationPermissionService;
 import com.livingagent.core.conversation.ConversationService;
 import com.livingagent.core.conversation.ConversationStatus;
+import com.livingagent.core.conversation.feedback.ConversationQualityService;
 import com.livingagent.core.database.entity.DepartmentConversationEntity;
 import com.livingagent.core.security.AuthContext;
 import com.livingagent.core.security.auth.UnifiedAuthService;
@@ -30,13 +31,16 @@ public class ConversationController {
     private final ConversationService conversationService;
     private final ConversationPermissionService permissionService;
     private final UnifiedAuthService authService;
+    private final ConversationQualityService conversationQualityService;
 
     public ConversationController(ConversationService conversationService,
                                  ConversationPermissionService permissionService,
-                                 UnifiedAuthService authService) {
+                                 UnifiedAuthService authService,
+                                 ConversationQualityService conversationQualityService) {
         this.conversationService = conversationService;
         this.permissionService = permissionService;
         this.authService = authService;
+        this.conversationQualityService = conversationQualityService;
     }
 
     @GetMapping
@@ -143,6 +147,7 @@ public class ConversationController {
                 .filter(conv -> permissionService.canEditConversation(conversationId, ctx))
                 .map(conv -> {
                     DepartmentConversationEntity archived = conversationService.archiveConversation(conversationId);
+                    conversationQualityService.recordCompletion(conversationId, true, false);
                     return ResponseEntity.ok(ApiResponse.ok(archived));
                 })
                 .orElse(ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Cannot archive this conversation")));
@@ -207,6 +212,7 @@ public class ConversationController {
         }
 
         conversationService.destroyConversation(conversationId);
+        conversationQualityService.recordCompletion(conversationId, false, true);
         return ResponseEntity.ok(ApiResponse.<Void>ok());
     }
 

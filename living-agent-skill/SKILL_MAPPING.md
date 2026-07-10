@@ -26,7 +26,7 @@
 | `find-skills` | 技能发现与安装，自我扩展能力 | 技能, skill, 安装 | [SkillFinderTool.java](../living-agent-core/src/main/java/com/livingagent/core/tool/impl/SkillFinderTool.java) | ✅ 已实现 |
 | `proactive-agent` | 主动代理，定时/条件触发任务执行 | 定时, 主动, 任务 | [ProactiveAgentTool.java](../living-agent-core/src/main/java/com/livingagent/core/tool/impl/ProactiveAgentTool.java) | ✅ 已实现 |
 | `weather` | 天气查询，获取实时天气和预报 | 天气, weather, 气温 | [WeatherTool.java](../living-agent-core/src/main/java/com/livingagent/core/tool/impl/WeatherTool.java) | ✅ 已实现 |
-| `event-driven-notifier` | 事件驱动通知器，多渠道消息推送 | 通知, 推送, 告警 | - | 🔜 待开发 |
+| `event-driven-notifier` | 事件驱动通知器，多渠道消息推送 | 通知, 推送, 告警 | [EventDrivenNotifier.java](../living-agent-core/src/main/java/com/livingagent/core/notification/EventDrivenNotifier.java) | ✅ 已实现 |
 | `risk-predictor` | 风险预警预判器，项目/预算/人员风险预测 | 风险, 预警, 预测 | - | 🔜 待开发 |
 | `pattern-predictor` | 用户行为模式预测器，习惯识别与需求预测 | 习惯, 模式, 预测 | - | 🔜 待开发 |
 
@@ -67,29 +67,30 @@ this.skills.addAll(CORE_SKILLS);
 
 | 编制代码 | 职位 | 能力需求 | 匹配技能 | 状态 |
 |---------|------|---------|---------|------|
-| T01 | 代码审查员 | code-review, security-audit | `code-review` ✅, `github` ✅ | ✅ 完全匹配 |
-| T02 | 架构师 | architecture, system-design | `architecture` ✅ | ✅ 完全匹配 |
-| T03 | DevOps工程师 | ci-cd, deployment | `cicd-pipeline` ✅, `docker-expert` ✅ | ✅ 完全匹配 |
-| T04 | 运维工程师 | heartbeat, monitoring | `docker-expert` ✅ | ⚠️ 部分匹配 |
-| T05 | AI模型管理员 | model-management | `hugging-face-*` ✅ (5个) | ✅ 完全匹配 |
-| T06 | 状态管理员 | session-management | 核心技能覆盖 | ✅ 匹配 |
-| T07 | 安全工程师 | sandbox, security | `code-review` 部分 | ⚠️ 部分匹配 |
-| T08 | 配置管理员 | config-management | `github` ✅ | ✅ 匹配 |
-| T09 | 前端工程师 | frontend, ui | `frontend-design` ✅, `canvas` ✅ | ✅ 完全匹配 |
-| T10 | 后端工程师 | backend, api | `coding-agent` ✅ | ✅ 匹配 |
+| T01 | 代码审查员 | code-review, security-audit | `code-review` ✅, `github` ✅, `code-quality-analyzer` ✅ | ✅ 完全匹配 |
+| T02 | Bug修复专员 | bug-fix, debugging | `claude-cli` ✅, `code-quality-analyzer` ✅ | ✅ 完全匹配 |
+| T03 | 架构师 | architecture, system-design | `architecture` ✅, `claude-cli` ✅ | ✅ 完全匹配 |
+| T04 | DevOps工程师 | ci-cd, deployment | `cicd-pipeline` ✅, `docker-expert` ✅ | ✅ 完全匹配 |
+| T05 | 运维工程师 | heartbeat, monitoring | `docker-expert` ✅ | ⚠️ 部分匹配 |
+| T06 | AI模型管理员 | model-management | `hugging-face-*` ✅ (5个) | ✅ 完全匹配 |
+| T07 | 状态管理员 | session-management | 核心技能覆盖 | ✅ 匹配 |
+| T08 | 安全工程师 | sandbox, security | `code-review` 部分, `code-quality-analyzer` ✅ | ✅ 匹配 |
+| T09 | 配置管理员 | config-management | `github` ✅ | ✅ 匹配 |
+| T10 | 前端工程师 | frontend, ui | `frontend-design` ✅, `canvas` ✅ | ✅ 完全匹配 |
+| T11 | 后端工程师 | backend, api | `coding-agent` ✅, `claude-cli` ✅ | ✅ 完全匹配 |
 
-**技术部技能总数：23个**
+**技术部技能总数：25个**
 
 ### 3.3 财务部 - 4个编制
 
 | 编制代码 | 职位 | 能力需求 | 匹配技能 | 状态 |
 |---------|------|---------|---------|------|
-| F01 | 财务会计 | accounting, financial-reports | `finance-api-gateway` ✅ | ✅ 匹配 |
-| F02 | 报销审核员 | expense-audit, invoice | `billing-automation` ✅, `finance-api-gateway` ✅ | ✅ 完全匹配 |
-| F03 | 成本核算员 | cost-estimation | `billing-automation` ✅ | ✅ 匹配 |
-| F04 | 预算管理员 | budget-management | `finance-api-gateway` ✅ | ✅ 匹配 |
+| F01 | 财务会计 | accounting, financial-reports | `finance-api-gateway` ✅, `invoice-processing` ✅ | ✅ 完全匹配 |
+| F02 | 报销审核员 | expense-audit, invoice | `billing-automation` ✅, `invoice-processing` ✅ | ✅ 完全匹配 |
+| F03 | 成本核算员 | cost-estimation, billing | `billing-automation` ✅, `invoice-processing` ✅ | ✅ 完全匹配 |
+| F04 | 预算管理员 | budget-management, forecasting | `budget-management` ✅, `finance-api-gateway` ✅ | ✅ 完全匹配 |
 
-**财务部技能总数：2个**
+**财务部技能总数：4个**
 
 ### 3.4 运营部 - 4个编制
 
@@ -138,7 +139,7 @@ this.skills.addAll(CORE_SKILLS);
 | A02 | 文档管理员 | document-management | `docx-official` ✅, `xlsx-official` ✅, `pptx-official` ✅ | ✅ 完全匹配 |
 | A03 | 文案创作员 | copywriting, content | `copywriting` ✅, `summarize` ✅ | ✅ 完全匹配 |
 
-**行政部技能总数：14个**
+**行政部技能总数：15个**
 
 ### 3.9 法务部 - 2个编制
 
@@ -155,32 +156,38 @@ this.skills.addAll(CORE_SKILLS);
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    技能集成统计 (v1.7.0)                                      │
+│                    技能集成统计 (v1.8.2)                                      │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  核心技能 (Core Skills) ────────────────────────────────────────── 8 个     │
+│  核心技能 (Core Skills) ────────────────────────────────────────── 10 个    │
 │  ├── tavily-search (AI搜索) ✅ 工具已实现                                    │
 │  ├── find-skills (技能发现) ✅ 工具已实现                                    │
 │  ├── proactive-agent (主动代理) ✅ 工具已实现                                │
 │  ├── weather (天气查询) ✅ 工具已实现                                        │
 │  ├── mcp-client (MCP客户端)                                                 │
-│  ├── event-driven-notifier (事件通知) 🔜 待开发                              │
+│  ├── event-driven-notifier (事件通知) ✅ 已实现                              │
 │  ├── risk-predictor (风险预测) 🔜 待开发                                     │
-│  └── pattern-predictor (模式预测) 🔜 待开发                                  │
+│  ├── pattern-predictor (模式预测) 🔜 待开发                                  │
+│  ├── knowledge-graph (知识图谱) ✅ ClawHub转换                               │
+│  └── self-improving (自我改进) ✅ ClawHub转换                                │
 │                                                                             │
-│  部门技能 ───────────────────────────────────────────────────────── 56 个    │
-│  ├── TechBrain (技术部): 23 个 ✅ 覆盖率 85%                                 │
-│  ├── AdminBrain (行政部): 14 个 ✅ 覆盖率 90%                                │
-│  ├── OpsBrain (运营部): 9 个 ✅ 覆盖率 85%                                   │
+│  部门技能 ───────────────────────────────────────────────────────── 67 个    │
+│  ├── TechBrain (技术部): 27 个 ✅ 覆盖率 92%                                 │
+│  │   └── 新增: code-quality-analyzer (fuck-u-code), claude-cli             │
+│  ├── AdminBrain (行政部): 16 个 ✅ 覆盖率 90%                                │
+│  │   └── 新增: tenant-management (闭环50)                                  │
+│  ├── OpsBrain (运营部): 12 个 ✅ 覆盖率 85%                                  │
+│  │   └── 新增: workflow-orchestrator(闭环43), distributed-deployment(闭环58), │
+│  │           data-migration(闭环62), system-health-diagnoser ✅已实现       │
+│  ├── FinanceBrain (财务部): 4 个 ✅ 覆盖率 80%                               │
 │  ├── SalesBrain (销售部): 4 个 ✅ 覆盖率 80%                                 │
 │  ├── HrBrain (人力资源): 3 个 ✅ 覆盖率 85%                                  │
 │  ├── CsBrain (客服部): 3 个 ✅ 覆盖率 85%                                    │
-│  ├── LegalBrain (法务部): 3 个 ✅ 覆盖率 85%                                 │
-│  └── FinanceBrain (财务部): 2 个 ✅ 覆盖率 60%                               │
+│  └── LegalBrain (法务部): 3 个 ✅ 覆盖率 85%                                 │
 │                                                                             │
-│  总计: 64 个技能 (核心8 + 部门56)                                            │
-│  工具实现: 15 个 ✅                                                          │
-│  编制覆盖率: 85% ✅                                                          │
+│  总计: 77 个技能 (核心10 + 部门67)                                           │
+│  工具实现: 18 个 ✅                                                          │
+│  编制覆盖率: 87% ✅                                                          │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -222,9 +229,9 @@ this.skills.addAll(CORE_SKILLS);
 
 ```
 living-agent-skill/src/main/resources/skills/
-├── SKILL_INDEX.json          # 技能索引 (v1.7.0)
+├── SKILL_INDEX.json          # 技能索引 (v1.8.1)
 ├── SKILL_DEPENDENCIES.yml    # 技能依赖关系
-├── core/                     # 核心技能 (8个) ✓
+├── core/                     # 核心技能 (10个) ✓
 │   ├── tavily-search/SKILL.md
 │   ├── find-skills/SKILL.md
 │   ├── proactive-agent/SKILL.md
@@ -232,8 +239,10 @@ living-agent-skill/src/main/resources/skills/
 │   ├── mcp-client/SKILL.md
 │   ├── event-driven-notifier/SKILL.md
 │   ├── risk-predictor/SKILL.md
-│   └── pattern-predictor/SKILL.md
-├── tech/                     # TechBrain (23个) ✓
+│   ├── pattern-predictor/SKILL.md
+│   ├── knowledge-graph/SKILL.md
+│   └── self-improving/SKILL.md
+├── tech/                     # TechBrain (27个) ✓
 │   ├── skill-creator/
 │   ├── coding-agent/
 │   ├── clawhub/
@@ -249,9 +258,11 @@ living-agent-skill/src/main/resources/skills/
 │   ├── cicd-pipeline/        # ClawHub转换
 │   ├── code-review/          # ClawHub转换
 │   ├── frontend-design/      # ClawHub转换
+│   ├── code-quality-analyzer/  # 2026-07-09新增 (fuck-u-code)
+│   ├── claude-cli/             # 2026-07-09新增
 │   ├── crawl4ai/
 │   └── hugging-face-*/       # 5个HF技能
-├── admin/                    # AdminBrain (14个) ✓
+├── admin/                    # AdminBrain (16个) ✓
 │   ├── nano-pdf/
 │   ├── notion/
 │   ├── obsidian/
@@ -265,7 +276,9 @@ living-agent-skill/src/main/resources/skills/
 │   ├── slack/
 │   ├── discord/
 │   ├── summarize/
-│   └── doc-coauthoring/      # ClawHub转换
+│   ├── doc-coauthoring/      # ClawHub转换
+│   ├── google-workspace/     # ClawHub转换
+│   └── tenant-management/    # 2026-07-09新增 (闭环50)
 ├── sales/                    # SalesBrain (4个) ✓
 │   ├── seo-audit/
 │   ├── brainstorming/
@@ -275,9 +288,11 @@ living-agent-skill/src/main/resources/skills/
 │   ├── hr-pro/
 │   ├── recruitment-automation/  # ClawHub转换
 │   └── performance-management/  # ClawHub转换
-├── finance/                  # FinanceBrain (2个) ✓
+├── finance/                  # FinanceBrain (4个) ✓
 │   ├── billing-automation/
-│   └── finance-api-gateway/  # ClawHub转换
+│   ├── finance-api-gateway/  # ClawHub转换
+│   ├── budget-management/    # ClawHub转换
+│   └── invoice-processing/   # ClawHub转换
 ├── cs/                       # CsBrain (3个) ✓
 │   ├── customer-support/
 │   ├── ticket-system-integration/  # ClawHub转换
@@ -286,7 +301,7 @@ living-agent-skill/src/main/resources/skills/
 │   ├── legal-advisor/
 │   ├── contract-management/  # ClawHub转换
 │   └── compliance-check/     # ClawHub转换
-└── ops/                      # OpsBrain (9个) ✓
+└── ops/                      # OpsBrain (12个) ✓
     ├── inngest/
     ├── cron/
     ├── smart-home/
@@ -294,8 +309,11 @@ living-agent-skill/src/main/resources/skills/
     ├── project-risk-monitor/
     ├── onboarding-automator/
     ├── contract-monitor/
-    ├── system-health-diagnoser/
-    └── data-aggregator/
+    ├── system-health-diagnoser/  # ✅ 已实现
+    ├── data-aggregator/
+    ├── workflow-orchestrator/    # 2026-07-09新增 (闭环43)
+    ├── distributed-deployment/   # 2026-07-09新增 (闭环58)
+    └── data-migration/           # 2026-07-09新增 (闭环62)
 ```
 
 ---
@@ -333,13 +351,13 @@ public void validateSkill(String employeeCode, String skillId) {
 
 ## 八、下一步行动
 
-1. **完善工具实现** - 为新技能创建对应的 Java Tool 实现类
-2. **补充财务技能** - 可继续从 ClawHub 转换更多财务相关技能
-3. **集成 Microsoft Skills** - Azure AI 相关技能
-4. **实现贾维斯模式工具** - event-driven-notifier, risk-predictor
+1. **实现 pattern-predictor** - 用户行为模式预测器
+2. **实现 risk-predictor 工具接口** - RiskPredictor 已有核心逻辑，需创建 Tool 适配器
+3. **补充财务技能** - 可继续从 ClawHub 转换更多财务相关技能
+4. **集成 Microsoft Skills** - Azure AI 相关技能
 
 ---
 
-*文档更新时间: 2026-03-13*
-*技能版本: v1.7.0*
-*编制覆盖率: 85%*
+*文档更新时间: 2026-07-09*
+*技能版本: v1.8.2*
+*编制覆盖率: 87%*

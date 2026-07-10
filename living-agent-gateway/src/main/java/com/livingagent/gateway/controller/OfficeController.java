@@ -5,10 +5,12 @@ import com.livingagent.core.employee.EmployeeService;
 import com.livingagent.core.employee.EmployeeStatus;
 import com.livingagent.core.neuron.NeuronRegistry;
 import com.livingagent.core.brain.BrainRegistry;
+import com.livingagent.core.office.feedback.OfficeStateSyncMonitor;
 import com.livingagent.core.security.AccessGateService;
 import com.livingagent.gateway.controller.common.ApiResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -25,6 +27,9 @@ public class OfficeController {
     private final NeuronRegistry neuronRegistry;
     private final BrainRegistry brainRegistry;
     private final AccessGateService accessGateService;
+
+    @Autowired(required = false)
+    private OfficeStateSyncMonitor officeStateSyncMonitor;
 
     public OfficeController(
             EmployeeService employeeService,
@@ -62,7 +67,12 @@ public class OfficeController {
             return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.info("Creating office: {}", request.name());
-        
+
+        if (officeStateSyncMonitor != null) {
+            String officeId = "office_" + System.currentTimeMillis();
+            officeStateSyncMonitor.recordSnapshot(officeId, true, 0L);
+        }
+
         OfficeInfo office = new OfficeInfo(
                 "office_" + System.currentTimeMillis(),
                 request.name(),
@@ -81,6 +91,10 @@ public class OfficeController {
             return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
         log.debug("Getting office status");
+
+        if (officeStateSyncMonitor != null) {
+            officeStateSyncMonitor.recordSnapshot("main", true, 0L);
+        }
 
         List<Employee> digitalEmployees = employeeService.listDigitalEmployees();
         List<Employee> humanEmployees = employeeService.listHumanEmployees();
@@ -186,6 +200,10 @@ public class OfficeController {
 
         EmployeeStatus newStatus = EmployeeStatus.valueOf(request.status().toUpperCase());
         employeeService.updateStatus(request.agentId(), newStatus);
+
+        if (officeStateSyncMonitor != null) {
+            officeStateSyncMonitor.recordSnapshot(request.agentId(), true, 0L);
+        }
 
         employeeOpt = employeeService.getEmployee(request.agentId());
         AgentInfo agentInfo = convertToAgentInfo(employeeOpt.get());

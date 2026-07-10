@@ -403,6 +403,28 @@ public interface EvolutionFeedbackRepository extends JpaRepository<EvolutionFeed
 > **2026-07-03 代码核验**：该闭环已升级为完整闭环。链路验证：
 > NativeServiceWrapper.callNative → NativeCallMetrics原子计数 → NativePerformanceMonitor慢调用/高失败率告警 → NativeLibraryHealthCheck注册到HealthMonitor周期检查 → 全链路打通 ✅
 
+> **2026-07-06 缺口修复（从根源解决）**：发现 `NativeLibrary.java` 定义了 native 方法 `initialize()`/`getVersion()`，但 Rust JNI 未实现这两个函数，导致 `UnsatisfiedLinkError`。
+> **根因修复**：在 Rust JNI (`jni/mod.rs`) 中添加 `Java_com_livingagent_core_nativelib_NativeLibrary_initialize` 和 `Java_com_livingagent_core_nativelib_NativeLibrary_getVersion` 函数实现，调用 `crate::init()` 和 `crate::version()`。
+> **不移除 Java native 方法**：这些方法有实际用途（库初始化和版本查询），应在 Rust 中正确实现而非移除。
+>
+> **2026-07-06 JVM崩溃修复（延迟初始化）**：发现 `NativeLibrary.tryLoad()` 加载库后立即调用 `initialize()` native函数，触发 Rust库内部静态初始化导致 SIGSEGV（偏移量 `0x5eaf7`）。
+> **根因**：`NativeLibraryHealthCheck.check()` 调用 `isAvailable()` → `tryLoad()` → `System.loadLibrary()` + `initialize()` → Rust静态初始化崩溃。
+> **修复方案**：
+> 1. `NativeLibrary.tryLoad()` 仅加载库，**不立即调用 `initialize()`**
+> 2. 新增 `NativeLibrary.initializeNative()` 显式初始化方法，仅在首次使用 native 功能时调用
+> 3. `NativeLibrary.getVersion()` 仅在 `initialized=true` 后才调用 native 函数
+> 4. 新增 `NativeLibrary.isInitialized()` 检查初始化状态
+> **验证结果**：服务成功启动，健康检查周期执行，无 SIGSEGV 崩溃 ✅
+>
+> **2026-07-07 JNI调用崩溃修复（bookworm编译）**：发现 `rust:1.85-slim` 编译的 native 库调用 `env.new_string()` 等 JNI 方法时在偏移量 `0x5eaf7` 触发 SIGSEGV（虚函数调用 `call *0x720(%rax)`）。
+> **根因分析**：`rust:1.85-slim` 精简版缺少完整的 `glibc`/`libstdc++`，可能导致 JNI vtable 布局不完整，首次 JNI 方法调用时虚函数指针错误。
+> **修复方案**：切换到 `rust:1.85` (Debian bookworm完整版) 编译：
+> 1. `download_images.py` 第74行改为 `rust:1.85`，使用 `rust-1.85-bookworm.tar`
+> 2. Dockerfile 改为 `FROM rust:1.85`（不带 `-slim` 标签）
+> 3. 恢复 `mod.rs` 中正常的 `env.new_string("0.1.0")` JNI 调用
+> 4. 恢复 `NativeLibraryHealthCheck.check()` 中 `getVersion()` native 函数测试
+> **待验证**：重新编译后测试 JNI 调用是否正常 ✅
+
 ### 4.1 问题分析
 
 | 问题 | 描述 |

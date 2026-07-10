@@ -292,6 +292,9 @@ channels:
 living-agent:
   data:
     path: ${LIVING_AGENT_DATA_PATH:/app/data}
+  # R2: 连接注册表后端选择（memory=内存主+DB回退，jdbc=DB主+内存缓存）
+  connection-registry:
+    backend: ${CONNECTION_REGISTRY_BACKEND:memory}
   # 进化空间根目录（与 data/ 业务空间分离）
   living-dir: ${LIVING_AGENT_LIVING_DIR:./.living}
   memory:
@@ -456,6 +459,16 @@ skills:
     - find-skills
     - proactive-agent
     - weather
+
+skill:
+  config:
+    path: ${LIVING_AGENT_SKILLS_PATH:/app/skills}
+  data:
+    path: ${LIVING_AGENT_DATA_PATH:/app/data}/skills
+  hotreload:
+    enabled: ${SKILL_HOTRELOAD_ENABLED:true}
+    watch:
+      config: ${SKILL_HOTRELOAD_WATCH_CONFIG:false}
 
 qdrant:
   host: ${QDRANT_HOST:localhost}

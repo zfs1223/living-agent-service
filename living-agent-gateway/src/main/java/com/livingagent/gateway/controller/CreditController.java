@@ -2,6 +2,7 @@ package com.livingagent.gateway.controller;
 
 import com.livingagent.core.autonomous.incentive.CreditAccountService;
 import com.livingagent.core.autonomous.incentive.IncentiveManager;
+import com.livingagent.core.autonomous.bounty.feedback.CreditEconomyMonitor;
 import com.livingagent.core.security.AccessGateService;
 import com.livingagent.core.security.AccessLevel;
 import com.livingagent.core.security.AuthContext;
@@ -10,6 +11,7 @@ import com.livingagent.core.security.auth.UnifiedAuthService;
 import com.livingagent.core.security.auth.UnifiedAuthService.AuthSession;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -34,6 +36,9 @@ public class CreditController {
     private final IncentiveManager incentiveManager;
     private final UnifiedAuthService authService;
     private final AccessGateService accessGateService;
+
+    @Autowired(required = false)
+    private CreditEconomyMonitor creditEconomyMonitor;
 
     public CreditController(
             CreditAccountService creditAccountService,

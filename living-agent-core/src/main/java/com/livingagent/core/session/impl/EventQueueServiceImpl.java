@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -42,6 +43,13 @@ public class EventQueueServiceImpl implements EventQueueService {
     }
 
     @Override
+    public List<PendingEvent> getPendingEventsAfter(String sessionId, long afterTimestamp) {
+        return repository.findBySessionIdAndTimestampGreaterThanAndSentFalseOrderByTimestampAsc(sessionId, afterTimestamp).stream()
+            .map(e -> new PendingEvent(e.getEventId(), e.getSessionId(), e.getEventType(), e.getPayload(), e.getTimestamp()))
+            .toList();
+    }
+
+    @Override
     @Transactional
     public void markEventSent(String sessionId, String eventId) {
         repository.markAsSent(eventId, Instant.now());
@@ -63,5 +71,11 @@ public class EventQueueServiceImpl implements EventQueueService {
     @Transactional
     public void deleteSessionEvents(String sessionId) {
         repository.deleteBySessionId(sessionId);
+    }
+
+    @Override
+    public Optional<Long> getLatestEventTimestamp(String sessionId) {
+        return repository.findTopBySessionIdOrderByTimestampDesc(sessionId)
+            .map(com.livingagent.core.database.entity.PendingEventEntity::getTimestamp);
     }
 }

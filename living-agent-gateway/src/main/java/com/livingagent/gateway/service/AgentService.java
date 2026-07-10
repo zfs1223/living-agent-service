@@ -1028,6 +1028,40 @@ public class AgentService {
     }
 
     /**
+     * 前台闲聊：直接调用 ModelManager.chatAsync() 走 Qwen3-0.6B 模型。
+     * 不需要 session 上下文，无需权限验证。
+     */
+    public CompletableFuture<String> chatPublic(String message, String userId) {
+        return modelManager.chatAsync("qwen3-0.6b", message)
+            .exceptionally(ex -> {
+                log.error("Public chat failed: userId={}, error={}", userId, ex.getMessage());
+                return "抱歉，我暂时无法回复，请稍后再试。";
+            });
+    }
+
+    /**
+     * 前台闲聊音频全链路：ASR → LLM → TTS。
+     * 接收 Base64 编码的音频数据，走 processAudioFullChain 处理后返回完整响应。
+     */
+    public CompletableFuture<Map<String, Object>> chatPublicAudio(String base64AudioData, String userId) {
+        // 创建临时 session 用于音频处理
+        String tempSessionId = "public-audio-" + userId + "-" + System.currentTimeMillis();
+
+        return modelManager.createSession(tempSessionId)
+            .thenCompose(ignored -> processAudioFullChain(tempSessionId, base64AudioData))
+            .thenApply(response -> {
+                // 清理临时 session
+                try { modelManager.destroySession(tempSessionId); } catch (Exception ignored) {}
+                return response;
+            })
+            .exceptionally(ex -> {
+                log.error("Public audio chat failed: userId={}, error={}", userId, ex.getMessage());
+                try { modelManager.destroySession(tempSessionId); } catch (Exception ignored) {}
+                return Map.of("type", "error", "message", "语音处理失败");
+            });
+    }
+
+    /**
      * 挂起会话记录：保存断线时的会话上下文和音频处理器
      */
     private record SuspendedSession(

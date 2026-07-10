@@ -8,6 +8,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import com.livingagent.core.database.entity.ProjectEntity;
 import com.livingagent.core.database.repository.ProjectRepository;
+import com.livingagent.core.project.monitor.ProjectHealthMonitor;
 import com.livingagent.core.project.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,9 +21,11 @@ public class ProjectServiceImpl implements ProjectService {
 
     private final Map<String, Project> projectStore = new ConcurrentHashMap<>();
     private final ProjectRepository projectRepository;
-    
-    public ProjectServiceImpl(ProjectRepository projectRepository) {
+    private final ProjectHealthMonitor projectHealthMonitor;
+
+    public ProjectServiceImpl(ProjectRepository projectRepository, ProjectHealthMonitor projectHealthMonitor) {
         this.projectRepository = projectRepository;
+        this.projectHealthMonitor = projectHealthMonitor;
     }
     
     @Override
@@ -32,6 +35,10 @@ public class ProjectServiceImpl implements ProjectService {
         project.setManagerId(request.managerId());
         projectStore.put(project.getProjectId(), project);
         persistProject(project);
+
+        Instant deadline = project.getEndDate() != null ? project.getEndDate() : Instant.now().plus(java.time.Duration.ofDays(30));
+        projectHealthMonitor.recordBaseline(project.getProjectId(), deadline, 0);
+
         log.info("Created project: {} name={}", project.getProjectId(), project.getName());
         return project;
     }
@@ -126,7 +133,9 @@ public class ProjectServiceImpl implements ProjectService {
         
         ProjectPhase phase = ProjectPhase.fromCode(phaseCode);
         project.setPhaseProgress(phase, progress);
-        
+
+        projectHealthMonitor.checkHealth(project, (int) project.getProgress(), 100);
+
         persistProject(project);
         return project;
     }

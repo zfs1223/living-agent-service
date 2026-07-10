@@ -21,6 +21,17 @@
       "env": {
         "CODEGRAPH_WATCH_DEBOUNCE_MS": "5000"
       }
+    },
+    "fuck-u-code": {
+      "command": "docker",
+      "args": ["exec", "-i", "living-agent-fuck-u-code", "node", "/app/bin/fuck-u-code-mcp.js"],
+      "env": {
+        "FUCKUCODE_AI_PROVIDER": "openai",
+        "FUCKUCODE_AI_MODEL": "qwen3.5-2b",
+        "FUCKUCODE_AI_BASE_URL": "http://living-agent-service:8392/v1",
+        "FUCKUCODE_AI_API_KEY": "",
+        "FUCKUCODE_LOCALE": "zh"
+      }
     }
   }
 }

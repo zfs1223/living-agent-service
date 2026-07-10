@@ -10,6 +10,7 @@ import com.livingagent.core.security.auth.UnifiedAuthService;
 import com.livingagent.core.security.auth.UnifiedAuthService.AuthResult;
 import com.livingagent.core.security.auth.UnifiedAuthService.AuthSession;
 import com.livingagent.core.security.AccessGateService;
+import com.livingagent.core.security.auth.AuthMetricsService;
 import com.livingagent.core.security.auth.PhoneVerificationService;
 import com.livingagent.gateway.controller.common.ApiResponse;
 import com.livingagent.core.security.service.EnterpriseEmployeeService;
@@ -50,6 +51,7 @@ public class PhoneAuthController {
     private final EmployeeAuthService employeeAuthService;
     private final Map<String, SecurityIdentity> phoneEmployeeMap = new ConcurrentHashMap<>();
     private final AccessGateService accessGateService;
+    private final AuthMetricsService authMetricsService;
 
     /** 是否启用 Cookie 的 Secure 标志（生产环境 true，开发环境 false） */
     @Value("${auth.cookie.secure:true}")
@@ -61,7 +63,8 @@ public class PhoneAuthController {
             FounderService founderService,
             EnterpriseEmployeeService employeeService,
             EmployeeAuthService employeeAuthService,
-            AccessGateService accessGateService
+            AccessGateService accessGateService,
+            AuthMetricsService authMetricsService
     ) {
         this.phoneVerificationService = phoneVerificationService;
         this.authService = authService;
@@ -69,6 +72,7 @@ public class PhoneAuthController {
         this.employeeService = employeeService;
         this.employeeAuthService = employeeAuthService;
         this.accessGateService = accessGateService;
+        this.authMetricsService = authMetricsService;
     }
 
     @PostMapping("/sms/send")
@@ -117,6 +121,7 @@ public class PhoneAuthController {
 
         SecurityIdentity employee = findEmployeeByPhone(normalizedPhone);
         if (employee == null) {
+            authMetricsService.recordFailure("phone_login", "PhoneAuthController", "phone_not_registered");
             return ResponseEntity.status(401)
                     .body(ApiResponse.err("phone_not_registered", "该手机号未绑定企业员工，请联系管理员添加"));
         }
@@ -124,6 +129,7 @@ public class PhoneAuthController {
         // 验证验证码
         PhoneVerificationService.VerifyResult verifyResult = phoneVerificationService.verifyCode(normalizedPhone, request.code());
         if (!verifyResult.isSuccess()) {
+            authMetricsService.recordFailure("phone_login", "PhoneAuthController", "invalid_code");
             return ResponseEntity.status(401)
                     .body(ApiResponse.err("invalid_code", verifyResult.error()));
         }
@@ -159,6 +165,7 @@ public class PhoneAuthController {
         log.info("Phone login successful: {} ({}), identity: {}, accessLevel: {}",
                 employee.getName(), maskPhone(request.phone()),
                 employee.getIdentity(), employee.getAccessLevel());
+        authMetricsService.recordSuccess("phone_login", "PhoneAuthController");
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 

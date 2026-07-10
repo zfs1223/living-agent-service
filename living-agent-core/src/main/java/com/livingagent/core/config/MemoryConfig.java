@@ -14,6 +14,7 @@ import com.livingagent.core.evolution.patch.PatchProposalService;
 import com.livingagent.core.evolution.patch.PatchApplicationService;
 import com.livingagent.core.memory.Memory;
 import com.livingagent.core.memory.MemoryBackend;
+import com.livingagent.core.memory.feedback.MemoryConversionTracker;
 import com.livingagent.core.memory.impl.MemoryServiceImpl;
 import com.livingagent.core.memory.impl.MemPalaceBackend;
 import com.livingagent.core.memory.impl.MemosMemoryBackend;
@@ -92,7 +93,7 @@ public class MemoryConfig {
     private String agencyAgentsPath;
 
     @Bean
-    public Memory memory() {
+    public Memory memory(MemoryConversionTracker memoryConversionTracker) {
         log.info("Initializing Memory with backend: {} (mempalace={}, memos={})",
                  memoryBackend, mempalaceEnabled, memosEnabled);
 
@@ -123,7 +124,7 @@ public class MemoryConfig {
             backend.initialize().join();
         }
 
-        return new MemoryServiceImpl(backend);
+        return new MemoryServiceImpl(backend, "default", memoryConversionTracker);
     }
 
     @Bean

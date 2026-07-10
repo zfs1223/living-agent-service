@@ -2,6 +2,7 @@ package com.livingagent.core.security.client;
 
 import com.livingagent.core.database.entity.ClientDeviceEntity;
 import com.livingagent.core.database.repository.ClientDeviceRepository;
+import com.livingagent.core.security.client.feedback.ClientDeviceHealthMonitor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -31,9 +32,12 @@ public class ClientDeviceRegistryService {
     private static final Logger log = LoggerFactory.getLogger(ClientDeviceRegistryService.class);
 
     private final ClientDeviceRepository repository;
+    private final ClientDeviceHealthMonitor deviceHealthMonitor;
 
-    public ClientDeviceRegistryService(ClientDeviceRepository repository) {
+    public ClientDeviceRegistryService(ClientDeviceRepository repository,
+                                       ClientDeviceHealthMonitor deviceHealthMonitor) {
         this.repository = repository;
+        this.deviceHealthMonitor = deviceHealthMonitor;
     }
 
     /**
@@ -59,6 +63,7 @@ public class ClientDeviceRegistryService {
             // 2. 设备已注册，验证 clientId 是否匹配
             if (!existing.getClientId().equals(info.clientId())) {
                 // 同一台机器尝试用不同的 clientId 注册 → 拒绝
+                deviceHealthMonitor.recordOperation(existing.getClientId(), false);
                 log.warn("[DeviceRegistry] 同一台机器尝试注册不同 clientId: " +
                     "existing={}, new={}, hostname={}, mac={}",
                     existing.getClientId(), info.clientId(), info.hostname(), info.macAddress());
@@ -86,6 +91,7 @@ public class ClientDeviceRegistryService {
             
             log.info("[DeviceRegistry] 设备活跃时间更新: clientId={}, hostname={}",
                 existing.getClientId(), existing.getHostname());
+            deviceHealthMonitor.recordOperation(existing.getClientId(), true);
             return repository.save(existing);
         }
 
@@ -109,6 +115,8 @@ public class ClientDeviceRegistryService {
 
         log.info("[DeviceRegistry] 新设备注册: clientId={}, hostname={}, mac={}",
             clientId, info.hostname(), info.macAddress());
+        deviceHealthMonitor.registerDevice(clientId);
+        deviceHealthMonitor.recordOperation(clientId, true);
         return repository.save(entity);
     }
 
@@ -188,6 +196,7 @@ public class ClientDeviceRegistryService {
             ClientDeviceEntity entity = entityOpt.get();
             entity.setStatus("offline");
             repository.save(entity);
+            deviceHealthMonitor.recordOperation(clientId, false);
             log.info("[DeviceRegistry] 设备标记为离线: clientId={}", clientId);
         }
     }

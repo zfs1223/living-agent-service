@@ -7,6 +7,7 @@ import com.livingagent.core.autonomy.ArtifactRecord;
 import com.livingagent.core.autonomy.ArtifactRecordService;
 import com.livingagent.core.autonomy.CodeReviewWorkflowService;
 import com.livingagent.core.autonomy.TaskMetadataKeys;
+import com.livingagent.core.codereview.feedback.CodeReviewMetricsService;
 import com.livingagent.core.database.entity.CodeReviewStateEntity;
 import com.livingagent.core.database.repository.CodeReviewStateRepository;
 import org.slf4j.Logger;
@@ -30,11 +31,19 @@ public class JpaCodeReviewWorkflowService implements CodeReviewWorkflowService {
     private final CodeReviewStateRepository repository;
     private final ArtifactRecordService artifactRecordService;
     private final ObjectMapper objectMapper;
+    private final CodeReviewMetricsService codeReviewMetricsService;
 
     public JpaCodeReviewWorkflowService(CodeReviewStateRepository repository,
                                         ArtifactRecordService artifactRecordService) {
+        this(repository, artifactRecordService, null);
+    }
+
+    public JpaCodeReviewWorkflowService(CodeReviewStateRepository repository,
+                                        ArtifactRecordService artifactRecordService,
+                                        CodeReviewMetricsService codeReviewMetricsService) {
         this.repository = repository;
         this.artifactRecordService = artifactRecordService;
+        this.codeReviewMetricsService = codeReviewMetricsService;
         this.objectMapper = new ObjectMapper();
     }
 
@@ -125,6 +134,11 @@ public class JpaCodeReviewWorkflowService implements CodeReviewWorkflowService {
 
         entity = repository.save(entity);
         log.info("Requested changes: taskId={}, round={}", taskId, newRound);
+        if (codeReviewMetricsService != null) {
+            codeReviewMetricsService.recordReviewCompleted(
+                entity.getReviewerEmployeeCode() != null ? entity.getReviewerEmployeeCode() : "unknown",
+                false, newRound, 0);
+        }
         return toReviewState(entity);
     }
 
@@ -142,6 +156,11 @@ public class JpaCodeReviewWorkflowService implements CodeReviewWorkflowService {
 
         entity = repository.save(entity);
         log.info("Approved review: taskId={}, rounds={}", taskId, entity.getReviewRound());
+        if (codeReviewMetricsService != null) {
+            codeReviewMetricsService.recordReviewCompleted(
+                entity.getReviewerEmployeeCode() != null ? entity.getReviewerEmployeeCode() : "unknown",
+                true, entity.getReviewRound() != null ? entity.getReviewRound() : 0, 0);
+        }
         return toReviewState(entity);
     }
 

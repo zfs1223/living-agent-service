@@ -27,6 +27,12 @@ public class DefaultRequirementReadinessEvaluator implements RequirementReadines
         "(如何|怎么|什么|为什么|哪|是否|能否|可以|能不能|吗|呢|\\?)"
     );
 
+    /** O2: 模糊疑问模式 — 只有疑问词但缺少具体目标，应触发澄清而非直接通过 */
+    private static final Pattern VAGUE_QUESTION_PATTERN = Pattern.compile(
+        "(^(这个|那个|它|这|那).*(怎么|如何|什么|为什么|吗|呢|\\?)\\s*$|" +
+        "^(如何|怎么|什么|为什么|能否|可以|能不能).*(吗|呢|\\?)\\s*$)"
+    );
+
     /** 请求/指令词 */
     private static final Pattern REQUEST_PATTERN = Pattern.compile(
         "(帮|请|要|需要|希望|想要|能不能|可以.*吗|请帮我|帮我|麻烦)"
@@ -56,8 +62,16 @@ public class DefaultRequirementReadinessEvaluator implements RequirementReadines
             return RequirementReadinessResult.sufficient(0.9, "Action keyword detected");
         }
 
-        // 规则4：包含疑问词
+        // 规则4：模糊疑问模式（O2 增强）— 只有疑问词但缺少具体目标
         if (QUESTION_PATTERN.matcher(trimmed).find()) {
+            if (VAGUE_QUESTION_PATTERN.matcher(trimmed).find()) {
+                log.debug("Rule-based readiness: PARTIALLY_SUFFICIENT (vague question, needs context)");
+                return RequirementReadinessResult.partiallySufficient(
+                    0.55,
+                    List.of("疑问缺少具体目标上下文"),
+                    List.of("请补充您要操作的具体对象或场景"),
+                    "Vague question without specific target");
+            }
             log.debug("Rule-based readiness: SUFFICIENT (question pattern detected)");
             return RequirementReadinessResult.sufficient(0.85, "Question pattern detected");
         }

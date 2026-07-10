@@ -3,6 +3,7 @@ package com.livingagent.gateway.controller;
 import com.livingagent.core.security.AccessGateService;
 import com.livingagent.core.security.AccessLevel;
 import com.livingagent.core.security.AuthContext;
+import com.livingagent.core.settings.feedback.SettingsChangeImpactTracker;
 import com.livingagent.gateway.controller.common.ApiResponse;
 import com.livingagent.core.security.auth.UnifiedAuthService;
 import com.livingagent.core.security.auth.UnifiedAuthService.AuthSession;
@@ -12,6 +13,7 @@ import com.livingagent.core.tool.impl.FileEditTool;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -29,6 +31,9 @@ public class SystemSettingsController {
     private final UnifiedAuthService authService;
     private final AccessGateService accessGateService;
     private final ToolRegistry toolRegistry;
+
+    @Autowired(required = false)
+    private SettingsChangeImpactTracker settingsChangeImpactTracker;
 
     @org.springframework.beans.factory.annotation.Value("${model.default:qwen3.5:27b}")
     private String defaultModelDefault;
@@ -188,6 +193,10 @@ public class SystemSettingsController {
         
         log.info("Setting updated: key={}, oldValue={}, newValue={}, by={}", 
             fullKey, oldValue, newValue, ctx.getEmployeeId());
+
+        if (settingsChangeImpactTracker != null) {
+            settingsChangeImpactTracker.recordChange(fullKey, String.valueOf(oldValue), String.valueOf(newValue));
+        }
         
         return ResponseEntity.ok(new SettingValue(fullKey, newValue, newValue.getClass().getSimpleName()));
     }
@@ -238,6 +247,10 @@ public class SystemSettingsController {
                     "Batch update"
                 );
                 changeHistory.add(record);
+
+                if (settingsChangeImpactTracker != null) {
+                    settingsChangeImpactTracker.recordChange(key, String.valueOf(oldValue), String.valueOf(newValue));
+                }
 
                 updated++;
             } catch (Exception e) {
@@ -313,6 +326,10 @@ public class SystemSettingsController {
         changeHistory.add(record);
         
         log.info("Setting reset: key={}, to default={}, by={}", fullKey, defaultValue, ctx.getEmployeeId());
+
+        if (settingsChangeImpactTracker != null) {
+            settingsChangeImpactTracker.recordRollback(fullKey, "Reset to default");
+        }
         
         return ResponseEntity.ok(new SettingValue(fullKey, defaultValue, defaultValue.getClass().getSimpleName()));
     }
@@ -402,6 +419,10 @@ public class SystemSettingsController {
                 "Rollback executed"
         );
         changeHistory.add(record);
+
+        if (settingsChangeImpactTracker != null) {
+            settingsChangeImpactTracker.recordRollback("system.rollback", "Rollback to " + versionId);
+        }
 
         return ResponseEntity.ok(new BatchUpdateResult(systemSettings.size(), 0, List.of()));
     }

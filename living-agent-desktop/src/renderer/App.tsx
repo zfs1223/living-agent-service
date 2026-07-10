@@ -19,7 +19,7 @@ import { PublicTaskBoardPage } from './pages/TaskBoard/PublicTaskBoardPage';
 import { OfficeChatPage } from './pages/OfficeChat';
 import type { ClientInfo, DesktopUser } from '@shared/api-types';
 
-type View = 'home' | 'chat' | 'tasks' | 'artifacts' | 'projects' | 'approvals' | 'messages' | 'local-save' | 'settings' | 'admin';
+type View = 'home' | 'chat' | 'chat-public' | 'chat-enterprise' | 'frontdesk' | 'tasks' | 'artifacts' | 'projects' | 'approvals' | 'messages' | 'agents' | 'interventions' | 'skills' | 'proactive' | 'plaza' | 'local-save' | 'settings' | 'admin';
 
 interface BackendStatus {
   status: 'online' | 'offline' | 'unknown';
@@ -260,6 +260,12 @@ export function App() {
           <div className="nav-section">
             <div className="nav-section-title">基础功能</div>
             <button
+              className={view === 'frontdesk' ? 'nav-item active' : 'nav-item'}
+              onClick={() => handleNav('frontdesk')}
+            >
+              🤖 智能前台
+            </button>
+            <button
               className={view === 'home' ? 'nav-item active' : 'nav-item'}
               onClick={() => handleNav('home')}
             >
@@ -271,6 +277,20 @@ export function App() {
             >
               💬 部门聊天
             </button>
+            <button
+              className={view === 'chat-public' ? 'nav-item active' : 'nav-item'}
+              onClick={() => handleNav('chat-public')}
+            >
+              🗨️ 闲聊
+            </button>
+            {(currentUser?.accessLevel === 'FULL' || currentUser?.identity === 'INTERNAL_ENTERPRISE') && (
+            <button
+              className={view === 'chat-enterprise' ? 'nav-item active' : 'nav-item'}
+              onClick={() => handleNav('chat-enterprise')}
+            >
+              🌐 企业频道
+            </button>
+            )}
             <button
               className={view === 'tasks' ? 'nav-item active' : 'nav-item'}
               onClick={() => handleNav('tasks')}
@@ -300,6 +320,36 @@ export function App() {
               onClick={() => handleNav('messages')}
             >
               📨 消息
+            </button>
+            <button
+              className={view === 'agents' ? 'nav-item active' : 'nav-item'}
+              onClick={() => handleNav('agents')}
+            >
+              🤖 智能体
+            </button>
+            <button
+              className={view === 'interventions' ? 'nav-item active' : 'nav-item'}
+              onClick={() => handleNav('interventions')}
+            >
+              🚨 干预
+            </button>
+            <button
+              className={view === 'skills' ? 'nav-item active' : 'nav-item'}
+              onClick={() => handleNav('skills')}
+            >
+              🛠️ 技能
+            </button>
+            <button
+              className={view === 'proactive' ? 'nav-item active' : 'nav-item'}
+              onClick={() => handleNav('proactive')}
+            >
+              💡 主动服务
+            </button>
+            <button
+              className={view === 'plaza' ? 'nav-item active' : 'nav-item'}
+              onClick={() => handleNav('plaza')}
+            >
+              🏛️ 广场
             </button>
             <button
               className={view === 'local-save' ? 'nav-item active' : 'nav-item'}
@@ -361,6 +411,9 @@ export function App() {
             ⚠️ 首次使用需要先配置后端服务地址。配置完成后才能使用其它功能。
           </div>
         )}
+        {view === 'frontdesk' && (
+          <FrontDeskView backendUrl={backend.url} onLogin={handleLogin} />
+        )}
         {view === 'home' && (
           <HomeView
             backend={backend}
@@ -377,11 +430,34 @@ export function App() {
             onLogin={handleLogin}
           />
         )}
+        {view === 'chat-public' && (
+          <OfficeChatPage
+            backendUrl={backend.url}
+            hasToken={false}
+            currentUser={null}
+            onLogin={handleLogin}
+            forceChannel="/ws/public"
+          />
+        )}
+        {view === 'chat-enterprise' && (
+          <OfficeChatPage
+            backendUrl={backend.url}
+            hasToken={hasToken}
+            currentUser={currentUser}
+            onLogin={handleLogin}
+            forceChannel="/ws/enterprise"
+          />
+        )}
         {view === 'tasks' && <PublicTaskBoardPage />}
         {view === 'artifacts' && <ArtifactsPage />}
         {view === 'projects' && <ProjectsPage backendUrl={backend.url} hasToken={hasToken} />}
-        {view === 'approvals' && <ApprovalsPage backendUrl={backend.url} hasToken={hasToken} />}
-        {view === 'messages' && <MessagesPage backendUrl={backend.url} hasToken={hasToken} />}
+        {view === 'approvals' && <ApprovalsPage hasToken={hasToken} />}
+        {view === 'messages' && <MessagesPage hasToken={hasToken} />}
+        {view === 'agents' && <AgentListPage hasToken={hasToken} />}
+        {view === 'interventions' && <InterventionsPage hasToken={hasToken} />}
+        {view === 'skills' && <SkillsPage hasToken={hasToken} />}
+        {view === 'proactive' && <ProactivePage hasToken={hasToken} />}
+        {view === 'plaza' && <PlazaPage hasToken={hasToken} />}
         {view === 'admin' && <AdminPage backendUrl={backend.url} currentUser={currentUser} />}
         {view === 'local-save' && <LocalSaveSettings />}
         {view === 'settings' && (
@@ -487,6 +563,210 @@ function shortId(uuid: string): string {
   if (!uuid) return '';
   if (uuid.length <= 13) return uuid;
   return uuid.slice(0, 8) + '…';
+}
+
+/** 前台闲聊视图：无需登录，直接通过 /ws/public 对话（支持文字+语音） */
+function FrontDeskView({ backendUrl, onLogin }: { backendUrl: string; onLogin: () => void }) {
+  const [messages, setMessages] = useState<{ role: 'user' | 'assistant' | 'system'; content: string; audioUrl?: string }[]>([]);
+  const [input, setInput] = useState('');
+  const [connected, setConnected] = useState(false);
+  const [isWaiting, setIsWaiting] = useState(false);
+  const [voiceMode, setVoiceMode] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const anonymousId = useRef(`guest_${Date.now().toString(36)}`);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+  const recordingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+
+  useEffect(() => {
+    if (!backendUrl) return;
+    const protocol = backendUrl.startsWith('https') ? 'wss' : 'ws';
+    const urlBase = backendUrl.replace(/^https?:\/\//, '');
+    const wsUrl = `${protocol}://${urlBase}/ws/public?token=anonymous`;
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    ws.onopen = () => setConnected(true);
+    ws.onclose = () => setConnected(false);
+    ws.onerror = () => setConnected(false);
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'connected' || data.type === 'pong' || data.type === 'PONG') return;
+        if (data.type === 'thinking') {
+          setIsWaiting(true);
+          setMessages(prev => [...prev, { role: 'assistant', content: '...' }]);
+          return;
+        }
+        if (data.type === 'done') {
+          setIsWaiting(false);
+          setMessages(prev => {
+            const filtered = prev.filter(m => !(m.role === 'assistant' && m.content === '...'));
+            const newMsg: { role: 'assistant'; content: string; audioUrl?: string } = { role: 'assistant', content: data.content || '' };
+            if (data.audio) {
+              const audioBlob = new Blob([Uint8Array.from(atob(data.audio), c => c.charCodeAt(0))], { type: 'audio/wav' });
+              newMsg.audioUrl = URL.createObjectURL(audioBlob);
+            }
+            return [...filtered, newMsg];
+          });
+          return;
+        }
+        if (data.type === 'chunk' || data.type === 'response') {
+          setIsWaiting(false);
+          setMessages(prev => {
+            const filtered = prev.filter(m => !(m.role === 'assistant' && m.content === '...'));
+            const last = prev[prev.length - 1];
+            if (last && last.role === 'assistant' && last.content !== '...') {
+              return [...prev.slice(0, -1), { ...last, content: last.content + (data.content || '') }];
+            }
+            return [...filtered, { role: 'assistant', content: data.content || '' }];
+          });
+          return;
+        }
+        if (data.type === 'asr_result' && data.text) {
+          setMessages(prev => [...prev, { role: 'user', content: `🎤 ${data.text}` }]);
+          return;
+        }
+        if (data.type === 'error') {
+          setIsWaiting(false);
+          setMessages(prev => [...prev, { role: 'system', content: data.message || 'Error' }]);
+        }
+      } catch { /* ignore */ }
+    };
+
+    return () => { ws.close(); };
+  }, [backendUrl]);
+
+  useEffect(() => {
+    return () => { if (currentAudioRef.current) currentAudioRef.current.pause(); };
+  }, []);
+
+  const sendMessage = () => {
+    if (!input.trim() || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    const content = input.trim();
+    setMessages(prev => [...prev, { role: 'user', content }]);
+    setInput('');
+    setIsWaiting(true);
+    wsRef.current.send(JSON.stringify({ type: 'chat', content, userId: anonymousId.current }));
+  };
+
+  // 语音录音
+  const blobToBase64 = (blob: Blob): Promise<string> => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+      streamRef.current = stream;
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/wav';
+      const mr = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 128000 });
+      mediaRecorderRef.current = mr;
+      audioChunksRef.current = [];
+      mr.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      mr.onstop = async () => {
+        if (audioChunksRef.current.length === 0) return;
+        const blob = new Blob(audioChunksRef.current, { type: mr.mimeType || 'audio/webm' });
+        audioChunksRef.current = [];
+        if (blob.size < 1000) { setMessages(prev => [...prev, { role: 'system', content: '录音时间太短' }]); return; }
+        try {
+          const b64 = await blobToBase64(blob);
+          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            setIsWaiting(true);
+            wsRef.current.send(JSON.stringify({ type: 'audio_full', audio: b64, userId: anonymousId.current }));
+          }
+        } catch { setMessages(prev => [...prev, { role: 'system', content: '音频处理失败' }]); }
+      };
+      mr.start(100);
+      setIsRecording(true);
+      recordingTimerRef.current = setTimeout(() => { if (mr.state === 'recording') stopRecording(); }, 60000);
+    } catch (err: any) {
+      const msg = err.name === 'NotAllowedError' ? '麦克风权限被拒绝' : err.name === 'NotFoundError' ? '未找到麦克风' : '无法访问麦克风';
+      setMessages(prev => [...prev, { role: 'system', content: msg }]);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') mediaRecorderRef.current.stop();
+    setIsRecording(false);
+    if (recordingTimerRef.current) { clearTimeout(recordingTimerRef.current); recordingTimerRef.current = null; }
+    if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
+  };
+
+  const playAudio = (url: string) => {
+    if (currentAudioRef.current) currentAudioRef.current.pause();
+    const a = new Audio(url); currentAudioRef.current = a; a.play().catch(() => undefined);
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 16 }}>🤖 智能前台</h2>
+          <span style={{ fontSize: 11, color: connected ? '#0a0' : '#a00' }}>
+            {connected ? '在线 · 无需登录' : '离线'}
+          </span>
+        </div>
+        <button onClick={onLogin} style={{ fontSize: 12, padding: '4px 12px', borderRadius: 6, background: '#6366f1', color: '#fff', border: 'none', cursor: 'pointer' }}>
+          登录内部系统
+        </button>
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto', padding: 8, background: 'var(--bg-secondary, #1a1a2e)', borderRadius: 8, marginBottom: 8 }}>
+        {messages.length === 0 && (
+          <div style={{ textAlign: 'center', color: '#888', marginTop: 60 }}>
+            <div style={{ fontSize: 36, marginBottom: 8 }}>💬</div>
+            <p>你好！我是智能前台，有什么可以帮你的？</p>
+            <p style={{ fontSize: 11, color: '#666' }}>支持文字和语音对话</p>
+          </div>
+        )}
+        {messages.map((msg, i) => (
+          <div key={i} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start', marginBottom: 8 }}>
+            <div style={{
+              maxWidth: '70%', padding: '8px 12px', borderRadius: msg.role === 'user' ? '10px 10px 2px 10px' : '10px 10px 10px 2px',
+              background: msg.role === 'user' ? '#6366f1' : msg.role === 'system' ? '#4a1515' : '#2a2a3e',
+              color: msg.role === 'user' ? '#fff' : msg.role === 'system' ? '#f88' : '#ddd',
+              fontSize: 13, lineHeight: 1.5,
+            }}>
+              {msg.content}
+              {msg.audioUrl && <button onClick={() => playAudio(msg.audioUrl!)} style={{ marginTop: 4, fontSize: 10, padding: '2px 6px', borderRadius: 4, border: '1px solid #444', background: '#1a1a2e', color: '#aaa', cursor: 'pointer' }}>🔊 播放</button>}
+            </div>
+          </div>
+        ))}
+        <div ref={messagesEndRef} />
+      </div>
+
+      {voiceMode ? (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: 8 }}>
+          <button onMouseDown={startRecording} onMouseUp={stopRecording} onTouchStart={startRecording} onTouchEnd={stopRecording} disabled={isWaiting || !connected} style={{ width: 56, height: 56, borderRadius: '50%', border: isRecording ? '3px solid #f44' : '3px solid #6366f1', background: isRecording ? 'rgba(255,80,80,0.2)' : '#1a1a2e', color: isRecording ? '#f44' : '#6366f1', fontSize: 22, cursor: 'pointer' }}>
+            {isRecording ? '⏹' : '🎤'}
+          </button>
+          <span style={{ fontSize: 10, color: '#888' }}>{isRecording ? '正在录音...松开停止' : isWaiting ? '处理中...' : '按住说话'}</span>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') sendMessage(); }} placeholder="输入消息..." disabled={isWaiting || !connected} style={{ flex: 1, padding: '8px 12px', borderRadius: 6, border: '1px solid #333', background: '#1a1a2e', color: '#ddd', fontSize: 13, outline: 'none' }} />
+          <button onClick={sendMessage} disabled={!input.trim() || isWaiting || !connected} style={{ padding: '8px 16px', borderRadius: 6, border: 'none', background: input.trim() && !isWaiting && connected ? '#6366f1' : '#333', color: input.trim() && !isWaiting && connected ? '#fff' : '#666', cursor: 'pointer', fontSize: 13 }}>发送</button>
+        </div>
+      )}
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 9, color: '#555' }}>
+        <span>Qwen3 闲聊神经元 · 无需登录</span>
+        <button onClick={() => setVoiceMode(!voiceMode)} style={{ background: 'none', border: 'none', color: voiceMode ? '#6366f1' : '#555', fontSize: 9, cursor: 'pointer' }}>
+          {voiceMode ? '⌨️ 文字模式' : '🎤 语音模式'}
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function HomeView({
@@ -776,29 +1056,61 @@ function ProjectsPage({ backendUrl, hasToken }: { backendUrl: string; hasToken: 
 /**
  * 审批页面 - 展示待审批列表
  */
-function ApprovalsPage({ backendUrl, hasToken }: { backendUrl: string; hasToken: boolean }) {
+function ApprovalsPage({ hasToken }: { backendUrl?: string; hasToken: boolean }) {
   const [approvals, setApprovals] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<any>(null);
+  const [comment, setComment] = useState('');
+  const [actionLoading, setActionLoading] = useState(false);
 
   useEffect(() => {
-    if (!hasToken || !backendUrl) return;
+    if (!hasToken) return;
     void loadApprovals();
-  }, [backendUrl, hasToken]);
+  }, [hasToken]);
 
   async function loadApprovals() {
     setLoading(true);
     try {
-      const res = await fetch(`${backendUrl}/api/approvals`, {
-        headers: { Authorization: `Bearer ${await window.livingAgentAPI.auth.getToken() || ''}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setApprovals(Array.isArray(data) ? data : data.data || []);
-      }
+      const data = await window.livingAgentAPI.approval.list();
+      setApprovals(Array.isArray(data) ? data : []);
     } catch (e) {
       console.warn('[desktop] 加载审批列表失败:', e);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleSelect(id: string) {
+    if (selectedId === id) { setSelectedId(null); setDetail(null); return; }
+    setSelectedId(id);
+    try {
+      const d = await window.livingAgentAPI.approval.detail(id);
+      setDetail(d);
+    } catch (e) {
+      console.warn('[desktop] 加载审批详情失败:', e);
+    }
+  }
+
+  async function handleAction(action: 'approve' | 'reject' | 'cancel', stepId?: string) {
+    if (!selectedId) return;
+    setActionLoading(true);
+    try {
+      if (action === 'approve' && stepId) {
+        await window.livingAgentAPI.approval.approve(selectedId, stepId, comment || undefined);
+      } else if (action === 'reject' && stepId) {
+        await window.livingAgentAPI.approval.reject(selectedId, stepId, comment || undefined);
+      } else if (action === 'cancel') {
+        await window.livingAgentAPI.approval.cancel(selectedId);
+      }
+      setComment('');
+      setSelectedId(null);
+      setDetail(null);
+      await loadApprovals();
+    } catch (e: any) {
+      console.warn('[desktop] 审批操作失败:', e);
+    } finally {
+      setActionLoading(false);
     }
   }
 
@@ -821,12 +1133,47 @@ function ApprovalsPage({ backendUrl, hasToken }: { backendUrl: string; hasToken:
       ) : (
         <div>
           {approvals.map((a) => (
-            <div key={a.id} style={{ padding: 16, border: '1px solid #e8e8e8', borderRadius: 8, marginBottom: 12, display: 'flex', justifyContent: 'space-between' }}>
-              <div>
-                <h4 style={{ margin: '0 0 4px' }}>{a.title || a.type}</h4>
-                <span style={{ fontSize: 12, color: '#999' }}>{a.status} · {a.requester_name || ''}</span>
+            <div key={a.id}>
+              <div style={{ padding: 16, border: '1px solid #e8e8e8', borderRadius: 8, marginBottom: 4, display: 'flex', justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => handleSelect(a.id)}>
+                <div>
+                  <h4 style={{ margin: '0 0 4px' }}>{a.title || a.type}</h4>
+                  <span style={{ fontSize: 12, color: '#999' }}>{a.status} · {a.requester_name || ''}</span>
+                </div>
+                <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={(e) => { e.stopPropagation(); handleSelect(a.id); }}>处理</button>
               </div>
-              <button className="btn btn-primary" style={{ fontSize: 12 }}>处理</button>
+              {selectedId === a.id && detail && (
+                <div style={{ padding: 16, border: '1px solid #d0d0d0', borderRadius: 8, marginBottom: 12, background: '#fafafa' }}>
+                  <h4 style={{ margin: '0 0 8px' }}>审批详情</h4>
+                  {detail.steps && detail.steps.length > 0 && (
+                    <div style={{ marginBottom: 8 }}>
+                      {detail.steps.map((s: any, i: number) => (
+                        <div key={i} style={{ padding: '4px 0', fontSize: 13, display: 'flex', gap: 8 }}>
+                          <span style={{ color: s.status === 'APPROVED' ? 'green' : s.status === 'REJECTED' ? 'red' : '#666' }}>{s.status}</span>
+                          <span>{s.approver_name || s.approver_id || `步骤 ${i + 1}`}</span>
+                          {s.comment && <span style={{ color: '#999' }}>- {s.comment}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ marginBottom: 8 }}>
+                    <textarea
+                      placeholder="审批意见（可选）"
+                      value={comment}
+                      onChange={(e) => setComment(e.target.value)}
+                      style={{ width: '100%', minHeight: 48, padding: 8, borderRadius: 6, border: '1px solid #ddd', fontSize: 13, boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {detail.current_step_id && (
+                      <>
+                        <button className="btn btn-primary" style={{ fontSize: 12 }} disabled={actionLoading} onClick={() => handleAction('approve', detail.current_step_id)}>通过</button>
+                        <button className="btn btn-danger" style={{ fontSize: 12, background: '#e74c3c', color: '#fff', border: 'none', borderRadius: 6, padding: '4px 12px' }} disabled={actionLoading} onClick={() => handleAction('reject', detail.current_step_id)}>驳回</button>
+                      </>
+                    )}
+                    <button className="btn" style={{ fontSize: 12, background: '#eee', border: 'none', borderRadius: 6, padding: '4px 12px' }} disabled={actionLoading} onClick={() => handleAction('cancel')}>取消审批</button>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -838,29 +1185,53 @@ function ApprovalsPage({ backendUrl, hasToken }: { backendUrl: string; hasToken:
 /**
  * 消息页面 - 展示消息通知
  */
-function MessagesPage({ backendUrl, hasToken }: { backendUrl: string; hasToken: boolean }) {
+function MessagesPage({ hasToken }: { backendUrl?: string; hasToken: boolean }) {
   const [messages, setMessages] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
-    if (!hasToken || !backendUrl) return;
+    if (!hasToken) return;
     void loadMessages();
-  }, [backendUrl, hasToken]);
+    void loadUnread();
+  }, [hasToken]);
 
   async function loadMessages() {
     setLoading(true);
     try {
-      const res = await fetch(`${backendUrl}/api/messages`, {
-        headers: { Authorization: `Bearer ${await window.livingAgentAPI.auth.getToken() || ''}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setMessages(Array.isArray(data) ? data : data.data || []);
-      }
+      const data = await window.livingAgentAPI.message.list(50);
+      setMessages(Array.isArray(data) ? data : []);
     } catch (e) {
       console.warn('[desktop] 加载消息列表失败:', e);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadUnread() {
+    try {
+      const count = await window.livingAgentAPI.message.unreadCount();
+      setUnreadCount(count);
+    } catch { /* ignore */ }
+  }
+
+  async function handleMarkRead(id: string) {
+    try {
+      await window.livingAgentAPI.message.markRead(id);
+      setMessages(prev => prev.map(m => m.id === id ? { ...m, read: true } : m));
+      await loadUnread();
+    } catch (e) {
+      console.warn('[desktop] 标记已读失败:', e);
+    }
+  }
+
+  async function handleMarkAllRead() {
+    try {
+      await window.livingAgentAPI.message.markAllRead();
+      setMessages(prev => prev.map(m => ({ ...m, read: true })));
+      setUnreadCount(0);
+    } catch (e) {
+      console.warn('[desktop] 全部已读失败:', e);
     }
   }
 
@@ -874,19 +1245,31 @@ function MessagesPage({ backendUrl, hasToken }: { backendUrl: string; hasToken: 
 
   return (
     <div style={{ padding: 24, maxWidth: 1000, margin: '0 auto' }}>
-      <header style={{ marginBottom: 16 }}>
-        <h1>📨 消息</h1>
-        <p style={{ color: '#666' }}>查看系统消息和通知</p>
+      <header style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <h1>📨 消息 {unreadCount > 0 && <span style={{ fontSize: 14, background: '#e74c3c', color: '#fff', borderRadius: 10, padding: '2px 8px' }}>{unreadCount}</span>}</h1>
+          <p style={{ color: '#666' }}>查看系统消息和通知</p>
+        </div>
+        {unreadCount > 0 && (
+          <button className="btn" style={{ fontSize: 12, background: '#eee', border: 'none', borderRadius: 6, padding: '6px 12px' }} onClick={handleMarkAllRead}>全部已读</button>
+        )}
       </header>
       {messages.length === 0 ? (
         <div style={{ textAlign: 'center', padding: 48, color: '#999' }}>暂无消息</div>
       ) : (
         <div>
           {messages.map((m) => (
-            <div key={m.id} style={{ padding: 16, border: '1px solid #e8e8e8', borderRadius: 8, marginBottom: 12 }}>
-              <h4 style={{ margin: '0 0 4px' }}>{m.title || m.subject}</h4>
-              <p style={{ fontSize: 13, color: '#666', margin: '4px 0' }}>{m.content || m.body}</p>
-              <span style={{ fontSize: 12, color: '#999' }}>{m.created_at ? new Date(m.created_at).toLocaleString() : ''}</span>
+            <div key={m.id} style={{ padding: 16, border: '1px solid #e8e8e8', borderRadius: 8, marginBottom: 12, background: m.read ? 'transparent' : '#f0f7ff' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div style={{ flex: 1 }}>
+                  <h4 style={{ margin: '0 0 4px' }}>{m.title || m.subject}</h4>
+                  <p style={{ fontSize: 13, color: '#666', margin: '4px 0' }}>{m.content || m.body}</p>
+                  <span style={{ fontSize: 12, color: '#999' }}>{m.created_at ? new Date(m.created_at).toLocaleString() : ''}</span>
+                </div>
+                {!m.read && (
+                  <button className="btn" style={{ fontSize: 11, background: '#eee', border: 'none', borderRadius: 6, padding: '4px 8px', marginLeft: 8, whiteSpace: 'nowrap' }} onClick={() => handleMarkRead(m.id)}>已读</button>
+                )}
+              </div>
             </div>
           ))}
         </div>
@@ -967,6 +1350,338 @@ function AdminPage({ backendUrl, currentUser }: { backendUrl: string; currentUse
           <pre style={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>{JSON.stringify(settings, null, 2)}</pre>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Agent 管理页 (P1-1) */
+function AgentListPage({ hasToken }: { hasToken: boolean }) {
+  const [agents, setAgents] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!hasToken) { setLoading(false); return; }
+    window.livingAgentAPI.agent.list()
+      .then(setAgents)
+      .catch(e => setError(e.message || '加载失败'))
+      .finally(() => setLoading(false));
+  }, [hasToken]);
+
+  async function handleStart(id: string) {
+    try { await window.livingAgentAPI.agent.start(id); setAgents(prev => prev.map(a => a.id === id ? { ...a, status: 'running' } : a)); } catch (e: any) { alert(e.message); }
+  }
+
+  async function handleStop(id: string) {
+    try { await window.livingAgentAPI.agent.stop(id); setAgents(prev => prev.map(a => a.id === id ? { ...a, status: 'stopped' } : a)); } catch (e: any) { alert(e.message); }
+  }
+
+  if (!hasToken) {
+    return <div style={{ padding: 32, textAlign: 'center', color: '#999' }}>请先登录</div>;
+  }
+  if (loading) return <div style={{ padding: 32, textAlign: 'center', color: '#999' }}>加载中...</div>;
+  if (error) return <div style={{ padding: 32, textAlign: 'center', color: '#e53e3e' }}>{error}</div>;
+
+  return (
+    <div style={{ padding: 24, maxWidth: 900, margin: '0 auto' }}>
+      <h1>🤖 智能体管理</h1>
+      <div style={{ display: 'grid', gap: 8, marginTop: 16 }}>
+        {agents.length === 0 && <div style={{ color: '#999', textAlign: 'center', padding: 32 }}>暂无智能体</div>}
+        {agents.map(agent => (
+          <div key={agent.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 12, border: '1px solid #e8e8e8', borderRadius: 8, background: '#fafafa' }}>
+            <div>
+              <strong>{agent.name || agent.id}</strong>
+              <span style={{ marginLeft: 8, fontSize: 12, color: agent.status === 'running' ? '#38a169' : '#999' }}>
+                {agent.status === 'running' ? '● 运行中' : agent.status === 'idle' ? '● 空闲' : '○ 已停止'}
+              </span>
+              {agent.role_description && <div style={{ fontSize: 12, color: '#666', marginTop: 2 }}>{agent.role_description}</div>}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {agent.status !== 'running' && <button className="btn" onClick={() => handleStart(agent.id)}>▶ 启动</button>}
+              {agent.status === 'running' && <button className="btn" onClick={() => handleStop(agent.id)}>⏹ 停止</button>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** 干预决策页 (P1-2) */
+function InterventionsPage({ hasToken }: { hasToken: boolean }) {
+  const [interventions, setInterventions] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [comment, setComment] = useState<Record<string, string>>({});
+
+  function loadList() {
+    if (!hasToken) { setLoading(false); return; }
+    setLoading(true);
+    window.livingAgentAPI.intervention.list()
+      .then(setInterventions)
+      .catch(e => setError(e.message || '加载失败'))
+      .finally(() => setLoading(false));
+  }
+
+  useEffect(loadList, [hasToken]);
+
+  async function handleRespond(id: string, action: string) {
+    try {
+      await window.livingAgentAPI.intervention.respond(id, action, comment[id] || '');
+      loadList();
+    } catch (e: any) { alert(e.message); }
+  }
+
+  async function handleEscalate(id: string) {
+    try {
+      await window.livingAgentAPI.intervention.escalate(id, comment[id] || '需要升级处理');
+      loadList();
+    } catch (e: any) { alert(e.message); }
+  }
+
+  if (!hasToken) {
+    return <div style={{ padding: 32, textAlign: 'center', color: '#999' }}>请先登录</div>;
+  }
+  if (loading) return <div style={{ padding: 32, textAlign: 'center', color: '#999' }}>加载中...</div>;
+  if (error) return <div style={{ padding: 32, textAlign: 'center', color: '#e53e3e' }}>{error}</div>;
+
+  return (
+    <div style={{ padding: 24, maxWidth: 900, margin: '0 auto' }}>
+      <h1>🚨 人工干预</h1>
+      <div style={{ display: 'grid', gap: 8, marginTop: 16 }}>
+        {interventions.length === 0 && <div style={{ color: '#999', textAlign: 'center', padding: 32 }}>暂无待干预事项</div>}
+        {interventions.map(iv => (
+          <div key={iv.id} style={{ padding: 12, border: '1px solid #e8e8e8', borderRadius: 8, background: '#fafafa' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <strong>{iv.title || iv.type || iv.id}</strong>
+                <span style={{ marginLeft: 8, fontSize: 12, color: iv.status === 'pending' ? '#d69e2e' : '#38a169' }}>
+                  {iv.status === 'pending' ? '⏳ 待处理' : '✓ 已处理'}
+                </span>
+                {iv.description && <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>{iv.description}</div>}
+              </div>
+            </div>
+            {iv.status === 'pending' && (
+              <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input
+                  placeholder="评论..."
+                  value={comment[iv.id] || ''}
+                  onChange={e => setComment(prev => ({ ...prev, [iv.id]: e.target.value }))}
+                  style={{ flex: 1, padding: '4px 8px', border: '1px solid #ddd', borderRadius: 4, fontSize: 13 }}
+                />
+                <button className="btn" onClick={() => handleRespond(iv.id, 'approve')}>✅ 批准</button>
+                <button className="btn" onClick={() => handleRespond(iv.id, 'reject')}>❌ 拒绝</button>
+                <button className="btn" onClick={() => handleEscalate(iv.id)}>⬆ 升级</button>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** 技能管理页 (P1-3) */
+function SkillsPage({ hasToken }: { hasToken: boolean }) {
+  const [skills, setSkills] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!hasToken) { setLoading(false); return; }
+    window.livingAgentAPI.skill.list()
+      .then(setSkills)
+      .catch(e => setError(e.message || '加载失败'))
+      .finally(() => setLoading(false));
+  }, [hasToken]);
+
+  if (!hasToken) return <div style={{ padding: 32, textAlign: 'center', color: '#999' }}>请先登录</div>;
+  if (loading) return <div style={{ padding: 32, textAlign: 'center', color: '#999' }}>加载中...</div>;
+  if (error) return <div style={{ padding: 32, textAlign: 'center', color: '#e53e3e' }}>{error}</div>;
+
+  return (
+    <div style={{ padding: 24, maxWidth: 900, margin: '0 auto' }}>
+      <h1>🛠️ 技能</h1>
+      <div style={{ display: 'grid', gap: 8, marginTop: 16 }}>
+        {skills.length === 0 && <div style={{ color: '#999', textAlign: 'center', padding: 32 }}>暂无技能</div>}
+        {skills.map(skill => (
+          <div key={skill.id || skill.name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 12, border: '1px solid #e8e8e8', borderRadius: 8, background: '#fafafa' }}>
+            <div>
+              <strong>{skill.name || skill.id}</strong>
+              {skill.description && <div style={{ fontSize: 12, color: '#666', marginTop: 2 }}>{skill.description}</div>}
+              {skill.category && <span style={{ fontSize: 11, color: '#999', marginLeft: 8 }}>📁 {skill.category}</span>}
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <span style={{ fontSize: 12, color: skill.enabled !== false ? '#38a169' : '#999' }}>
+                {skill.enabled !== false ? '● 已启用' : '○ 未启用'}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** 主动服务页 (P1-4) */
+function ProactivePage({ hasToken }: { hasToken: boolean }) {
+  const [digest, setDigest] = useState<any>(null);
+  const [habits, setHabits] = useState<any[]>([]);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [tab, setTab] = useState<'digest' | 'habits' | 'notifications'>('digest');
+
+  useEffect(() => {
+    if (!hasToken) { setLoading(false); return; }
+    Promise.all([
+      window.livingAgentAPI.proactive.digest().catch(() => null),
+      window.livingAgentAPI.proactive.habits().catch(() => []),
+      window.livingAgentAPI.proactive.notifications().catch(() => []),
+    ]).then(([d, h, n]) => {
+      setDigest(d);
+      setHabits(Array.isArray(h) ? h : []);
+      setNotifications(Array.isArray(n) ? n : []);
+    }).catch(e => setError(e.message || '加载失败'))
+      .finally(() => setLoading(false));
+  }, [hasToken]);
+
+  if (!hasToken) return <div style={{ padding: 32, textAlign: 'center', color: '#999' }}>请先登录</div>;
+  if (loading) return <div style={{ padding: 32, textAlign: 'center', color: '#999' }}>加载中...</div>;
+  if (error) return <div style={{ padding: 32, textAlign: 'center', color: '#e53e3e' }}>{error}</div>;
+
+  return (
+    <div style={{ padding: 24, maxWidth: 900, margin: '0 auto' }}>
+      <h1>💡 主动服务</h1>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, marginTop: 8 }}>
+        {(['digest', 'habits', 'notifications'] as const).map(t => (
+          <button key={t} className={`btn ${tab === t ? 'btn-primary' : ''}`} onClick={() => setTab(t)}>
+            {t === 'digest' ? '📋 摘要' : t === 'habits' ? '🔄 习惯' : '🔔 通知'}
+          </button>
+        ))}
+      </div>
+      {tab === 'digest' && (
+        <div style={{ padding: 16, border: '1px solid #e8e8e8', borderRadius: 8, background: '#fafafa' }}>
+          {digest ? <pre style={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>{JSON.stringify(digest, null, 2)}</pre> : <div style={{ color: '#999' }}>暂无摘要</div>}
+        </div>
+      )}
+      {tab === 'habits' && (
+        <div style={{ display: 'grid', gap: 8 }}>
+          {habits.length === 0 && <div style={{ color: '#999', textAlign: 'center', padding: 32 }}>暂无习惯数据</div>}
+          {habits.map((h, i) => (
+            <div key={i} style={{ padding: 12, border: '1px solid #e8e8e8', borderRadius: 8, background: '#fafafa' }}>
+              <strong>{h.name || h.type || `习惯 ${i + 1}`}</strong>
+              {h.description && <div style={{ fontSize: 12, color: '#666', marginTop: 2 }}>{h.description}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+      {tab === 'notifications' && (
+        <div style={{ display: 'grid', gap: 8 }}>
+          {notifications.length === 0 && <div style={{ color: '#999', textAlign: 'center', padding: 32 }}>暂无通知</div>}
+          {notifications.map((n, i) => (
+            <div key={i} style={{ padding: 12, border: '1px solid #e8e8e8', borderRadius: 8, background: n.read ? '#fafafa' : '#f0f7ff' }}>
+              <strong>{n.title || n.type || `通知 ${i + 1}`}</strong>
+              {n.content && <div style={{ fontSize: 12, color: '#666', marginTop: 2 }}>{n.content}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 广场页 (P1-5) */
+function PlazaPage({ hasToken }: { hasToken: boolean }) {
+  const [posts, setPosts] = useState<any[]>([]);
+  const [stats, setStats] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [showCreate, setShowCreate] = useState(false);
+  const [newTitle, setNewTitle] = useState('');
+  const [newContent, setNewContent] = useState('');
+
+  function loadPosts() {
+    if (!hasToken) { setLoading(false); return; }
+    setLoading(true);
+    Promise.all([
+      window.livingAgentAPI.plaza.posts(),
+      window.livingAgentAPI.plaza.stats().catch(() => null),
+    ]).then(([p, s]) => {
+      setPosts(Array.isArray(p) ? p : []);
+      setStats(s);
+    }).catch(e => setError(e.message || '加载失败'))
+      .finally(() => setLoading(false));
+  }
+
+  useEffect(loadPosts, [hasToken]);
+
+  async function handleLike(postId: string) {
+    try { await window.livingAgentAPI.plaza.like(postId); loadPosts(); } catch (e: any) { alert(e.message); }
+  }
+
+  async function handleCreate() {
+    if (!newTitle || !newContent) return;
+    try {
+      await window.livingAgentAPI.plaza.create({ title: newTitle, content: newContent });
+      setNewTitle('');
+      setNewContent('');
+      setShowCreate(false);
+      loadPosts();
+    } catch (e: any) { alert(e.message); }
+  }
+
+  if (!hasToken) return <div style={{ padding: 32, textAlign: 'center', color: '#999' }}>请先登录</div>;
+  if (loading) return <div style={{ padding: 32, textAlign: 'center', color: '#999' }}>加载中...</div>;
+  if (error) return <div style={{ padding: 32, textAlign: 'center', color: '#e53e3e' }}>{error}</div>;
+
+  return (
+    <div style={{ padding: 24, maxWidth: 900, margin: '0 auto' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h1>🏛️ 广场</h1>
+        <button className="btn btn-primary" onClick={() => setShowCreate(!showCreate)}>
+          {showCreate ? '取消' : '✏️ 发帖'}
+        </button>
+      </div>
+      {stats && (
+        <div style={{ margin: '8px 0', fontSize: 12, color: '#666' }}>
+          📊 帖子: {stats.totalPosts ?? '-'} · 点赞: {stats.totalLikes ?? '-'} · 作者: {stats.totalAuthors ?? '-'}
+        </div>
+      )}
+      {showCreate && (
+        <div style={{ padding: 16, border: '1px solid #4a9eff', borderRadius: 8, marginBottom: 16, background: '#f8fbff' }}>
+          <input
+            placeholder="标题"
+            value={newTitle}
+            onChange={e => setNewTitle(e.target.value)}
+            style={{ width: '100%', padding: 8, border: '1px solid #ddd', borderRadius: 6, marginBottom: 8, boxSizing: 'border-box' }}
+          />
+          <textarea
+            placeholder="内容"
+            value={newContent}
+            onChange={e => setNewContent(e.target.value)}
+            style={{ width: '100%', minHeight: 80, padding: 8, border: '1px solid #ddd', borderRadius: 6, marginBottom: 8, boxSizing: 'border-box' }}
+          />
+          <button className="btn btn-primary" onClick={handleCreate} disabled={!newTitle || !newContent}>发布</button>
+        </div>
+      )}
+      <div style={{ display: 'grid', gap: 8, marginTop: 16 }}>
+        {posts.length === 0 && <div style={{ color: '#999', textAlign: 'center', padding: 32 }}>暂无帖子</div>}
+        {posts.map(post => (
+          <div key={post.id} style={{ padding: 12, border: '1px solid #e8e8e8', borderRadius: 8, background: '#fafafa' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div style={{ flex: 1 }}>
+                <strong>{post.title}</strong>
+                {post.author_name && <span style={{ fontSize: 12, color: '#999', marginLeft: 8 }}>by {post.author_name}</span>}
+                {post.content && <div style={{ fontSize: 13, color: '#666', marginTop: 4 }}>{post.content.length > 200 ? post.content.slice(0, 200) + '...' : post.content}</div>}
+              </div>
+              <button className="btn" style={{ fontSize: 12, whiteSpace: 'nowrap' }} onClick={() => handleLike(post.id)}>
+                👍 {post.like_count ?? post.likes ?? 0}
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

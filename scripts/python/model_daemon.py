@@ -1809,6 +1809,142 @@ def start_speaker_http_server(model_manager, port=8391):
     server.serve_forever()
 
 
+def start_llm_http_server(model_manager, port=8392):
+    """启动LLM的OpenAI兼容HTTP服务 — 供 fuck-u-code 等外部工具调用
+    
+    端点:
+      GET  /v1/models          — 列出可用模型
+      GET  /v1/health          — 健康检查
+      POST /v1/chat/completions — OpenAI标准聊天补全
+    """
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+    
+    class LLMOpenAIHandler(BaseHTTPRequestHandler):
+        def log_message(self, format, *args):
+            pass
+        
+        def send_json_response(self, data, status=200):
+            self.send_response(status)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps(data, ensure_ascii=False).encode('utf-8'))
+        
+        def do_OPTIONS(self):
+            self.send_response(200)
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Access-Control-Allow-Methods', 'GET, POST')
+            self.send_header('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+            self.end_headers()
+        
+        def do_GET(self):
+            path = self.path.split('?')[0]
+            
+            if path in ('/v1/models', '/models'):
+                models = []
+                if model_manager.models_loaded.get('qwen35'):
+                    models.append({
+                        "id": "qwen3.5-2b",
+                        "object": "model",
+                        "owned_by": "local",
+                        "created": int(time.time())
+                    })
+                if model_manager.models_loaded.get('qwen3'):
+                    models.append({
+                        "id": "qwen3-0.6b",
+                        "object": "model",
+                        "owned_by": "local",
+                        "created": int(time.time())
+                    })
+                self.send_json_response({"object": "list", "data": models})
+            
+            elif path in ('/health', '/v1/health'):
+                self.send_json_response({
+                    "status": "healthy",
+                    "qwen35_loaded": model_manager.models_loaded.get('qwen35', False),
+                    "qwen3_loaded": model_manager.models_loaded.get('qwen3', False),
+                    "llama_cli_available": model_manager.llama_cli_path is not None
+                })
+            else:
+                self.send_json_response({"error": {"message": "Not found"}}, 404)
+        
+        def do_POST(self):
+            path = self.path.split('?')[0]
+            
+            if path not in ('/v1/chat/completions', '/chat/completions'):
+                self.send_json_response({"error": {"message": "Not found"}}, 404)
+                return
+            
+            try:
+                content_length = int(self.headers.get('Content-Length', 0))
+                body = json.loads(self.rfile.read(content_length))
+            except Exception as e:
+                self.send_json_response({"error": {"message": f"Invalid request body: {str(e)}"}}, 400)
+                return
+            
+            model = body.get('model', 'qwen3.5-2b')
+            messages = body.get('messages', [])
+            max_tokens = body.get('max_tokens', CHAT_CONFIG['max_tokens_tool'])
+            temperature = body.get('temperature', CHAT_CONFIG['temperature_tool'])
+            stream = body.get('stream', False)
+            
+            if stream:
+                self.send_json_response({"error": {"message": "Streaming not supported"}}, 400)
+                return
+            
+            prompt_parts = []
+            for msg in messages:
+                role = msg.get('role', '')
+                content = msg.get('content', '')
+                if role == 'system':
+                    prompt_parts.append(f"System: {content}")
+                elif role == 'user':
+                    prompt_parts.append(f"User: {content}")
+                elif role == 'assistant':
+                    prompt_parts.append(f"Assistant: {content}")
+            prompt = "\n".join(prompt_parts)
+            
+            internal_model = 'qwen35'
+            if '0.6' in model or model == 'qwen3-0.6b':
+                internal_model = 'qwen3'
+            
+            result = model_manager.generate_text(
+                prompt, model=internal_model,
+                max_tokens=max_tokens, temperature=temperature
+            )
+            
+            if result.get('success'):
+                self.send_json_response({
+                    "id": f"chatcmpl-{int(time.time())}",
+                    "object": "chat.completion",
+                    "model": model,
+                    "choices": [{
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": result.get('text', '')
+                        },
+                        "finish_reason": "stop"
+                    }],
+                    "usage": {
+                        "prompt_tokens": len(prompt),
+                        "completion_tokens": max_tokens,
+                        "total_tokens": len(prompt) + max_tokens
+                    },
+                    "backend": "model-daemon-llamacpp",
+                    "latency_ms": result.get('latency_ms', 0)
+                })
+            else:
+                error_msg = result.get('error', 'Unknown LLM error')
+                self.send_json_response({
+                    "error": {"message": error_msg, "type": "server_error"}
+                }, 500)
+    
+    server = HTTPServer(('0.0.0.0', port), LLMOpenAIHandler)
+    print(f"[ModelDaemon] 🤖 LLM OpenAI兼容HTTP服务启动于端口 {port}", file=sys.stderr, flush=True)
+    server.serve_forever()
+
+
 def main():
     print("[ModelDaemon] 🎯 Living Agent 模型守护进程启动 (双模型架构)", file=sys.stderr, flush=True)
     print("[ModelDaemon] 📋 架构说明:", file=sys.stderr, flush=True)
@@ -1835,6 +1971,17 @@ def main():
     )
     speaker_http_thread.start()
     print(f"[ModelDaemon] 🎤 声纹识别HTTP服务启动于端口 {speaker_http_port}", file=sys.stderr, flush=True)
+    
+    # 启动LLM OpenAI兼容HTTP服务（供 fuck-u-code 等外部工具调用）
+    llm_http_port = int(os.environ.get('LLM_HTTP_PORT', '8392'))
+    llm_http_thread = threading.Thread(
+        target=start_llm_http_server,
+        args=(manager, llm_http_port),
+        name="LLMOpenAIHttpServer",
+        daemon=True
+    )
+    llm_http_thread.start()
+    print(f"[ModelDaemon] 🤖 LLM OpenAI兼容HTTP服务启动于端口 {llm_http_port}", file=sys.stderr, flush=True)
     
     print("[ModelDaemon] 🚀 守护进程就绪，等待请求...", file=sys.stderr, flush=True)
     

@@ -1,6 +1,7 @@
 package com.livingagent.core.compliance;
 
 import com.livingagent.core.security.AccessAuditLog;
+import com.livingagent.core.compliance.feedback.ComplianceViolationTracker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -19,11 +20,14 @@ public class ComplianceManager {
     private final Map<String, ComplianceRule> rules = new ConcurrentHashMap<>();
     private final List<ComplianceViolation> violations = Collections.synchronizedList(new ArrayList<>());  // 线程安全修复
     private final List<AccessAuditLog> auditLogs = Collections.synchronizedList(new ArrayList<>());        // 线程安全修复
-    
+
+    private final ComplianceViolationTracker violationTracker;
+
     private boolean complianceEnabled = true;
     private int maxAuditLogDays = 90;
 
-    public ComplianceManager() {
+    public ComplianceManager(ComplianceViolationTracker violationTracker) {
+        this.violationTracker = violationTracker;
         initDefaultRules();
     }
 
@@ -151,7 +155,8 @@ public class ComplianceManager {
                 violation.setDescription(rule.getViolationMessage());
                 
                 violations.add(violation);
-                log.warn("Compliance violation detected: {} by employee {} for rule {}", 
+                violationTracker.recordViolation(rule.getRuleId(), auditLog.getEmployeeId(), false);
+                log.warn("Compliance violation detected: {} by employee {} for rule {}",
                     violation.getViolationId(), auditLog.getEmployeeId(), rule.getName());
             }
         }
@@ -231,6 +236,7 @@ public class ComplianceManager {
             .findFirst()
             .ifPresent(v -> {
                 v.resolve(resolvedBy, resolution);
+                violationTracker.recordResolution(v.getRuleId());
                 log.info("Resolved violation {} by {}", violationId, resolvedBy);
             });
     }

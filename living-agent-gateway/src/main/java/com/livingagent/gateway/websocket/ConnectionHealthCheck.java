@@ -22,10 +22,10 @@ public class ConnectionHealthCheck implements HealthCheck {
     private static final Duration DEGRADED_THRESHOLD = Duration.ofMinutes(5);
     private static final Duration UNHEALTHY_THRESHOLD = Duration.ofMinutes(30);
 
-    private final InMemoryConnectionRegistry connectionRegistry;
+    private final ConnectionRegistry connectionRegistry;
     private final ApplicationEventPublisher eventPublisher;
 
-    public ConnectionHealthCheck(InMemoryConnectionRegistry connectionRegistry,
+    public ConnectionHealthCheck(ConnectionRegistry connectionRegistry,
                                  ApplicationEventPublisher eventPublisher) {
         this.connectionRegistry = connectionRegistry;
         this.eventPublisher = eventPublisher;

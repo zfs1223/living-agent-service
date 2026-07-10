@@ -11,8 +11,10 @@ import com.livingagent.core.security.auth.UnifiedAuthService.AuthSession;
 import com.livingagent.gateway.service.SystemConfigService;
 import com.livingagent.gateway.service.SystemConfigService.TenantInfo;
 import com.livingagent.gateway.controller.common.ApiResponse;  // 添加 import
+import com.livingagent.core.tenant.feedback.TenantHealthMonitor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -29,6 +31,9 @@ public class TenantController {
     private final UnifiedAuthService authService;
     private final SystemConfigService configService;
     private final AccessGateService accessGateService;
+
+    @Autowired(required = false)
+    private TenantHealthMonitor tenantHealthMonitor;
 
     public TenantController(
             EnterpriseEmployeeService employeeService,
@@ -103,6 +108,13 @@ public class TenantController {
         );
 
         log.info("Tenant created and persisted: {} by user: {}", request.name(), currentUser.getName());
+
+        // 闭环50: 租户创建时记录配额使用和活动
+        if (tenantHealthMonitor != null) {
+            tenantHealthMonitor.recordQuotaUsage(tenantId, 0.1);
+            tenantHealthMonitor.recordActivity(tenantId, "tenant_created");
+        }
+
         return ResponseEntity.ok(ApiResponse.ok(result));
     }
 
@@ -211,6 +223,12 @@ public class TenantController {
         );
 
         log.info("User {} joined tenant {} using invitation code {}", currentUser.getName(), tenantId, request.invitation_code());
+
+        // 闭环50: 用户加入租户时记录活动
+        if (tenantHealthMonitor != null) {
+            tenantHealthMonitor.recordActivity(tenantId, "user_joined");
+        }
+
         return ResponseEntity.ok(ApiResponse.ok(result));
     }
 
@@ -310,6 +328,11 @@ public class TenantController {
                 updated.createdAt(),
                 updated.active()
         );
+
+        // 闭环50: 租户更新时记录活动
+        if (tenantHealthMonitor != null) {
+            tenantHealthMonitor.recordActivity(tenantId, "tenant_updated");
+        }
 
         return ResponseEntity.ok(ApiResponse.ok(detail));
     }

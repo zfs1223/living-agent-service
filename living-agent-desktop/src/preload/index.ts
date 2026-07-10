@@ -124,6 +124,72 @@ const api = {
       ipcRenderer.invoke('win-automation:execute', operation, args) as Promise<{ success: boolean; result?: unknown; error?: string }>
   },
 
+  /* ============ 审批 ============ */
+  approval: {
+    list: (status?: string) => ipcRenderer.invoke('approval:list', status) as Promise<any[]>,
+    detail: (id: string) => ipcRenderer.invoke('approval:detail', id) as Promise<any>,
+    approve: (id: string, stepId: string, comment?: string) => ipcRenderer.invoke('approval:approve', id, stepId, comment) as Promise<any>,
+    reject: (id: string, stepId: string, comment?: string) => ipcRenderer.invoke('approval:reject', id, stepId, comment) as Promise<any>,
+    cancel: (id: string) => ipcRenderer.invoke('approval:cancel', id) as Promise<any>
+  },
+
+  /* ============ 消息 ============ */
+  message: {
+    list: (limit?: number) => ipcRenderer.invoke('message:list', limit) as Promise<any[]>,
+    markRead: (id: string) => ipcRenderer.invoke('message:mark-read', id) as Promise<void>,
+    markAllRead: () => ipcRenderer.invoke('message:mark-all-read') as Promise<void>,
+    unreadCount: () => ipcRenderer.invoke('message:unread-count') as Promise<number>
+  },
+
+  /* ============ WebSocket 通道管理 ============ */
+  ws: {
+    connect: (path: string, params?: Record<string, string>) =>
+      ipcRenderer.invoke('ws:connect', path, params) as Promise<{ success: boolean; channel?: string; error?: string }>,
+    disconnect: () => ipcRenderer.invoke('ws:disconnect') as Promise<{ success: boolean }>,
+    switchChannel: (path: string, params?: Record<string, string>) =>
+      ipcRenderer.invoke('ws:switch-channel', path, params) as Promise<{ success: boolean; channel?: string; error?: string }>,
+    status: () => ipcRenderer.invoke('ws:status') as Promise<{ connected: boolean; channel: string }>,
+    send: (type: string, data: any) => ipcRenderer.invoke('ws:send', type, data) as Promise<{ success: boolean }>
+  },
+
+  /* ============ Agent 管理 (P1-1) ============ */
+  agent: {
+    list: () => ipcRenderer.invoke('agent:list') as Promise<any[]>,
+    get: (id: string) => ipcRenderer.invoke('agent:get', id) as Promise<any>,
+    start: (id: string) => ipcRenderer.invoke('agent:start', id) as Promise<any>,
+    stop: (id: string) => ipcRenderer.invoke('agent:stop', id) as Promise<any>
+  },
+
+  /* ============ 干预决策 (P1-2) ============ */
+  intervention: {
+    list: (status?: string) => ipcRenderer.invoke('intervention:list', status) as Promise<any[]>,
+    respond: (id: string, action: string, comment?: string) => ipcRenderer.invoke('intervention:respond', id, action, comment) as Promise<any>,
+    escalate: (id: string, reason: string) => ipcRenderer.invoke('intervention:escalate', id, reason) as Promise<any>
+  },
+
+  /* ============ 技能管理 (P1-3) ============ */
+  skill: {
+    list: () => ipcRenderer.invoke('skill:list') as Promise<any[]>,
+    browse: (section: string, params?: Record<string, string>) => ipcRenderer.invoke('skill:browse', section, params) as Promise<any>,
+    bind: (agentId: string, skillId: string) => ipcRenderer.invoke('skill:bind', agentId, skillId) as Promise<any>,
+    unbind: (agentId: string, skillId: string) => ipcRenderer.invoke('skill:unbind', agentId, skillId) as Promise<any>
+  },
+
+  /* ============ 主动服务 (P1-4) ============ */
+  proactive: {
+    digest: () => ipcRenderer.invoke('proactive:digest') as Promise<any>,
+    habits: () => ipcRenderer.invoke('proactive:habits') as Promise<any[]>,
+    notifications: () => ipcRenderer.invoke('proactive:notifications') as Promise<any[]>
+  },
+
+  /* ============ 广场 (P1-5) ============ */
+  plaza: {
+    posts: (params?: Record<string, string>) => ipcRenderer.invoke('plaza:posts', params) as Promise<any[]>,
+    create: (data: { title: string; content: string; tags?: string[] }) => ipcRenderer.invoke('plaza:create', data) as Promise<any>,
+    like: (postId: string) => ipcRenderer.invoke('plaza:like', postId) as Promise<any>,
+    stats: () => ipcRenderer.invoke('plaza:stats') as Promise<any>
+  },
+
   /* ============ 事件订阅 ============ */
   on: (channel: string, callback: (data: any) => void) => {
     const wrapped = (_: unknown, data: any) => callback(data);
