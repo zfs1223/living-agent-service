@@ -33,8 +33,12 @@ buildNumber.properties
 # IDE - VSCode
 .vscode/
 *.code-workspace
+
 .workbuddy/
 
+docs/
+*.md
+*.json
 .docs/references/API_REFERENCE.md
 # IDE - IntelliJ IDEA
 .idea/
@@ -92,4 +96,3 @@ qdrant_storage/
 redis_data/
 
 living-agent-plc-bridge/
-docs/

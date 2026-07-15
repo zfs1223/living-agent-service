@@ -27,9 +27,9 @@ Living Agent Service 是一个面向企业的自治智能体平台。它将 LLM 
 
 ## 核心设计理念
 
-**LLM 自主性** — 智能体具备感知、决策、执行、学习的完整能力闭环。除闲聊使用固定轻量模型外，所有业务任务由 LLM 从模型池中自主选择最佳模型，大脑通过 ReAct 循环驱动数字员工执行工具，模型健康状态实时监控并自动熔断降级。智能体不只是被动响应，还能主动预判需求、发现机会、规避风险。
+**LLM 自主性** — 智能体具备感知、决策、执行、学习的完整能力闭环。智能前台（model_daemon.py）预加载 Qwen3/Qwen3.5/Sherpa/MeloTTS/CAM++ 全部模型，未登录用户即可使用闲聊、语音和公共工具。业务任务由 LLM 从模型池中自主选择最佳模型，大脑通过 ReAct 循环驱动数字员工执行工具，模型健康状态实时监控并自动熔断降级。智能体不只是被动响应，还能主动预判需求、发现机会、规避风险。
 
-**企业管理规范性** — 数字员工与人类员工统一建模，共享同一套组织架构、权限体系、审批流程和绩效标准。所有自主行为都有审计记录，所有支出都有成本核算，所有技能都有安全审查。企业的制度不会因为执行者是 AI 而打折扣。
+**企业管理规范性** — 数字员工与人类员工统一建模，共享同一套组织架构、权限体系、审批流程和绩效标准。所有自主行为都有审计记录，所有支出都有成本核算，所有技能都有安全审查。固定数字员工禁止直连（origin=fixed → 禁止 /ws/agent），只能通过部门大脑、项目互动群、协调群协作。企业的制度不会因为执行者是 AI 而打折扣。
 
 ---
 
@@ -95,6 +95,32 @@ Living Agent Service 是一个面向企业的自治智能体平台。它将 LLM 
 │  └──────────┘ └──────────┘ └──────────────┘ └───────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## 智能前台架构
+
+`model_daemon.py` 是独立的"智能前台"服务，所有模型能力在守护进程内部加载，不依赖外部认证。
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                   智能前台 (model_daemon.py)              │
+│                                                         │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐   │
+│  │ Qwen3    │ │ Qwen3.5  │ │ Sherpa   │ │ MeloTTS  │   │
+│  │ 0.6B闲聊 │ │ 2B工具   │ │ ONNX ASR │ │   TTS    │   │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘   │
+│  ┌──────────┐ ┌──────────────────────────────────────┐   │
+│  │  CAM++   │ │  公共工具: 天气/时间/翻译/计算/百科   │   │
+│  │  声纹    │ │  (wttr.in API + 本地模型推理)        │   │
+│  └──────────┘ └──────────────────────────────────────┘   │
+│                                                         │
+│  未登录用户 → /ws/public → chatPublic() → 直接使用     │
+│  已登录用户 → Java ModelManager → NamedPipe → 调用     │
+└─────────────────────────────────────────────────────────┘
+```
+
+**权限边界**：智能前台只处理公共工具（天气/时间/翻译等），公司内部管理（员工/部门/财务）由 Java 端 ToolNeuron 处理，需登录认证。未登录用户可使用语音（ASR/TTS 在守护进程内部加载，不需要认证）。
 
 ---
 
@@ -189,6 +215,22 @@ LLM 是整个系统的"灵魂"。除闲聊使用固定的轻量模型外，所�
 
 ---
 
+## 闭环体系
+
+系统建立了 65 个闭环的四层验证架构，确保从流程正确性到用户业务的每个环节都有完整的 input→processing→output→feedback→improvement 链路。
+
+| 层级 | 闭环数 | 关注点 | 示例 |
+|------|--------|--------|------|
+| **L1 流程正确性** | 14 | 核心业务流程的输入→处理→输出→反馈→改进 | WebSocket对话、审批、任务分配、模型健康监控 |
+| **L2 覆盖完整性** | 10 | 被遗漏的支撑流程闭环 | 前端交互、DB持久化、Rust JNI、Python守护进程 |
+| **L2 业务** | 1 | 业务层跨模块闭环 | Claude CLI工具闭环 |
+| **L3 生命体自洽** | 14 | 无需人工+兼容人工的自洽生命智能体 | 自愈、经济自治、降级链路、执行回执、固定员工SOP |
+| **L4 用户业务** | 26 | 用户可感知的业务功能生命周期 | 认证、项目管理、技能管理、预算、绩效考核 |
+
+所有闭环均为 ✅ 完整闭环，已通过代码逐环节核验。主脑六步决策法（意图识别→路由决策→需求就绪评估→任务规划→员工分派→执行与交付）贯穿 L1-L4 全链路。核心决策链路遵循 **LLM-first / Rule-fallback** 原则——LLM 自主决策优先，规则降级兜底。
+
+---
+
 ## LLM 自主能力
 
 ### 自主进化系统
@@ -240,7 +282,14 @@ L3: 共享知识库 (PostgreSQL + Qdrant)      → 公司制度、通用知识�
 
 **执行层安全** — Rust 原生沙箱隔离进程执行，资源限制（512MB 内存、80% CPU、300 秒超时），路径白名单管控，网络访问限制。`BashSecurityValidator` 对命令进行威胁类型检测和注入攻击防护。
 
-**权限控制** — 三级自主权限（`READ_ONLY` / `SUPERVISED` / `FULL`），部门级访问控制（`DepartmentAccessService`），技能可见性按 `AccessLevel` 分级（FULL / DEPARTMENT / LIMITED / CHAT_ONLY），技能 scope 支持 global / department / personal / private 四级作用域。
+**权限控制** — 四级访问权限（`AccessLevel` 枚举），部门级访问控制（`DepartmentAccessService`），技能可见性按 `AccessLevel` 分级，技能 scope 支持 global / department / personal / private 四级作用域。
+
+| 级别 | level | 可访问大脑 | 可用模型 | 知识库 |
+|------|-------|-----------|---------|--------|
+| CHAT_ONLY | 0 | 无 | Qwen3-0.6B | 否 |
+| LIMITED | 1 | AdminBrain + CsBrain | Qwen3 + Qwen3.5 | 是 |
+| DEPARTMENT | 2 | 本部门全部大脑 | Qwen3 + Qwen3.5 | 是 |
+| FULL | 3 | 所有大脑 + MainBrain | Qwen3 + Qwen3.5 | 是 |
 
 **审计追踪** — 所有任务执行有完整记录（`task_executions` 表），所有命令有审计日志，审批流支持多步骤审批链（`approval_steps` / `approval_records` 表），Token 消耗有成本核算（`TokenCostEstimator` 区分云端和本地推理费用）。
 
@@ -312,6 +361,8 @@ WebSocket 层基于 Spring Boot WebSocket（纯 JSON 协议）构建，支持 4 
 
 核心能力：ClientId 持久标识（UUID v4 + 主机名 + OS 用户），Token 加密存储（DPAPI），后端健康监测（30 秒 HTTP 轮询），任务面板（托盘徽章 + 悬浮窗 + 快捷领取），本地文件同步（按年月/executionId 组织，SHA-256 校验）。
 
+启动默认智能前台闲聊模式（无需登录），登录后切换到办公模式（部门聊天/企业频道/任务/审批等）。登录支持手机验证码和声纹识别两种方式。侧边栏按键根据登录状态动态显示/隐藏。
+
 ---
 
 ## 企业集成
@@ -329,6 +380,7 @@ WebSocket 层基于 Spring Boot WebSocket（纯 JSON 协议）构建，支持 4 
 | **Tavily** | AI 搜索引擎 | `TAVILY_API_KEY` |
 | **和天气** | 天气查询（QWeather/OpenWeatherMap） | `WEATHER_*_KEY` |
 | **RuView** | WiFi CSI 物理感知 | `RUVIEW_POLLING_ENABLED` + API URL |
+| **pywinauto** | Windows 桌面应用自动化（金蝶KIS等） | `scripts/windows_automation/` FastAPI 服务，端口 8765 |
 
 ---
 
@@ -420,6 +472,14 @@ living-agent-service/
 │   ├── LivingAgentApplication   #   Spring Boot 入口
 │   └── application.yml          #   全局配置 (模型/通道/记忆/安全)
 │
+├── scripts/python/             # 智能前台 (model_daemon.py)
+│   ├── model_daemon.py         #   核心守护进程: Qwen3/Qwen35/Sherpa/MeloTTS/CAM++
+│   ├── asr/                    #   Sherpa-ONNX ASR 语音识别
+│   ├── tts/                    #   MeloTTS 语音合成
+│   └── speaker/                #   CAM++ 声纹识别
+│
+├── scripts/windows_automation/ # Windows 桌面应用自动化 (pywinauto + FastAPI)
+│
 ├── living-agent-desktop/        # Electron 桌面客户端
 │   └── src/
 │       ├── main/                #   18 个主进程模块
@@ -435,6 +495,8 @@ living-agent-service/
 │       ├── stores/              #   Zustand 状态
 │       └── i18n/                #   中/英国际化
 │
+├── documents/                    # 企业制度、数字员工职责卡、治理文档
+├── image/                        # Docker 镜像构建辅助、离线镜像资源
 ├── docker-compose.yml           # 容器编排 (15+ 服务)
 ├── init-db/                     # 数据库初始化 (75 张表, 种子数据)
 └── docs/                        # 30+ 设计文档
@@ -504,6 +566,9 @@ npm run build
 | 服务 | 端口 | 说明 |
 |------|------|------|
 | living-agent-service | 8382 | 主服务 (REST + WebSocket) |
+| model_daemon HTTP | 8392 | 智能前台 OpenAI 兼容 API (内部) |
+| llama-server Qwen3 | 8393 | 闲聊模型推理 (内部, ctx=512) |
+| llama-server Qwen3.5 | 8394 | 工具路由模型推理 (内部, ctx=4096) |
 | living-agent-frontend | 8383 | React 前端 |
 | Jenkins | 8384 | CI/CD |
 | GitLab | 8385 | 代码管理 |
@@ -524,29 +589,26 @@ npm run build
 
 | 文档 | 说明 |
 |------|------|
-| [架构设计](docs/02-architecture.md) | 整体架构与模块设计 |
-| [知识体系](docs/05-knowledge-system.md) | 三层知识库与进化机制 |
-| [进化系统](docs/06-evolution-system.md) | 自主进化与熔断保护 |
-| [统一员工模型](docs/07-unified-employee-model.md) | 人类与数字员工统一建模 |
-| [数据库设计](docs/08-database-design.md) | 50+ 表结构设计 |
-| [主动预判](docs/09-proactive-prediction.md) | 贾维斯模式实现 |
-| [运营评判系统](docs/10-operation-assessment.md) | 运营指标、绩效考核 |
-| [自主运营方案](docs/12-autonomous-operation-plan.md) | 赚钱能力、支付能力 |
-| [合规管理](docs/13-compliance-management.md) | 合规检查与审计 |
-| [本地模型部署](docs/14-local-models-deployment.md) | 私有化部署方案 |
-| [Native 模块](docs/15-living-agent-native.md) | Rust 高性能组件 |
-| [记忆系统](docs/memory.md) | MemOS 集成方案 |
-| [WebSocket 架构审查](docs/websocket-architecture-review.md) | WebSocket 实现分析与问题追踪 |
+| [代码结构与文件指南](docs/CODE_STRUCTURE_AND_FILE_GUIDE.md) | 全量代码结构、文件功能、模块关系 |
+| [闭环改进方案索引](docs/IMPROVEMENT_PLAN_INDEX.md) | 65 个闭环四层架构(L1-L4)验证与改进 |
+| [权限与入口矩阵](docs/权限与入口矩阵.md) | 登录/身份/通道/语音/流程/审计统一规则 |
+| [核心架构设计](docs/core/02-core-architecture.md) | 整体架构与模块设计 |
+| [主脑执行规则](docs/core/MAINBRAIN_EXECUTION_RULES.md) | 六步决策法与 LLM-first 降级规则 |
+| [员工模型](docs/core/03-employee-model.md) | 统一员工模型（人类+数字） |
+| [安全权限](docs/core/06-security-permission.md) | 多层次安全与合规体系 |
+| [语音对话方案](docs/IMPROVEMENT_PLAN_VOICE_DIALOGUE.md) | 智能前台语音/声纹功能完整方案 |
+| [前端/桌面端闭环](docs/IMPROVEMENT_PLAN_FRONTEND_DESKTOP_LOOP_GAPS.md) | 前端+桌面端闭环断点分析与修复 |
+| [固定员工行动SOP](docs/FIXED_EMPLOYEE_ACTION_SOP_IMPROVEMENT_PLAN.md) | 7 阶段行动规范与子流程闭环 |
 
 ---
 
 ## 路线图
 
-**已完成** — LLM 模型池自主决策、九大部门大脑、76 个技能、神经元通信系统、自主进化引擎、主动预判、Rust 原生组件、统一员工模型、32 个固定数字员工、WebSocket 实时通信、企业集成（飞书/Jenkins/GitLab/OpenProject）、Claude CLI 代理、WiFi 物理感知、桌面客户端。
+**已完成** — 65 个闭环全部完整（L1 流程正确性 14 + L2 覆盖完整性 10 + L2 业务 1 + L3 生命体自洽 14 + L4 用户业务 26），LLM 模型池自主决策，九大部门大脑，76 个技能，神经元通信系统，自主进化引擎，主动预判，Rust 原生组件，统一员工模型，32 个固定数字员工，WebSocket 实时通信，企业集成（飞书/Jenkins/GitLab/OpenProject），Claude CLI 代理，WiFi 物理感知，Windows 桌面应用自动化，桌面客户端，智能前台架构（model_daemon.py 独立服务 + 5 个公共工具），语音对话闭环（ASR→LLM→TTS），声纹识别（CAM++ + 声纹登录），固定员工禁止直连防护。
 
-**进行中** — 数据库架构完善（85%）、数字员工自主生成（80%）、自主运营能力（80%）。
+**进行中** — 多租户联邦架构设计、边缘部署优化、联邦学习。
 
-**规划中** — 多租户联邦架构、边缘部署优化、联邦学习。
+**规划中** — 语音开关前端UI、桌面端 WebSocket 统一化（消除 OfficeChatPage 自建连接）。
 
 ---
 
