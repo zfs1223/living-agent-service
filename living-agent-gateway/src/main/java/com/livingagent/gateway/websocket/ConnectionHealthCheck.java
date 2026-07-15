@@ -19,8 +19,11 @@ public class ConnectionHealthCheck implements HealthCheck {
 
     private static final Logger log = LoggerFactory.getLogger(ConnectionHealthCheck.class);
 
-    private static final Duration DEGRADED_THRESHOLD = Duration.ofMinutes(5);
+    // 空闲连接阈值：超过10分钟视为DEGRADED，超过30分钟视为UNHEALTHY
+    private static final Duration DEGRADED_THRESHOLD = Duration.ofMinutes(10);
     private static final Duration UNHEALTHY_THRESHOLD = Duration.ofMinutes(30);
+    // 绝对阈值：至少有3个空闲连接才触发报警（避免单连接误报）
+    private static final int MIN_DEGRADED_COUNT = 3;
 
     private final ConnectionRegistry connectionRegistry;
     private final ApplicationEventPublisher eventPublisher;
@@ -61,7 +64,9 @@ public class ConnectionHealthCheck implements HealthCheck {
                     unhealthyCount, UNHEALTHY_THRESHOLD.toMinutes(), totalConnections));
         }
 
-        if (degradedCount > totalConnections / 2) {
+        // 使用绝对阈值：至少有MIN_DEGRADED_COUNT个空闲连接才报警
+        // 避免单连接误报（用户暂时离开不应触发告警）
+        if (degradedCount >= MIN_DEGRADED_COUNT && degradedCount > totalConnections / 3) {
             publishConnectionIssue(degradedCount, "DEGRADED");
             return HealthStatus.degraded("websocket_connections",
                 String.format("%d degraded connections (idle>%dm) out of %d total",

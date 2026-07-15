@@ -33,6 +33,8 @@ public class AuthHandshakeInterceptor implements HandshakeInterceptor {
         this.authService = authService;
     }
 
+    private static final String PUBLIC_PATH = "/ws/public";
+
     @Override
     public boolean beforeHandshake(ServerHttpRequest request, ServerHttpResponse response,
             WebSocketHandler wsHandler, Map<String, Object> attributes) throws Exception {
@@ -43,10 +45,30 @@ public class AuthHandshakeInterceptor implements HandshakeInterceptor {
         }
 
         HttpServletRequest httpReq = servletRequest.getServletRequest();
+        String uri = httpReq.getRequestURI();
+
+        // /ws/public 通道允许匿名访问
+        if (uri.startsWith(PUBLIC_PATH)) {
+            String token = extractToken(httpReq);
+            if (token != null && !token.isBlank() && !"anonymous".equalsIgnoreCase(token)) {
+                // 已登录用户也走 public 通道时，尝试解析身份
+                try {
+                    Optional<AuthSession> sessionOpt = authService.validateSession(token);
+                    if (sessionOpt.isPresent() && sessionOpt.get().authContext() != null) {
+                        attributes.put("authContext", sessionOpt.get().authContext());
+                        attributes.put("token", token);
+                    }
+                } catch (Exception ignored) {}
+            }
+            attributes.put("publicChannel", true);
+            log.debug("[WS Handshake] Public channel allowed: uri={}", uri);
+            return true;
+        }
+
         String token = extractToken(httpReq);
 
         if (token == null || token.isBlank()) {
-            log.warn("[WS Handshake] Rejected: no token provided, uri={}", httpReq.getRequestURI());
+            log.warn("[WS Handshake] Rejected: no token provided, uri={}", uri);
             return false;
         }
 

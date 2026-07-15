@@ -1,3 +1,11 @@
+---
+name: event-driven-notifier
+description: Event Driven Notifier - 事件驱动通知器技能
+risk: low
+source: internal
+date_added: '2026-07-13'
+---
+
 # Event Driven Notifier - 事件驱动通知器技能
 
 > 多渠道消息推送能力，支持 WebSocket/钉钉/飞书/邮件/短信

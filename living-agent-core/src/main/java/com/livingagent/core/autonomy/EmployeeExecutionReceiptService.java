@@ -15,6 +15,14 @@ public interface EmployeeExecutionReceiptService {
      */
     List<EmployeeExecutionReceipt> getReceiptsByDepartment(String department);
 
+    /**
+     * 获取指定员工的最近 N 条回执。
+     * 64-G-2: 供 SkillRefineService 分析员工执行效果使用。
+     */
+    default List<EmployeeExecutionReceipt> getReceiptsByEmployee(String employeeCode, int limit) {
+        return List.of();
+    }
+
     boolean isExecutionComplete(String executionId);
 
     void addReceiptListener(ReceiptListener listener);

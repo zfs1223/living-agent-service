@@ -5,9 +5,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.livingagent.core.autonomy.*;
 import com.livingagent.core.brain.BrainRegistry;
 import com.livingagent.core.brain.impl.MainBrain;
+import com.livingagent.core.evolution.signal.EvolutionSignal;
+import com.livingagent.core.evolution.orchestrator.CrossLoopEventBus;
+import com.livingagent.core.knowledge.KnowledgeBase;
+import com.livingagent.core.knowledge.KnowledgeScope;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Instant;
 import java.util.*;
 
 public class LlmExecutionReceiptReviewer implements ExecutionReceiptReviewer {
@@ -32,15 +37,26 @@ public class LlmExecutionReceiptReviewer implements ExecutionReceiptReviewer {
     private final BrainRegistry brainRegistry;
     private final DefaultExecutionReceiptReviewer fallbackReviewer;
     private final PerformanceStatsService performanceStatsService;
+    private final KnowledgeBase knowledgeBase;
+    private final CrossLoopEventBus crossLoopEventBus;
 
     public LlmExecutionReceiptReviewer(BrainRegistry brainRegistry) {
-        this(brainRegistry, null);
+        this(brainRegistry, null, null, null);
     }
 
     public LlmExecutionReceiptReviewer(BrainRegistry brainRegistry, PerformanceStatsService performanceStatsService) {
+        this(brainRegistry, performanceStatsService, null, null);
+    }
+
+    public LlmExecutionReceiptReviewer(BrainRegistry brainRegistry,
+                                        PerformanceStatsService performanceStatsService,
+                                        KnowledgeBase knowledgeBase,
+                                        CrossLoopEventBus crossLoopEventBus) {
         this.brainRegistry = brainRegistry;
         this.fallbackReviewer = new DefaultExecutionReceiptReviewer();
         this.performanceStatsService = performanceStatsService;
+        this.knowledgeBase = knowledgeBase;
+        this.crossLoopEventBus = crossLoopEventBus;
     }
 
     @Override
@@ -76,6 +92,9 @@ public class LlmExecutionReceiptReviewer implements ExecutionReceiptReviewer {
         // P28-A: 审核结果→分派权重联动
         result.ifPresent(r -> adjustWeightFromReview(receipt, r));
 
+        // P28-B: 审核结果→绩效经验沉淀
+        result.ifPresent(r -> captureReceiptExperience(receipt, r));
+
         return result;
     }
 
@@ -92,6 +111,64 @@ public class LlmExecutionReceiptReviewer implements ExecutionReceiptReviewer {
             } else if (status == ReceiptStatus.DEGRADED || status == ReceiptStatus.NEEDS_RETRY) {
                 performanceStatsService.adjustWeight(employeeCode, -0.2);
                 log.info("P28-A: Employee {} receipt needs rework, weight -0.2", employeeCode);
+            }
+        }
+    }
+
+    /**
+     * P28-B: 审核结果→绩效经验沉淀。
+     * 将审核结果写入KnowledgeBase（L3_SHARED），高频失败模式发布EvolutionSignal。
+     */
+    private void captureReceiptExperience(EmployeeExecutionReceipt receipt, ReceiptReviewResult reviewResult) {
+        if (receipt == null) return;
+        String employeeCode = receipt.employeeCode();
+
+        // 经验沉淀到 KnowledgeBase
+        if (knowledgeBase != null) {
+            try {
+                String key = "receipt-review:" + employeeCode + ":" + receipt.receiptId();
+                Map<String, Object> experience = new HashMap<>();
+                experience.put("employeeCode", employeeCode);
+                experience.put("receiptId", receipt.receiptId());
+                experience.put("accepted", reviewResult.accepted());
+                experience.put("qualityScore", reviewResult.qualityScore());
+                experience.put("unmetCriteria", reviewResult.unmetCriteria());
+                experience.put("needsRetry", reviewResult.needsRetry());
+                experience.put("timestamp", Instant.now().toString());
+                experience.put("experienceType", "RECEIPT_REVIEW");
+
+                Map<String, String> metadata = new HashMap<>();
+                metadata.put("source", "LlmExecutionReceiptReviewer");
+                metadata.put("category", "REVIEW_EXPERIENCE");
+                metadata.put("accepted", String.valueOf(reviewResult.accepted()));
+
+                knowledgeBase.store(key, experience, metadata);
+                log.info("P28-B: Receipt review experience captured: employee={}, accepted={}", employeeCode, reviewResult.accepted());
+            } catch (Exception e) {
+                log.warn("P28-B: Failed to capture receipt experience: {}", e.getMessage());
+            }
+        }
+
+        // 高频失败模式→发布EvolutionSignal(CAPABILITY_GAP)
+        if (!reviewResult.accepted() && crossLoopEventBus != null) {
+            try {
+                EvolutionSignal signal = EvolutionSignal.capabilityGap(
+                    "员工" + employeeCode + "回执审核未通过: " + reviewResult.reviewComment(),
+                    "execution-review");
+                signal.addMetadata("employeeCode", employeeCode);
+                signal.addMetadata("qualityScore", reviewResult.qualityScore());
+                signal.addMetadata("unmetCriteria", String.join(",", reviewResult.unmetCriteria()));
+
+                crossLoopEventBus.publish(28, "receipt_rejected",
+                    com.livingagent.core.evolution.orchestrator.CrossLoopEvent.EventPriority.SELF_HEALING,
+                    Map.of("employeeCode", employeeCode,
+                           "qualityScore", reviewResult.qualityScore(),
+                           "accepted", false,
+                           "unmetCriteria", String.join(",", reviewResult.unmetCriteria())),
+                    300);
+                log.info("P28-B: Capability gap signal published for employee={}", employeeCode);
+            } catch (Exception e) {
+                log.warn("P28-B: Failed to publish capability gap signal: {}", e.getMessage());
             }
         }
     }

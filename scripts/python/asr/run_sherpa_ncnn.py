@@ -65,26 +65,9 @@ def transcribe_with_sherpa(audio_data: bytes) -> str:
         os.unlink(temp_path)
 
 def transcribe_with_subprocess(audio_data: bytes) -> str:
-    with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f:
-        f.write(audio_data)
-        temp_path = f.name
-    
-    try:
-        result = subprocess.run(
-            ['python', '-c', f'''
-import sys
-sys.path.insert(0, '{MODEL_PATH}')
-import sherpa_ncnn
-# ... simplified subprocess call
-print("ASR result placeholder")
-'''],
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
-        return result.stdout.strip() if result.returncode == 0 else "ASR failed"
-    finally:
-        os.unlink(temp_path)
+    """通过子进程调用ASR（降级方案，优先使用transcribe函数）"""
+    # 直接调用主transcribe函数，避免subprocess占位
+    return transcribe(audio_data)
 
 def main():
     if len(sys.argv) > 1:

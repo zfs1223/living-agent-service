@@ -66,6 +66,14 @@ public class ChannelConfig {
     public ToolNeuron toolNeuron(ModelManager modelManager, NeuronRegistry neuronRegistry) {
         log.info("Registering ToolNeuron (Layer 3 - 工具神经元, B-1-12)");
         ToolNeuron neuron = new ToolNeuron("neuron://tool/qwen35/001", modelManager);
+        // 注册公共工具（所有访客可用，无需认证）
+        // 注意：公共工具与公司内部工具(gitlab/jenkins等)是独立的，不能混合
+        // 公共工具的实际执行在Python model_daemon.py中完成
+        // Java端注册仅用于记录和未来内部工具路由的边界区分
+        neuron.registerTools(java.util.List.of(
+            "weather_query", "time_query", "calculator", "translation", "encyclopedia"
+        ));
+        log.info("ToolNeuron registered 5 public tools (weather_query, time_query, calculator, translation, encyclopedia)");
         neuronRegistry.register(neuron);
         return neuron;
     }

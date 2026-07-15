@@ -1,3 +1,11 @@
+---
+name: doc-coauthoring
+description: Doc Coauthoring
+risk: low
+source: internal
+date_added: '2026-07-13'
+---
+
 # Doc Coauthoring
 
 > 文档协作编写技能，结构化文档创作流程

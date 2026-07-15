@@ -11,11 +11,12 @@ public interface EmployeeTaskExecutor {
 
     /**
      * 执行结果
+     * 64-D-2: status 新增 NEEDS_REWORK 状态
      */
     record ExecutionResult(
         /** 执行是否成功 */
         boolean success,
-        /** 执行状态：COMPLETED / FAILED / PARTIAL */
+        /** 执行状态：COMPLETED / FAILED / PARTIAL / NEEDS_REWORK / BLOCKED */
         String status,
         /** 执行总结 */
         String summary,

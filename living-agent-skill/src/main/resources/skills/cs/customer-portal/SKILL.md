@@ -1,3 +1,11 @@
+---
+name: customer-portal
+description: Customer Portal
+risk: low
+source: internal
+date_added: '2026-07-13'
+---
+
 # Customer Portal
 
 > 客户门户技能，管理客户自助服务、知识库、FAQ

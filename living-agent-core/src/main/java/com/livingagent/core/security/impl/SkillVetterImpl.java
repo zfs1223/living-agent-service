@@ -53,10 +53,12 @@ public class SkillVetterImpl implements SkillVetter {
         ));
 
         DANGEROUS_PATTERNS.put(FindingType.PRIVILEGE_ESCALATION, List.of(
-            Pattern.compile("(?i)(sudo\\s+|chmod\\s+[0-7]{3,4}|chown\\s+)"),
-            Pattern.compile("(?i)(runAsPrivileged|executePrivileged)"),
-            Pattern.compile("(?i)(admin|root|superuser)", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("(?i)(grant\\s+permission|elevate)")
+            // 更精确的权限提升规则，避免误判文档中的普通词汇
+            Pattern.compile("(?i)(sudo\\s+\\S+)"),  // sudo + 命令
+            Pattern.compile("(?i)(chmod\\s+[0-7]{3,4}\\s+\\S+)"),  // chmod 权限
+            Pattern.compile("(?i)(chown\\s+\\S+)"),  // chown 命令
+            Pattern.compile("(?i)(\\bsu\\b\\s+\\S+)"),  // su 切换用户
+            Pattern.compile("(?i)(runAsPrivileged|executePrivileged)")  // 特定API
         ));
 
         DANGEROUS_PATTERNS.put(FindingType.CODE_EXECUTION, List.of(

@@ -1,3 +1,11 @@
+---
+name: tavily-search
+description: Tavily Search - AI 搜索引擎技能
+risk: low
+source: internal
+date_added: '2026-07-13'
+---
+
 # Tavily Search - AI 搜索引擎技能
 
 > 基于 Tavily AI 的实时网络搜索和信息检索技能

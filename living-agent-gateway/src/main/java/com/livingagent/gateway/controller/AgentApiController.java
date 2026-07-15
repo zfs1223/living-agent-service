@@ -109,7 +109,14 @@ public class AgentApiController {
                     null,
                     null,
                     EmployeeOrigin.PERSONAL,
-                    employeeIdGenerated
+                    employeeIdGenerated,
+                    request.primary_model_id(),
+                    request.fallback_model_id(),
+                    request.template_id(),
+                    request.permission_scope_type(),
+                    request.permission_access_level(),
+                    request.max_tokens_per_day(),
+                    request.max_tokens_per_month()
             );
 
             Employee created = employeeService.createEmployee(creationRequest);

@@ -77,7 +77,12 @@ services:
     container_name: living-agent-service
     hostname: living-agent-service
     ports:
-      - "8382:8382"
+      - "8382:8382"       # Java主服务（Spring Boot）
+      # ── 容器内部端口（未映射到宿主机，仅供容器间通信）──
+      # 8391  声纹识别HTTP（SPEAKER_USE_REMOTE=true时跳过）
+      # 8392  LLM OpenAI兼容HTTP代理 → 转发到8393/8394（供fuck-u-code等调用）
+      # 8393  llama-server Qwen3-0.6B（独立进程）
+      # 8394  llama-server Qwen3.5-2B（独立进程）
     environment:
       - SPRING_PROFILES_ACTIVE=prod
       # 数据库连接
@@ -138,8 +143,8 @@ services:
       - LIVINGAGENT_BRAIN_MAX_ITERATIONS=${LIVINGAGENT_BRAIN_MAX_ITERATIONS:-20}
       # 可选: 云端API (备用)
       # 声纹识别远程服务配置
-      - SPEAKER_USE_REMOTE=false
-      #- SPEAKER_SERVICE_URL=http://host.docker.internal:8390
+      - SPEAKER_USE_REMOTE=true
+      - SPEAKER_SERVICE_URL=http://host.docker.internal:8390
       # RuView WiFi 感知服务配置
       - RUVIEW_POLLING_ENABLED=${RUVIEW_POLLING_ENABLED:-false}
       - TAVILY_API_KEY=${TAVILY_API_KEY:-}
@@ -290,20 +295,20 @@ services:
     container_name: living-agent-ruview-sensing
     hostname: ruview-sensing
     ports:
-      - "8387:3000"      # REST API (外部 8387 → 容器内部 3000)
-      - "8389:3001"      # WebSocket (外部 8389 → 容器内部 3001)
-      - "5005:5005/udp"  # ESP32 数据接收 (可选，硬件模式)
+      - "8387:3000"      # REST API
+      - "8389:3001"      # WebSocket
+      - "5006:5005/udp"  # ESP32 CSI 
+    networks:
+      - frontend
+      - backend
     environment:
       - RUST_LOG=info
-      - CSI_SOURCE=${CSI_SOURCE:-simulated}
+      - CSI_SOURCE=esp32
       - MODELS_DIR=/app/data/models
     volumes:
       - ruview-data:/app/data
       - ruview-models:/app/data/models
-      - ../RuView/ui:/app/ui:ro  # 挂载本地 UI 目录以便实时更新
-    networks:
-      - frontend
-      - backend
+      - ../RuView/ui:/app/ui:ro  # 挂载本地 UI 目录以便实时更新    
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:3000/health || exit 1"]
       interval: 30s
@@ -314,9 +319,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2G
+          memory: 4G
         reservations:
-          memory: 512M
+          memory: 1G
 
   # ===========================================
   # Crawl4AI - 网页爬取辅助服务

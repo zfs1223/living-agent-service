@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -20,12 +21,27 @@ public class ModelLoadHealthCheck implements HealthCheck {
 
     private static final Logger log = LoggerFactory.getLogger(ModelLoadHealthCheck.class);
 
-    private static final List<String> MODEL_DIRS = List.of(
-        "models/Qwen3-0.6B",
-        "models/Qwen3.5-2B",
-        "models",
-        "data/models"
-    );
+    private static final List<String> MODEL_DIRS = buildModelDirs();
+
+    private static List<String> buildModelDirs() {
+        List<String> dirs = new ArrayList<>();
+        String aiModelsPath = System.getenv("AI_MODELS_PATH");
+        if (aiModelsPath != null && !aiModelsPath.isBlank()) {
+            dirs.add(aiModelsPath);
+            dirs.add(aiModelsPath + "/Qwen3-0.6B-GGUF");
+            dirs.add(aiModelsPath + "/Qwen3.5-2B-GGUF");
+            dirs.add(aiModelsPath + "/sherpa-ncnn");
+            dirs.add(aiModelsPath + "/MeloTTS");
+        }
+        dirs.add("/app/ai-models");
+        dirs.add("/app/ai-models/Qwen3-0.6B-GGUF");
+        dirs.add("/app/ai-models/Qwen3.5-2B-GGUF");
+        dirs.add("models/Qwen3-0.6B");
+        dirs.add("models/Qwen3.5-2B");
+        dirs.add("models");
+        dirs.add("data/models");
+        return List.copyOf(dirs);
+    }
 
     private static final List<String> MODEL_FILE_MARKERS = List.of(
         "config.json",

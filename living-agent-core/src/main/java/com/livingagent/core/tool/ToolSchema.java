@@ -4,12 +4,53 @@ import java.util.List;
 import java.util.Map;
 import java.util.LinkedHashMap;
 
+/**
+ * 工具结构化描述，用于 LLM 工具选择和行动发现。
+ * 64-A-1: 扩展 capabilities/healthCheckHint/installHint/outputSchema
+ */
 public record ToolSchema(
     String name,
     String description,
     Map<String, Property> properties,
-    List<String> required
+    List<String> required,
+    /** 64-A-1: 工具能力标签（如 ["code_review", "git_merge", "ci_trigger"]） */
+    List<String> capabilities,
+    /** 64-A-1: 声明式输出 schema */
+    OutputSchema outputSchema,
+    /** 64-A-1: 健康检查提示（如 "curl -s http://jenkins:8384/api/json"） */
+    String healthCheckHint,
+    /** 64-A-1: 不可用时的安装/配置指引 */
+    String installHint
 ) {
+    /** 兼容旧构造：无扩展字段 */
+    public ToolSchema(String name, String description,
+                      Map<String, Property> properties, List<String> required) {
+        this(name, description, properties, required, List.of(), null, null, null);
+    }
+
+    /** 声明式输出 schema */
+    public record OutputSchema(
+        String type,
+        String description,
+        Map<String, Property> properties
+    ) {
+        public static OutputSchema json(String description, Map<String, Property> properties) {
+            return new OutputSchema("json", description, properties);
+        }
+        public static OutputSchema text(String description) {
+            return new OutputSchema("text", description, null);
+        }
+        public static OutputSchema markdown(String description) {
+            return new OutputSchema("markdown", description, null);
+        }
+        public static OutputSchema html(String description) {
+            return new OutputSchema("html", description, null);
+        }
+        public static OutputSchema binary(String description) {
+            return new OutputSchema("binary", description, null);
+        }
+    }
+
     public record Property(
         String type,
         String description,
@@ -50,6 +91,10 @@ public record ToolSchema(
         private String description;
         private final Map<String, Property> properties = new LinkedHashMap<>();
         private final List<String> required = new java.util.ArrayList<>();
+        private List<String> capabilities = List.of();
+        private OutputSchema outputSchema;
+        private String healthCheckHint;
+        private String installHint;
 
         public Builder name(String name) {
             this.name = name;
@@ -87,8 +132,39 @@ public record ToolSchema(
             return this;
         }
 
+        /** 64-A-1: 设置工具能力标签 */
+        public Builder capabilities(String... caps) {
+            this.capabilities = List.of(caps);
+            return this;
+        }
+
+        /** 64-A-1: 设置工具能力标签 */
+        public Builder capabilities(List<String> caps) {
+            this.capabilities = caps != null ? caps : List.of();
+            return this;
+        }
+
+        /** 64-A-1: 设置声明式输出 schema */
+        public Builder outputSchema(OutputSchema outputSchema) {
+            this.outputSchema = outputSchema;
+            return this;
+        }
+
+        /** 64-A-1: 设置健康检查提示 */
+        public Builder healthCheckHint(String hint) {
+            this.healthCheckHint = hint;
+            return this;
+        }
+
+        /** 64-A-1: 设置安装/配置指引 */
+        public Builder installHint(String hint) {
+            this.installHint = hint;
+            return this;
+        }
+
         public ToolSchema build() {
-            return new ToolSchema(name, description, properties, required);
+            return new ToolSchema(name, description, properties, required,
+                capabilities, outputSchema, healthCheckHint, installHint);
         }
     }
 }

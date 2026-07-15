@@ -2,6 +2,7 @@ package com.livingagent.core.compliance.feedback;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.util.Map;
@@ -12,6 +13,7 @@ import java.util.concurrent.atomic.LongAdder;
  * 闭环45-P45-A: 合规违规追踪器
  * 追踪违规频率/整改完成率/重复违规
  */
+@Component
 public class ComplianceViolationTracker {
 
     private static final Logger log = LoggerFactory.getLogger(ComplianceViolationTracker.class);

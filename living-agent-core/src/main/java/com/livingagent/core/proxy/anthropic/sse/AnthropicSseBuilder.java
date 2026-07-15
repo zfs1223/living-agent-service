@@ -1,5 +1,7 @@
 package com.livingagent.core.proxy.anthropic.sse;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
@@ -7,6 +9,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 public class AnthropicSseBuilder {
+
+    private static final Logger log = LoggerFactory.getLogger(AnthropicSseBuilder.class);
 
     private static final String MESSAGE_START = "message_start";
     private static final String CONTENT_BLOCK_START = "content_block_start";
@@ -151,6 +155,7 @@ public class AnthropicSseBuilder {
 
             sendSseEvent(ERROR, event);
         } catch (IOException e) {
+            log.warn("SSE error event send failed: {}", e.getMessage());
         }
     }
 
@@ -158,6 +163,7 @@ public class AnthropicSseBuilder {
         try {
             emitter.complete();
         } catch (Exception e) {
+            log.debug("SSE emitter close failed (expected during stream completion): {}", e.getMessage());
         }
     }
 

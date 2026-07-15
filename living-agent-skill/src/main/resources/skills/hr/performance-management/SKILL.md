@@ -1,3 +1,11 @@
+---
+name: performance-management
+description: Performance Management
+risk: low
+source: internal
+date_added: '2026-07-13'
+---
+
 # Performance Management
 
 > 绩效管理技能，绩效考核、目标管理、员工发展跟踪

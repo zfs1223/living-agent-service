@@ -86,7 +86,8 @@ public class AnthropicClient implements LlmClient {
      */
     @Override
     public Stream<String> stream(String prompt, String model, int maxTokens) {
-        throw new UnsupportedOperationException(
-            "Streaming not yet implemented for AnthropicClient. Use generate() method instead.");
+        // 降级：非流式调用后拆分为单元素Stream
+        String result = complete(prompt, model, maxTokens);
+        return Stream.of(result);
     }
 }

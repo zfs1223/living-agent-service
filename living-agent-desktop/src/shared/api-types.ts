@@ -55,6 +55,9 @@ export interface LivingAgentAPI {
     smsSend: (phone: string, type?: string) => Promise<{ success: boolean; message: string; expiresIn: number; code?: string }>;
     phoneLogin: (phone: string, code: string) => Promise<{ accessToken: string; user: DesktopUser }>;
     me: () => Promise<DesktopUser>;
+    // 声纹登录
+    voicePrintLogin: (audioBuffer: ArrayBuffer) => Promise<{ accessToken: string; user: DesktopUser }>;
+    voicePrintStatus: () => Promise<{ available: boolean; message?: string }>;
   };
 
   /* ============ 文件系统 ============ */

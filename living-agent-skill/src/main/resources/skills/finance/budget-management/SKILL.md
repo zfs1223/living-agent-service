@@ -1,3 +1,11 @@
+---
+name: budget-management
+description: Budget Management
+risk: low
+source: internal
+date_added: '2026-07-13'
+---
+
 # Budget Management
 
 > 预算管理技能，月度预算管理、超支预警、预算分析

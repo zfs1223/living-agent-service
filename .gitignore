@@ -33,6 +33,7 @@ buildNumber.properties
 # IDE - VSCode
 .vscode/
 *.code-workspace
+.workbuddy/
 
 .docs/references/API_REFERENCE.md
 # IDE - IntelliJ IDEA
@@ -89,3 +90,6 @@ coverage/
 postgres_data/
 qdrant_storage/
 redis_data/
+
+living-agent-plc-bridge/
+docs/

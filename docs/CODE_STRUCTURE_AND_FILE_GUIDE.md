@@ -519,8 +519,8 @@ com.livingagent.core/
 | `impl/DefaultCrossDepartmentCoordinator.java`           | 默认跨部门协调器实现                                                                                                                             | 从原 CrossDepartmentCoordinator 提取的逻辑；收集各部门结果、标记失败部门、聚合整体状态                                                                                              |
 | `EmployeeExecutionDispatch.java`                        | 单个员工执行派发记录                                                                                                                            | 记录 dispatchId、assignmentId、目标 channel、派发状态                                                                                                                    |
 | `impl/ChannelBackedDepartmentExecutionCoordinator.java` | 基于 `ChannelManager` 的第一版执行协调器                                                                                                         | 发布到 `channel://employee/{neuron-or-code}/tasks`，并写入回执 channel 元数据                                                                                             |
-| `EmployeeExecutionReceipt.java`                         | 员工执行回执结构                                                                                                                              | 记录执行完成/失败状态、摘要和回执元数据、worktreePath、diffPath（代码任务专用字段）                                                                                                        |
-| `EmployeeExecutionReceiptService.java`                  | 员工执行回执服务接口                                                                                                                            | 注册执行、记录回执、查询回执和判断执行是否完成；内置 `ReceiptListener` 支持 receipt 到达后通知 WebSocket 推送进度                                                                                  |
+| `EmployeeExecutionReceipt.java`                         | 员工执行回执结构                                                                                                                              | 记录执行完成/失败状态、摘要和回执元数据、worktreePath、diffPath（代码任务专用字段）；**64-E-1: 扩展 ActionStep/ToolCallRecord/ValidationRecord/KnowledgeCaptureCandidate**                                        |
+| `EmployeeExecutionReceiptService.java`                  | 员工执行回执服务接口                                                                                                                            | 注册执行、记录回执、查询回执和判断执行是否完成；内置 `ReceiptListener` 支持 receipt 到达后通知 WebSocket 推送进度；**64-G-2: 新增 getReceiptsByEmployee(employeeCode, limit) 默认方法**                                                                                  |
 | `impl/InMemoryEmployeeExecutionReceiptService.java`     | 内存版员工执行回执服务                                                                                                                           | 第一版闭环缓存，保留作为测试/回退使用；生产使用 `FileBasedEmployeeExecutionReceiptService`                                                                                           |
 | `impl/FileBasedEmployeeExecutionReceiptService.java`    | JSON 文件持久化回执服务                                                                                                                        | 回执写入 `data/receipts/` 目录，启动时自动加载历史数据，支持 getStats/clearAll                                                                                                     |
 | `DialogueDecision.java`                                 | 意图分析和路由决策结果                                                                                                                           | 新增决策字段时改这里                                                                                                                                                    |
@@ -546,7 +546,12 @@ com.livingagent.core/
 | `MainBrainRequirementClarifier.java`                    | 主脑需求澄清器接口                                                                                                                             | 需求不明确时由主脑统一生成澄清消息返回用户，不直接派给员工                                                                                                                                |
 | `impl/DefaultMainBrainRequirementClarifier.java`        | 默认主脑需求澄清器实现                                                                                                                           | 基于规则生成结构化澄清消息，列出缺失信息和引导问题                                                                                                                                    |
 | `EmployeeTaskExecutor.java`                             | 员工任务执行器接口                                                                                                                             | 定义 `ExecutionResult` 和 `ArtifactFile` 结构，支持按任务类型分发执行（web/document/analysis/review等）                                                                           |
-| `impl/ToolBackedEmployeeTaskExecutor.java`              | 工具驱动的员工任务执行器                                                                                                                          | 新增 FILE\_SYSTEM\_QUERY → executeToolTask 工具调用分支，通过 ToolRegistry 查找并调用真实 Tool 实现（如 FileEditTool.list\_dir）；保留 ExecutionCapabilityResolver 集成和 normalizeTaskType 兼容兜底；新增 resolveToolInvocation 意图→工具解析、formatToolResult 结果格式化                                                          |
+| `impl/ToolBackedEmployeeTaskExecutor.java`              | 工具驱动的员工任务执行器                                                                                                                          | 新增 FILE\_SYSTEM\_QUERY → executeToolTask 工具调用分支，通过 ToolRegistry 查找并调用真实 Tool 实现（如 FileEditTool.list\_dir）；保留 ExecutionCapabilityResolver 集成和 normalizeTaskType 兼容兜底；新增 resolveToolInvocation 意图→工具解析、formatToolResult 结果格式化；**64-C-1: 集成 ActionReadinessChecker + ActionOutputValidator**                                                          |
+| **`impl/ActionReadinessChecker.java`**                 | **【64-B-2 新增】** 行动准备度检查器                                                                                                                       | 执行前检查：工具健康(BackendRegistry)+前置条件+输入完整性，返回 READY/BLOCKED/DEGRADED                                                             |
+| **`impl/ActionOutputValidator.java`**                  | **【64-D-1 新增】** 4层输出验证器                                                                                                                       | L1结构验证(html/markdown/json)+L2内容验证(非空/拒绝语/占位符)+L3交付物验证(对照assignment)+L4工具结果验证                             |
+| **`impl/ActionDiscoveryServiceImpl.java`**            | **【64-A-2 新增】** 行动发现服务实现                                                                                                                    | 基于FixedEmployeeRegistry+ToolRegistry+BackendRegistry，动态生成员工能力清单，支持工具健康检查和最佳工具匹配                                                   |
+| **`impl/ActionEffectivenessTracker.java`**            | **【64-F-1 新增】** 行动效果追踪器                                                                                                                    | 追踪工具成功率/验证通过率/行动平均耗时，提供效果上下文给LLM调度器，含员工级/工具级/验证级三级指标                                                              |
+| **`ActionDiscoveryService.java`**                     | **【64-A-2 新增】** 行动发现服务接口                                                                                                                    | discoverCapabilities(员工能力清单)+checkToolHealth(健康检查)+findBestTool(最佳工具匹配)，含ToolHealthStatus/ToolMatch record   |
 | `KnowledgeCaptureResult.java`                           | 知识沉淀结果                                                                                                                                | 记录沉淀是否成功、知识键、层级、领域                                                                                                                                            |
 | `KnowledgeCaptureService.java`                          | 知识沉淀服务接口                                                                                                                              | 从执行结果中提取经验写入知识库                                                                                                                                               |
 | `impl/DefaultKnowledgeCaptureService.java`              | 基于 KnowledgeManager 的知识沉淀实现                                                                                                           | 将执行经验以 EXPERIENCE 类型写入部门知识库                                                                                                                                   |
@@ -583,7 +588,7 @@ com.livingagent.core/
 | `RequirementStatus.java`                                | 需求状态枚举与状态机                                                                                                                          | DRAFT→COMPLETED/FAILED 9阶段流转，canTransition/allowsAssignment/allowsExecution/needsClarification 状态判定方法                                                              |
 | `TaskMetadataKeys.java`                                  | 元数据键常量                                                                                                                              | 统一 taskId/worktreePath/diffPath 等 Map key 常量                                                                                                                           |
 | `impl/MinimalEmployeeTaskExecutor.java`                  | 最小任务执行器                                                                                                                             | 简单的任务执行实现，已被 `DynamicEmployeeTaskConsumerRegistry` 替代，类文件保留用作参考                                                                                                        |
-| `ReceiptStatus.java`                                      | 回执状态枚举                                                                                                                              | PENDING/COMPLETED/FAILED/TIMEOUT/RETRYING，回执生命周期状态                                                                                                  |
+| `ReceiptStatus.java`                                      | 回执状态枚举                                                                                                                              | PENDING/COMPLETED/FAILED/TIMEOUT/RETRYING，回执生命周期状态；**64-D-2: 新增 NEEDS_REWORK（输出验证失败时使用）**                                                                                                  |
 | `impl/JpaEmployeeExecutionReceiptService.java`            | JPA 持久化回执服务                                                                                                                         | 生产级回执持久化实现，替代 `FileBasedEmployeeExecutionReceiptService`；基于 `EmployeeExecutionReceiptEntity` 存储，支持按 executionId/employeeCode/department 查询和统计                                  |
 | `TaskRouteClassifier.java`                                | 轻量路由分类器接口（P0）                                                                                                                         | 在意图分析后、主脑规划前判断：单部门直达 / 跨部门主脑拆解 / 需要澄清                                                                                                               |
 | `TaskRouteResult.java`                                    | 路由结果 record（P0）                                                                                                                      | SINGLE\_DEPARTMENT / CROSS\_DEPARTMENT / CLARIFICATION\_NEEDED                                                                                               |
@@ -697,10 +702,11 @@ com.livingagent.core/
 | `employee/EmployeeOrigin.java`                                                     | 员工来源枚举      | HUMAN/FIXED/EVOLVED/PERSONAL，区分员工创建方式 |
 | `employee/AccessType.java`                                                         | 访问类型枚举      | PUBLIC/AUTHENTICATED/DEPARTMENT，控制资源可见性 |
 | `employee/EmployeePersonality.java`                                                | 员工个性模型      | rigor/creativity/riskTolerance/obedience 四维个性，支持部门默认值和 BrainPersonality 转换 |
+| **`employee/EmployeeCapabilityProfile.java`**                                      | **【64-A-2 新增】** 员工能力清单 | record含availableTools/department/capabilities/knowledgeDomains/load，供行动发现/LLM调度使用，替代关键词匹配 |
 | `employee/EmployeeStatus.java`                                                     | 员工状态枚举      | 11种状态（ONLINE/OFFLINE/BUSY/ACTIVE/DORMANT/LEARNING/EVOLVING等），含状态转换规则和分类判定 |
 | `employee/impl/HumanEmployee.java`                                                  | 人类员工实现      | 人类员工行为或状态           |
 | `employee/impl/DigitalEmployee.java`                                                | 数字员工实现      | 数字员工执行、技能、状态        |
-| `employee/EmployeeService.java`                                                     | 员工服务接口      | 员工查询、创建、状态更新        |
+| `employee/EmployeeService.java`                                                     | 员工服务接口      | 员工查询、创建、状态更新；EmployeeCreationRequest 含29字段（含primaryModelId/fallbackModelId/templateId/permissionScopeType/permissionAccessLevel/maxTokensPerDay/maxTokensPerMonth）        |
 | `employee/impl/EmployeeServiceImpl.java`                                            | 早期/内存员工服务实现 | 注意和 JPA 实现区分，避免重复   |
 | `employee/impl/JpaEmployeeServiceImpl.java`                                         | JPA 员工服务实现  | 持久化员工数据优先改这里        |
 | `employee/entity/EmployeeEntity.java`                                               | 员工 JPA 基类实体 | SINGLE\_TABLE 继承策略，employees 表，id/name/department/status 等公共字段 |
@@ -813,7 +819,9 @@ com.livingagent.core/
 | `ToolCall.java`                                                                                                   | 工具调用请求          | 工具参数协议           |
 | `ToolResult.java`                                                                                                 | 工具调用结果          | 统一返回结构           |
 | `ToolContext.java`                                                                                                | 工具上下文           | 用户、权限、会话、部门上下文   |
-| `ToolSchema.java`                                                                                                 | 工具 schema       | 暴露给模型/大脑的工具定义    |
+| `ToolSchema.java`                                                                                                 | 工具 schema       | 暴露给模型/大脑的工具定义；**64-A-1: 扩展 capabilities/outputSchema/healthCheckHint/installHint**    |
+| **`ToolInvocationProtocol.java`**                                                                                  | **【64-C-2 新增】** 工具调用协议 | 统一工具调用：resolve(意图解析)→invoke(执行)→formatResult(格式化)，含InvocationPlan/InvocationResult record |
+| **`impl/LlmToolInvocationResolver.java`**                                                                          | **【64-C-2 新增】** LLM工具意图解析器 | LLM语义解析任务描述到工具调用计划，LLM不可用时自动降级到关键词匹配（17种关键词映射） |
 | `ToolRegistry.java` / `impl/ToolRegistryImpl.java`                                                                | 工具注册表           | 新工具注册入口          |
 | `ToolExecutor.java` / `impl/DefaultToolExecutor.java`                                                             | 工具执行器           | 权限、Hook、调用分发     |
 | `hook/ToolHookManager.java`                                                                                       | 工具调用前后 Hook     | 审计、审批、安全检查       |
@@ -862,6 +870,14 @@ com.livingagent.core/
 | `weather/impl/QWeatherProvider.java`                                                                               | 和风天气实现      | 基于和风天气 API 的天气查询  |
 | `ToolStats.java`                                                                                                   | 工具统计        | 调用次数/成功率/耗时        |
 | `hook/ToolHookResult.java`                                                                                         | 工具钩子结果      | 钩子执行结果             |
+| **`backend/ExternalToolBackend.java`**                                                                             | **【64-B-1 新增】** 外部工具后端接口 | discover/healthCheck/installHint 统一抽象 |
+| **`backend/BackendRegistry.java`**                                                                                 | **【64-B-1 新增】** 外部工具后端注册表 | 带30秒缓存的统一健康检查 |
+| **`backend/ClaudeCliBackend.java`**                                                                                | **【64-B-1 新增】** Claude CLI 后端 | PATH 发现 + claude --version 健康检查 |
+| **`backend/GitLabBackend.java`**                                                                                   | **【64-B-1 新增】** GitLab 后端 | HTTP /api/v4/version 健康检查 |
+| **`backend/JenkinsBackend.java`**                                                                                  | **【64-B-1 新增】** Jenkins 后端 | HTTP /api/json 健康检查 |
+| **`backend/OpenProjectBackend.java`**                                                                              | **【64-B-1 新增】** OpenProject 后端 | HTTP /api/v3/configuration 健康检查 |
+| **`backend/FileSystemBackend.java`**                                                                               | **【64-B-1 新增】** 文件系统后端 | Java NIO 读写测试 |
+| **`backend/DockerBackend.java`**                                                                                   | **【64-B-1 新增】** Docker 后端 | docker info 健康检查 |
 
 避免重复建议：
 
@@ -882,6 +898,8 @@ com.livingagent.core/
 | `skill/SkillResult.java`                                          | 技能执行结果            | 技能输出和状态              |
 | `skill/feedback/SkillEffectivenessTracker.java`                   | P42-A: 技能效果追踪（闭环42） | 调用成功率/耗时追踪，<80%标记低效 |
 | `skill/feedback/SkillRecommendationEngine.java`                   | P42-B: 技能推荐（闭环42） | 低效技能建议替换，耗时>5s建议优化 |
+| **`skill/feedback/SkillCoverageEvaluator.java`**                  | **【64-G-1 新增】** 技能覆盖度评估器 | 评估员工技能覆盖度，识别高价值缺失技能，生成增量优化建议(CoverageReport/SkillSuggestion) |
+| **`skill/feedback/SkillRefineService.java`**                      | **【64-G-2 新增】** 技能增量优化服务 | 借鉴CLI-Anything /refine机制：分析回执→识别低效模式→对照技能覆盖→生成改进建议(RefineResult/PerformanceIssue/SkillImprovement) |
 
 **living-agent-skill 模块：**
 
@@ -1986,6 +2004,47 @@ frontend/
 
 ## 10. Python 脚本和模型守护进程
 
+### 10a. 智能前台架构
+
+> **核心概念**：`model_daemon.py` 是独立的"智能前台"服务，所有模型能力都在守护进程内部加载，不依赖外部认证。
+
+**架构分层**：
+
+| 层级 | 模型/组件 | 用途 | 权限 |
+|------|----------|------|------|
+| **Layer 2** | Qwen3-0.6B | 闲聊神经元，日常对话与快速响应 | 所有用户（含未登录） |
+| **Layer 3** | Qwen3.5-2B | 工具神经元，公共工具路由 | 所有用户（含未登录） |
+| **ASR** | Sherpa-ONNX | 语音识别 | 所有用户（含未登录） |
+| **TTS** | MeloTTS | 语音合成 | 所有用户（含未登录） |
+| **声纹** | CAM++ | 声纹识别（可选） | 所有用户（含未登录） |
+
+**权限边界**：
+
+```
+┌──────────────────────────────────────────────────────┐
+│           智能前台 (model_daemon.py)                  │
+│  ├── Qwen3-0.6B（闲聊）                               │
+│  ├── Qwen3.5-2B（公共工具路由）                        │
+│  ├── Sherpa-ONNX（ASR）                               │
+│  ├── MeloTTS（TTS）                                   │
+│  └── CAM++（声纹，可选）                              │
+│         所有用户（含未登录）无需认证                   │
+└──────────────────────────────────────────────────────┘
+                        ↓ 需要登录
+┌──────────────────────────────────────────────────────┐
+│           公司内部 (Java ToolNeuron等)                │
+│  员工管理、部门管理、预算管理等内部管理工具            │
+│         已登录用户（按权限）                          │
+└──────────────────────────────────────────────────────┘
+```
+
+**关键实现**：
+- 未登录用户 → `/ws/public` → `processPublicChannel` → `agentService.chatPublic()` → `model_daemon.py`
+- 已登录用户 → `/ws/dept/{code}` → 部门大脑LLM（绕过ChatNeuronRouter）
+- Java `ChatNeuronRouter` 仅用于未登录公共闲聊，注释明确"登录后部门通道应绕过"
+
+---
+
 ```text
 scripts/
 ├── python/
@@ -2005,7 +2064,7 @@ scripts/
 
 | 文件                          | 功能说明                                                     | 修改建议                            |
 | --------------------------- | -------------------------------------------------------- | ------------------------------- |
-| `python/model_daemon.py`    | 与 Java `NamedPipeModelClient` 配合，创建 session、读写请求/响应 pipe；8392端口暴露OpenAI兼容HTTP端点供外部工具调用 | 管道协议、超时、session 生命周期必须和 Java 同步；LLM HTTP端点与fuck-u-code集成(闭环49) |
+| `python/model_daemon.py`    | **智能前台核心服务**：包含Qwen3/Qwen35(Sherpa/MeloTTS/CAM++)所有模型；处理named pipe请求和OpenAI兼容HTTP(8392)；未登录用户直接使用，已登录用户通过Java ModelManager调用 | 管道协议、超时、session生命周期必须和Java同步；公共工具路由与公司内部管理分离；LLM HTTP端点与fuck-u-code集成(闭环49) |
 | `python/llm/run_qwen35.py`  | Qwen3.5 推理入口                                             | 本地 Qwen 模型路径和推理参数               |
 | `python/llm/run_qwen3.py`   | Qwen3 本地推理服务                                             | Qwen3 模型路径和推理参数                |
 | `python/asr/run_sherpa_ncnn.py` | Sherpa-NCNN ASR 推理服务                                  | ASR 模型路径、推理参数、语言配置             |
@@ -2021,6 +2080,8 @@ scripts/
 
 - 模型调用协议改动要同时检查 `NamedPipeModelClient.java` 和 `model_daemon.py`。
 - Java 侧不要再另起一套 Python 调用协议。
+- **智能前台权限边界**：model_daemon.py只处理公共工具（天气、时间等），公司内部管理（员工、部门、财务）由Java端ToolNeuron处理。
+- **ChatNeuronRouter范围**：仅用于未登录公共闲聊，已登录用户的部门通道绕过此路由。
 
 ### 10b. Windows 自动化桥接服务 (`scripts/windows_automation/`)
 
@@ -2271,6 +2332,54 @@ ConversationOrchestrator 判断 TASK/PROJECT
   -> PerformanceAssessmentService 记录贡献
   -> KnowledgeManager / MemoryService 沉淀经验
 ```
+
+### 14.5 智能前台闲聊闭环（2026-07-14 验证）
+
+```text
+未登录用户闲聊闭环：
+  frontend Chat.tsx（无参数）
+  -> /ws/public
+  -> DepartmentWebSocketHandler.processPublicChannel()
+  -> agentService.chatPublic(content, userId)
+  -> modelManager.chatAsync("qwen3-0.6b", message)   [service="llm_chat"]
+  -> NamedPipe → model_daemon.py llm_chat
+  -> generate_chat_response()（含意图识别+快速响应）
+  -> llama-server HTTP(8393/8394) → 响应文本
+  -> 返回 WebSocket → 前端
+
+未登录用户语音闭环：
+  frontend 语音录制
+  -> /ws/public "audio_full"
+  -> DepartmentWebSocketHandler.processPublicAudioChannel()
+  -> agentService.chatPublicAudio(audioData, userId)
+  -> modelManager.createSession() + processAudioFullChain()
+  -> ASR(Sherpa-ONNX) → LLM(Qwen3) → TTS(MeloTTS)
+  -> 返回音频 + 文本 → 前端
+
+已登录用户部门闭环：
+  frontend Chat.tsx（带brain参数）
+  -> /ws/dept/{brainId}
+  -> DepartmentWebSocketHandler.processWithBrain()
+  -> 直接调用部门大脑LLM（绕过ChatNeuronRouter）
+  -> 返回 WebSocket → 前端
+```
+
+验证结论：闭环完整 ✅
+- `chatPublic()` 使用 `service="llm_chat"` 走 `generate_chat_response()` 含意图识别
+- `ChatNeuronRouter` 仅用于未登录公共闲聊，已登录用户绕过
+- 降级：`chatPublic()` 有 `exceptionally()` 兜底返回"抱歉，我暂时无法回复"
+
+### 14.6 LLM-first/Rule-fallback 降级链路验证（2026-07-14 验证）
+
+| 降级链路 | LLM优先 | 规则降级 | 验证结果 |
+|---------|---------|---------|---------|
+| 对话分析 | `LlmBasedDialogueAnalyzer` | `RuleBasedDialogueAnalyzer` | ✅ MainBrain不可用/LLM失败/解析失败均调用 `fallbackAnalyzer.analyze()` |
+| 员工分派 | `LlmBasedFixedEmployeeDispatcher` | `RegistryBackedFixedEmployeeDispatcher` | ✅ MainBrain不可用/LLM失败/响应过短均调用 `fallbackDispatcher.planAssignments()` |
+| 响应协调 | `LlmBasedFinalResponseCoordinator` | `DefaultFinalResponseCoordinator` | ✅ MainBrain不可用/LLM空/解析失败/未知策略均调用 `fallbackCoordinator.determineStrategy()` |
+| 主脑任务 | `LlmBasedMainBrainTaskDirector` | `RuleBasedMainBrainTaskDirector` | ✅ LLM不可用时降级到规则版 |
+| 执行能力 | `LlmBasedExecutionCapabilityResolver` | `DefaultExecutionCapabilityResolver` | ✅ LLM不可用时降级到规则版 |
+
+验证结论：所有降级链路完整，fallback 均为真正执行（非空实现） ✅
 
 ***
 

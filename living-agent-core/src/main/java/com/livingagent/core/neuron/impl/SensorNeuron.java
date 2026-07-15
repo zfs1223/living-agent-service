@@ -24,6 +24,25 @@ public class SensorNeuron extends AbstractNeuron {
     private final Map<String, SensorReading> latestReadings = new ConcurrentHashMap<>();
     private final List<AlertRule> alertRules = new CopyOnWriteArrayList<>();
 
+    /** 可由外部设置的活跃神经元计数提供器 */
+    private Supplier<Integer> activeNeuronCountProvider = () -> 0;
+    /** 可由外部设置的活跃通道计数提供器 */
+    private Supplier<Integer> activeChannelCountProvider = () -> 0;
+
+    /**
+     * 设置活跃神经元计数提供器（由NeuronRegistry注入）。
+     */
+    public void setActiveNeuronCountProvider(Supplier<Integer> provider) {
+        this.activeNeuronCountProvider = provider != null ? provider : () -> 0;
+    }
+
+    /**
+     * 设置活跃通道计数提供器（由ChannelManager注入）。
+     */
+    public void setActiveChannelCountProvider(Supplier<Integer> provider) {
+        this.activeChannelCountProvider = provider != null ? provider : () -> 0;
+    }
+
     public SensorNeuron(List<com.livingagent.core.tool.Tool> tools) {
         super(
             ID,
@@ -365,11 +384,11 @@ public class SensorNeuron extends AbstractNeuron {
     }
 
     private double getActiveNeuronCount() {
-        return 0.0;
+        return activeNeuronCountProvider.get();
     }
 
     private double getActiveChannelCount() {
-        return 0.0;
+        return activeChannelCountProvider.get();
     }
 
     protected String buildPrompt(NeuronContext context, String userInput) {

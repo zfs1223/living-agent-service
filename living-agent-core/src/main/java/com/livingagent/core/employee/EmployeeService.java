@@ -101,7 +101,14 @@ public interface EmployeeService {
         String email,
         String phone,
         EmployeeOrigin origin,
-        String suggestedEmployeeId
+        String suggestedEmployeeId,
+        String primaryModelId,
+        String fallbackModelId,
+        String templateId,
+        String permissionScopeType,
+        String permissionAccessLevel,
+        Long maxTokensPerDay,
+        Long maxTokensPerMonth
     ) {
         public EmployeeOrigin origin() {
             return origin != null ? origin : EmployeeOrigin.PERSONAL;

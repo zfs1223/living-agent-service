@@ -1,3 +1,11 @@
+---
+name: finance-api-gateway
+description: Finance API Gateway
+risk: low
+source: internal
+date_added: '2026-07-13'
+---
+
 # Finance API Gateway
 
 > 财务系统API网关，连接财务软件、银行接口、税务系统

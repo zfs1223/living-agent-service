@@ -160,6 +160,7 @@ public class FixedEmployeeRegistry {
 
     private void createAndStartAllEmployees() {
         int successCount = 0;
+        int existingCount = 0;
         int unboundCount = 0;
         List<String> unboundEmployees = new ArrayList<>();
 
@@ -174,6 +175,7 @@ public class FixedEmployeeRegistry {
                 } else {
                     Employee employee = existing.get();
                     createAndStartNeuron(employee);
+                    existingCount++;
                     log.debug("Fixed employee {} already exists, ensured neuron started", code);
                 }
             } catch (Exception e) {
@@ -183,7 +185,8 @@ public class FixedEmployeeRegistry {
             }
         }
 
-        log.info("Fixed employee creation summary: {} succeeded, {} failed", successCount, unboundCount);
+        log.info("Fixed employee creation summary: {} created, {} already existed, {} failed (total definitions: {})",
+            successCount, existingCount, unboundCount, definitionsByCode.size());
         if (!unboundEmployees.isEmpty()) {
             log.warn("Unbound employees: {}", unboundEmployees);
         }
@@ -985,7 +988,14 @@ public class FixedEmployeeRegistry {
             null,
             null,
             EmployeeOrigin.FIXED,
-            expectedEmployeeId
+            expectedEmployeeId,
+            null,
+            null,
+            null,
+            null,
+            "DEPARTMENT",
+            null,
+            null
         );
         
         Employee employee = employeeService.createEmployee(request);

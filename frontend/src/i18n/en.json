@@ -50,7 +50,7 @@
     "myAgents": "My Digital Employees",
     "myCreated": "Created by me",
     "companyShared": "Company shared",
-    "newAgent": "New Digital Employee",
+    "newAgent": "New Personal Assistant",
     "enterprise": "Company Settings",
     "language": "Language",
     "plaza": "Plaza",
@@ -204,6 +204,8 @@
       "approvals": "Approvals",
       "settings": "Settings"
     },
+    "createPersonal": "New Personal Assistant",
+    "personalModeDesc": "Create a personal assistant exclusively for you, only you can access and use it",
     "fields": {
       "name": "Name",
       "role": "👤 Role",
@@ -1142,7 +1144,22 @@
     "loginSuccess": "Login successful, redirecting...",
     "codeSent": "Code sent",
     "testModeAutoFill": "Test mode - Code auto-filled: ",
-    "switchLang": "中文"
+    "switchLang": "中文",
+    "openDrawer": "LOG IN",
+    "drawerTitle": "Welcome Back",
+    "drawerSubtitle": "Choose a login method to enter",
+    "tabPhone": "Phone",
+    "tabVoiceprint": "Voiceprint",
+    "voiceprintUploadHint": "Upload voice audio file to login",
+    "voiceprintRecord": "Record",
+    "voiceprintSelectFile": "Select File",
+    "voiceprintLogin": "Voice Login",
+    "voiceprintLoggingIn": "Logging in...",
+    "voiceprintLoginError": "Login failed, ensure voiceprint is registered",
+    "voiceprintLoginSuccess": "Login successful",
+    "voiceprintLoginFailed": "Login failed",
+    "voiceprintNoFile": "Please select an audio file first",
+    "tryChat": "Try Chat"
   },
   "registerFounder": {
     "systemInit": "System Initialization",

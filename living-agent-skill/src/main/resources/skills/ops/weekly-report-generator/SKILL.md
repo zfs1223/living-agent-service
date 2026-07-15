@@ -1,3 +1,11 @@
+---
+name: weekly-report-generator
+description: Weekly Report Generator - 周报自动生成器技能
+risk: low
+source: internal
+date_added: '2026-07-13'
+---
+
 # Weekly Report Generator - 周报自动生成器技能
 
 > 主动收集数据生成周报

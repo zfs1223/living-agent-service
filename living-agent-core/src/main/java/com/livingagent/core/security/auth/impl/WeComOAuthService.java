@@ -1,5 +1,6 @@
 package com.livingagent.core.security.auth.impl;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.livingagent.core.security.AccessLevel;
 import com.livingagent.core.security.AuthContext;
 import com.livingagent.core.security.UserIdentity;
@@ -20,6 +21,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class WeComOAuthService implements OAuthService {
 
     private static final Logger log = LoggerFactory.getLogger(WeComOAuthService.class);
+    private static final ObjectMapper objectMapper = new ObjectMapper();
 
     private static final String WECOM_AUTH_URL = "https://open.weixin.qq.com/connect/oauth2/authorize";
     private static final String WECOM_TOKEN_URL = "https://qyapi.weixin.qq.com/cgi-bin/gettoken";
@@ -278,126 +280,24 @@ public class WeComOAuthService implements OAuthService {
     }
 
     private String toJson(Map<String, Object> map) {
-        StringBuilder sb = new StringBuilder("{");
-        boolean first = true;
-        for (Map.Entry<String, Object> entry : map.entrySet()) {
-            if (!first) sb.append(",");
-            sb.append("\"").append(entry.getKey()).append("\":");
-            Object value = entry.getValue();
-            if (value == null) {
-                sb.append("null");
-            } else if (value instanceof String) {
-                sb.append("\"").append(escapeJson((String) value)).append("\"");
-            } else if (value instanceof Number || value instanceof Boolean) {
-                sb.append(value);
-            } else {
-                sb.append("\"").append(escapeJson(value.toString())).append("\"");
-            }
-            first = false;
-        }
-        sb.append("}");
-        return sb.toString();
-    }
-
-    private String escapeJson(String value) {
-        if (value == null) return "";
-        return value.replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r")
-                .replace("\t", "\\t");
-    }
-
-    private Map<String, Object> parseJson(String json) {
-        Map<String, Object> result = new HashMap<>();
-        if (json == null || json.isEmpty()) return result;
-
-        json = json.trim();
-        if (!json.startsWith("{") || !json.endsWith("}")) return result;
-
-        json = json.substring(1, json.length() - 1);
-
-        int depth = 0;
-        StringBuilder current = new StringBuilder();
-        String currentKey = null;
-        boolean inString = false;
-        boolean escaped = false;
-
-        for (int i = 0; i < json.length(); i++) {
-            char c = json.charAt(i);
-
-            if (escaped) {
-                current.append(c);
-                escaped = false;
-                continue;
-            }
-
-            if (c == '\\') {
-                escaped = true;
-                current.append(c);
-                continue;
-            }
-
-            if (c == '"') {
-                inString = !inString;
-                current.append(c);
-                continue;
-            }
-
-            if (!inString) {
-                if (c == '{' || c == '[') {
-                    depth++;
-                    current.append(c);
-                } else if (c == '}' || c == ']') {
-                    depth--;
-                    current.append(c);
-                } else if (c == ':' && depth == 0) {
-                    currentKey = current.toString().trim();
-                    if (currentKey.startsWith("\"") && currentKey.endsWith("\"")) {
-                        currentKey = currentKey.substring(1, currentKey.length() - 1);
-                    }
-                    current = new StringBuilder();
-                } else if (c == ',' && depth == 0) {
-                    if (currentKey != null) {
-                        result.put(currentKey, parseValue(current.toString().trim()));
-                    }
-                    currentKey = null;
-                    current = new StringBuilder();
-                } else {
-                    current.append(c);
-                }
-            } else {
-                current.append(c);
-            }
-        }
-
-        if (currentKey != null) {
-            result.put(currentKey, parseValue(current.toString().trim()));
-        }
-
-        return result;
-    }
-
-    private Object parseValue(String value) {
-        if (value == null || value.isEmpty() || "null".equals(value)) {
-            return null;
-        }
-
-        if (value.startsWith("\"") && value.endsWith("\"")) {
-            return value.substring(1, value.length() - 1);
-        }
-
-        if ("true".equals(value)) return true;
-        if ("false".equals(value)) return false;
-
         try {
-            if (value.contains(".")) {
-                return Double.parseDouble(value);
-            } else {
-                return Integer.parseInt(value);
-            }
-        } catch (NumberFormatException e) {
-            return value;
+            return objectMapper.writeValueAsString(map);
+        } catch (Exception e) {
+            log.warn("JSON序列化失败", e);
+            return "{}";
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> parseJson(String json) {
+        if (json == null || json.isEmpty()) return new HashMap<>();
+        try {
+            Object parsed = objectMapper.readValue(json, Object.class);
+            if (parsed instanceof Map) return (Map<String, Object>) parsed;
+            return new HashMap<>();
+        } catch (Exception e) {
+            log.warn("JSON解析失败: {}", json, e);
+            return new HashMap<>();
         }
     }
 }

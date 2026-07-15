@@ -1,3 +1,11 @@
+---
+name: contract-monitor
+description: Contract Monitor - 合同监控器技能
+risk: low
+source: internal
+date_added: '2026-07-13'
+---
+
 # Contract Monitor - 合同监控器技能
 
 > 到期提醒与续签预警

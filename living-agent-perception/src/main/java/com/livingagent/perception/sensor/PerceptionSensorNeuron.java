@@ -3,7 +3,6 @@ package com.livingagent.perception.sensor;
 import com.livingagent.core.channel.ChannelMessage;
 import com.livingagent.core.neuron.NeuronContext;
 import com.livingagent.core.neuron.impl.AbstractNeuron;
-import com.livingagent.core.tool.Tool;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -20,13 +19,17 @@ import java.util.concurrent.*;
  * 通过 RuView Sensing Service 获取 WiFi CSI 感知数据，
  * 包括人员存在检测、占用统计、生命体征、行为识别等。
  *
+ * 设计原则（v2.0 重构）：
+ * - 按需查询模式：仅在收到查询请求时才调用 API
+ * - 无后台轮询：避免资源浪费和无效消息堆积
+ * - 通道保留：仍可接收来自外部的查询请求
+ *
  * Renamed from SensorNeuron to PerceptionSensorNeuron to avoid conflict
  * with the system sensor neuron in com.livingagent.core.neuron.impl.SensorNeuron.
  *
  * 通道拓扑:
- *   Input:  channel://input/sensor
- *   Output: channel://perception/sensor-data  (常规感知数据)
- *           channel://perception/sensor-alert (告警事件)
+ *   Input:  channel://input/sensor (接收查询请求)
+ *   Output: channel://perception/sensor-data (响应数据，仅在有查询时发布)
  *
  * 对接 RuView API:
  *   - GET /health                  - 健康检查
@@ -45,18 +48,21 @@ public class PerceptionSensorNeuron extends AbstractNeuron {
 
     private String ruviewApiBaseUrl;
     private int apiTimeoutMs = 5000;
+
+    // 注意：轮询已禁用，以下变量保留用于向后兼容但不再使用
+    @Deprecated
     private int pollingIntervalSeconds = 10;
-    private boolean pollingEnabled = true;
+    @Deprecated
+    private boolean pollingEnabled = false;  // 默认禁用
 
     private OkHttpClient httpClient;
-    private ScheduledExecutorService scheduler;
     private volatile boolean running = false;
 
     public PerceptionSensorNeuron() {
         super(
             ID,
             "SensorNeuron",
-            "WiFi 物理感知神经元 - 人员检测、环境监测、生命体征",
+            "WiFi 物理感知神经元 - 人员检测、环境监测、生命体征（按需查询模式）",
             List.of(INPUT_CHANNEL),
             List.of(OUTPUT_CHANNEL, ALERT_CHANNEL),
             List.of()
@@ -71,66 +77,56 @@ public class PerceptionSensorNeuron extends AbstractNeuron {
         this.apiTimeoutMs = timeoutMs;
     }
 
+    /**
+     * @deprecated 轮询已禁用，此方法不再有效
+     */
+    @Deprecated
     public void setPollingIntervalSeconds(int seconds) {
         this.pollingIntervalSeconds = seconds;
+        log.warn("setPollingIntervalSeconds is deprecated - polling is disabled");
     }
 
+    /**
+     * @deprecated 轮询已禁用，此方法不再有效
+     */
+    @Deprecated
     public void setPollingEnabled(boolean enabled) {
-        this.pollingEnabled = enabled;
+        this.pollingEnabled = false;  // 始终禁用
+        if (enabled) {
+            log.warn("Polling is deprecated and permanently disabled. Use SensorDataTool for on-demand queries.");
+        }
     }
 
     @Override
     protected void doStart(NeuronContext context) {
-        log.info("SensorNeuron starting, RuView API at {}", ruviewApiBaseUrl);
+        log.info("SensorNeuron starting (on-demand mode), RuView API at {}", ruviewApiBaseUrl);
 
         httpClient = new OkHttpClient.Builder()
             .connectTimeout(apiTimeoutMs, TimeUnit.MILLISECONDS)
             .readTimeout(apiTimeoutMs, TimeUnit.MILLISECONDS)
             .build();
 
-        if (pollingEnabled && ruviewApiBaseUrl != null) {
-            scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-                Thread t = new Thread(r, "sensor-polling");
-                t.setDaemon(true);
-                return t;
-            });
-            scheduler.scheduleAtFixedRate(
-                this::pollSensorData,
-                0, pollingIntervalSeconds, TimeUnit.SECONDS
-            );
-            log.info("SensorNeuron polling enabled, interval={}s", pollingIntervalSeconds);
-        } else {
-            log.info("SensorNeuron polling disabled (pollingEnabled={}, apiUrl={})",
-                pollingEnabled, ruviewApiBaseUrl);
-        }
+        // 不再启动轮询线程
+        // 使用 SensorDataTool 进行按需查询
 
         running = true;
-        log.info("SensorNeuron started");
+        log.info("SensorNeuron started in on-demand query mode (polling disabled)");
     }
 
     @Override
     protected void doStop() {
         running = false;
-        log.info("SensorNeuron stopping...");
-
-        if (scheduler != null) {
-            scheduler.shutdown();
-            try {
-                if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
-                    scheduler.shutdownNow();
-                }
-            } catch (InterruptedException e) {
-                scheduler.shutdownNow();
-                Thread.currentThread().interrupt();
-            }
-        }
-
         log.info("SensorNeuron stopped");
     }
 
     @Override
     protected void doProcessMessage(ChannelMessage message) {
-        log.debug("SensorNeuron processing message: {}", message.getId());
+        if (!running || ruviewApiBaseUrl == null) {
+            log.debug("SensorNeuron not ready or no API URL configured");
+            return;
+        }
+
+        log.debug("SensorNeuron processing query: {}", message.getId());
 
         String queryType = message.getMetadata("query_type") != null
             ? (String) message.getMetadata("query_type") : "current";
@@ -160,6 +156,7 @@ public class PerceptionSensorNeuron extends AbstractNeuron {
                 response.addMetadata("original_message_id", message.getId());
                 response.addMetadata("query_type", queryType);
                 response.addMetadata("source", "ruview-api");
+                response.addMetadata("mode", "on-demand");
 
                 publish(OUTPUT_CHANNEL, response);
                 log.debug("Published sensor data response for query: {}", queryType);
@@ -169,69 +166,6 @@ public class PerceptionSensorNeuron extends AbstractNeuron {
             log.error("Failed to process sensor query: {}", e.getMessage());
             publishError(message, "Sensor query failed: " + e.getMessage());
         }
-    }
-
-    /**
-     * 定时轮询 RuView API 获取感知数据
-     */
-    private void pollSensorData() {
-        if (!running || ruviewApiBaseUrl == null) return;
-
-        try {
-            String responseBody = callRuViewApi("/api/v1/sensing/latest");
-
-            if (responseBody != null) {
-                ChannelMessage sensorMessage = ChannelMessage.sensorData(
-                    INPUT_CHANNEL, getId(),
-                    OUTPUT_CHANNEL,
-                    "system-polling",
-                    responseBody
-                );
-                sensorMessage.addMetadata("source", "ruview-polling");
-                sensorMessage.addMetadata("timestamp", Instant.now().toString());
-
-                publish(OUTPUT_CHANNEL, sensorMessage);
-
-                checkAlertConditions(responseBody);
-            }
-        } catch (Exception e) {
-            log.error("RuView polling failed: {}", e.getMessage());
-        }
-    }
-
-    /**
-     * 检查告警条件
-     */
-    private void checkAlertConditions(String responseBody) {
-        String lower = responseBody.toLowerCase();
-
-        // 检测跌倒
-        if (lower.contains("falling") || lower.contains("fall_detected")) {
-            publishAlert("FALL_DETECTED", responseBody);
-        }
-
-        // 检测异常闯入 (非工作时间)
-        if (lower.contains("intrusion") || lower.contains("unauthorized")) {
-            publishAlert("INTRUSION", responseBody);
-        }
-    }
-
-    /**
-     * 发布告警消息
-     */
-    private void publishAlert(String alertType, String detail) {
-        ChannelMessage alertMessage = ChannelMessage.sensorData(
-            INPUT_CHANNEL, getId(),
-            ALERT_CHANNEL,
-            "system-alert",
-            alertType + ": " + detail
-        );
-        alertMessage.addMetadata("alert_type", alertType);
-        alertMessage.addMetadata("timestamp", Instant.now().toString());
-        alertMessage.setPriority(10); // 高优先级
-
-        publish(ALERT_CHANNEL, alertMessage);
-        log.warn("Sensor alert published: {}", alertType);
     }
 
     /**

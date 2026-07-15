@@ -6,11 +6,15 @@ import com.livingagent.core.database.entity.ComplianceViolationEntity.ViolationS
 import com.livingagent.core.database.entity.ComplianceViolationEntity.ViolationStatus;
 import com.livingagent.core.database.repository.AccessAuditLogRepository;
 import com.livingagent.core.database.repository.ComplianceViolationRepository;
+import com.livingagent.core.compliance.feedback.ComplianceViolationTracker;
+import com.livingagent.core.compliance.feedback.ComplianceRuleAutoUpdater;
 import com.livingagent.core.security.AccessAuditLog;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Primary;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,6 +42,10 @@ public class JpaComplianceManager {
     private final Map<String, ComplianceRule> rules = new ConcurrentHashMap<>();
     private boolean complianceEnabled = true;
     private int maxAuditLogDays = 90;
+    private double ruleStrictnessMultiplier = 1.0;
+
+    private ComplianceViolationTracker violationTracker;
+    private ComplianceRuleAutoUpdater ruleAutoUpdater;
 
     public JpaComplianceManager(
             ComplianceViolationRepository violationRepository,
@@ -45,6 +53,16 @@ public class JpaComplianceManager {
         this.violationRepository = violationRepository;
         this.auditLogRepository = auditLogRepository;
         initDefaultRules();
+    }
+
+    @Autowired(required = false)
+    public void setViolationTracker(ComplianceViolationTracker violationTracker) {
+        this.violationTracker = violationTracker;
+    }
+
+    @Autowired(required = false)
+    public void setRuleAutoUpdater(ComplianceRuleAutoUpdater ruleAutoUpdater) {
+        this.ruleAutoUpdater = ruleAutoUpdater;
     }
 
     private void initDefaultRules() {
@@ -176,6 +194,12 @@ public class JpaComplianceManager {
                 violationRepository.save(violation);
                 log.warn("Compliance violation detected and saved: {} by employee {} for rule {}", 
                     violation.getViolationId(), auditLog.getEmployeeId(), rule.getName());
+
+                // 闭环45: 反馈到Tracker
+                if (violationTracker != null) {
+                    boolean isRepeat = countViolationsByEmployeeAndRule(auditLog.getEmployeeId(), rule.getRuleId()) > 1;
+                    violationTracker.recordViolation(rule.getRuleId(), auditLog.getEmployeeId(), isRepeat);
+                }
             }
         }
     }
@@ -293,6 +317,10 @@ public class JpaComplianceManager {
                 v.resolve(resolvedBy, resolution);
                 violationRepository.save(v);
                 log.info("Resolved violation {} by {}", violationId, resolvedBy);
+
+                if (violationTracker != null) {
+                    violationTracker.recordResolution(v.getRuleId());
+                }
             });
     }
 
@@ -387,5 +415,32 @@ public class JpaComplianceManager {
 
     public void setMaxAuditLogDays(int days) {
         this.maxAuditLogDays = days;
+    }
+
+    private long countViolationsByEmployeeAndRule(String employeeId, String ruleId) {
+        return violationRepository.findByEmployeeIdOrderByDetectedAtDesc(employeeId).stream()
+            .filter(v -> ruleId.equals(v.getRuleId()))
+            .count();
+    }
+
+    @Scheduled(fixedRate = 30 * 60 * 1000) // 每30分钟
+    public void scheduledComplianceAnalysis() {
+        if (ruleAutoUpdater != null) {
+            ruleAutoUpdater.analyzeAndSuggest();
+        }
+
+        // 基于违规模式自动调整规则严格度
+        if (violationTracker != null) {
+            ComplianceViolationTracker.ComplianceReport report = violationTracker.getReport();
+            double repeatRate = report.repeatRate();
+            if (repeatRate > 0.30 && ruleStrictnessMultiplier < 1.5) {
+                ruleStrictnessMultiplier = Math.min(1.5, ruleStrictnessMultiplier + 0.1);
+                log.info("Compliance rule strictness increased to {} due to high repeat rate {}%",
+                    ruleStrictnessMultiplier, String.format("%.0f", repeatRate * 100));
+            } else if (repeatRate < 0.10 && ruleStrictnessMultiplier > 1.0) {
+                ruleStrictnessMultiplier = Math.max(1.0, ruleStrictnessMultiplier - 0.05);
+                log.info("Compliance rule strictness relaxed to {}", ruleStrictnessMultiplier);
+            }
+        }
     }
 }

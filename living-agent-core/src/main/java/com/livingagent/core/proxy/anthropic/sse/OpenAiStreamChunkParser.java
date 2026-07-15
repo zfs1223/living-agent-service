@@ -3,6 +3,9 @@ package com.livingagent.core.proxy.anthropic.sse;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
@@ -15,6 +18,8 @@ import java.util.Map;
 import java.util.function.Consumer;
 
 public class OpenAiStreamChunkParser {
+
+    private static final Logger log = LoggerFactory.getLogger(OpenAiStreamChunkParser.class);
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final StringBuilder textBuffer = new StringBuilder();
@@ -44,6 +49,7 @@ public class OpenAiStreamChunkParser {
                     JsonNode root = objectMapper.readTree(json);
                     parseChunk(root, chunkConsumer);
                 } catch (Exception e) {
+                    log.warn("SSE chunk parse error, skipping: {}", e.getMessage());
                 }
             }
         }

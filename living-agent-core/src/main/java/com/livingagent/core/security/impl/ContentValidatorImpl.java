@@ -17,12 +17,12 @@ public class ContentValidatorImpl implements ContentValidator {
 
     static {
         THREAT_PATTERNS.put(ThreatType.SQL_INJECTION, List.of(
-            Pattern.compile("(?i)(\\bunion\\b.*\\bselect\\b|\\bselect\\b.*\\bfrom\\b)"),
-            Pattern.compile("(?i)(\\binsert\\b.*\\binto\\b|\\bdelete\\b.*\\bfrom\\b)"),
-            Pattern.compile("(?i)(\\bdrop\\b.*\\b(table|database)\\b)"),
-            Pattern.compile("(?i)(--|;|\\/\\*|\\*\\/)"),
-            Pattern.compile("(?i)(\\bexec\\b|\\bexecute\\b)"),
-            Pattern.compile("(?i)('\\s*or\\s*'\\s*=\\s*')")
+            // 更精确的SQL注入规则，避免误判文档中的普通词汇
+            Pattern.compile("(?i)(\\bunion\\b\\s+\\bselect\\b.*\\bfrom\\b)"),  // UNION SELECT FROM
+            Pattern.compile("(?i)('\\s*or\\s+'\\s*=\\s*')"),  // ' or '=' 经典注入
+            Pattern.compile("(?i)(\\bdrop\\b\\s+\\btable\\b\\s+\\w+)"),  // DROP TABLE
+            Pattern.compile("(?i)(;\\s*\\bdrop\\b\\s+\\b)"),  // ; DROP
+            Pattern.compile("(?i)(\\binsert\\b\\s+\\binto\\b\\s+.*\\bvalues\\b\\s*\\()")  // INSERT INTO ... VALUES
         ));
 
         THREAT_PATTERNS.put(ThreatType.XSS, List.of(
@@ -36,12 +36,12 @@ public class ContentValidatorImpl implements ContentValidator {
         ));
 
         THREAT_PATTERNS.put(ThreatType.COMMAND_INJECTION, List.of(
-            Pattern.compile("[;&|`$]"),
-            Pattern.compile("\\|\\|"),
-            Pattern.compile("\\$\\([^)]+\\)"),
-            Pattern.compile("`[^`]+`"),
-            Pattern.compile("\\$\\{[^}]+\\}"),
-            Pattern.compile("(?i)(rm\\s+-rf|rm\\s+-r|del\\s+/|format\\s+)")
+            // 更精确的命令注入规则，避免误判 Markdown 变量语法
+            Pattern.compile(";\\s*(rm|chmod|chown|cat|ls|wget|curl)"),  // 命令分隔符后跟危险命令
+            Pattern.compile("\\|\\s*(rm|chmod|chown|cat|ls|wget|curl)"),  // 管道符后跟危险命令
+            Pattern.compile("\\$\\(\\s*(rm|chmod|chown|cat|ls|wget|curl)"),  // $(command) 格式
+            Pattern.compile("`\\s*(rm|chmod|chown|cat|ls|wget|curl)"),  // `command` 格式
+            Pattern.compile("(?i)(rm\\s+-rf|rm\\s+-r|del\\s+/s|format\\s+c:)")
         ));
 
         THREAT_PATTERNS.put(ThreatType.PATH_TRAVERSAL, List.of(

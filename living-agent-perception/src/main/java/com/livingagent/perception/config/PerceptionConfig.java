@@ -5,6 +5,8 @@ import com.livingagent.core.channel.ChannelMessageQueue;
 import com.livingagent.core.neuron.NeuronContext;
 import com.livingagent.core.neuron.NeuronRegistry;
 import com.livingagent.core.neuron.NeuronState;
+import com.livingagent.core.tool.ToolRegistry;
+import com.livingagent.core.tool.impl.SensorDataTool;
 import com.livingagent.perception.sensor.PerceptionSensorNeuron;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,10 +18,12 @@ import org.springframework.context.event.EventListener;
 import org.springframework.core.annotation.Order;
 
 /**
- * 感知层配置类 - 注册感知神经元到 Living Agent 系统
+ * 感知层配置类 - 注册感知神经元和工具到 Living Agent 系统
  *
- * 将 SensorNeuron 等 Neuron 注册到 NeuronRegistry，
- * 并在 ApplicationReadyEvent 后启动。
+ * 变更历史（v2.0）：
+ * - 禁用后台轮询，避免资源浪费和消息堆积
+ * - 注册 SensorDataTool，支持按需查询传感器数据
+ * - PerceptionSensorNeuron 保留为被动响应模式
  */
 @Configuration
 public class PerceptionConfig {
@@ -32,28 +36,34 @@ public class PerceptionConfig {
     @Value("${ruview.api.timeout-ms:5000}")
     private int ruviewApiTimeoutMs;
 
-    @Value("${ruview.polling.enabled:true}")
-    private boolean ruviewPollingEnabled;
-
-    @Value("${ruview.polling.interval-seconds:10}")
-    private int ruviewPollingIntervalSeconds;
-
+    /**
+     * 注册 PerceptionSensorNeuron（被动响应模式）
+     */
     @Bean
     public PerceptionSensorNeuron perceptionSensorNeuron(NeuronRegistry neuronRegistry) {
-        log.info("Registering PerceptionSensorNeuron (Perception Layer - WiFi 物理感知)");
+        log.info("Registering PerceptionSensorNeuron (Perception Layer - WiFi 物理感知, on-demand mode)");
         PerceptionSensorNeuron neuron = new PerceptionSensorNeuron();
         if (ruviewApiBaseUrl != null && !ruviewApiBaseUrl.isEmpty()) {
             neuron.setRuviewApiBaseUrl(ruviewApiBaseUrl);
             neuron.setApiTimeoutMs(ruviewApiTimeoutMs);
-            neuron.setPollingEnabled(ruviewPollingEnabled);
-            neuron.setPollingIntervalSeconds(ruviewPollingIntervalSeconds);
-            log.info("PerceptionSensorNeuron configured with RuView API: {}", ruviewApiBaseUrl);
+            // 注意：轮询已禁用，不再设置 pollingEnabled
+            log.info("PerceptionSensorNeuron configured with RuView API (on-demand mode): {}", ruviewApiBaseUrl);
         } else {
-            neuron.setPollingEnabled(false);
-            log.info("PerceptionSensorNeuron registered without RuView API (polling disabled, query-only mode)");
+            log.info("PerceptionSensorNeuron registered without RuView API (passive mode)");
         }
         neuronRegistry.register(neuron);
         return neuron;
+    }
+
+    /**
+     * 注册 SensorDataTool（按需查询工具）
+     */
+    @Bean
+    public SensorDataTool sensorDataTool(ToolRegistry toolRegistry) {
+        log.info("Registering SensorDataTool (on-demand RuView query)");
+        SensorDataTool tool = new SensorDataTool(ruviewApiBaseUrl);
+        toolRegistry.register(tool);
+        return tool;
     }
 
     @Order(3)
@@ -62,13 +72,13 @@ public class PerceptionConfig {
         NeuronRegistry neuronRegistry = event.getApplicationContext().getBean(NeuronRegistry.class);
         ChannelManager channelManager = event.getApplicationContext().getBean(ChannelManager.class);
 
-        // 启动 PerceptionSensorNeuron (WiFi 物理感知)
+        // 启动 PerceptionSensorNeuron (WiFi 物理感知，被动模式)
         neuronRegistry.get("neuron://perception/sensor/001").ifPresent(n -> {
             if (n.getState() != NeuronState.RUNNING) {
                 ChannelMessageQueue queue = new ChannelMessageQueue(n.getId(), 100);
                 NeuronContext ctx = new NeuronContext(n.getId(), null, null, queue, null, channelManager);
                 n.start(ctx);
-                log.info("Post-ready: Started PerceptionSensorNeuron with queue capacity=100");
+                log.info("Post-ready: Started PerceptionSensorNeuron in on-demand mode (queue capacity=100)");
             }
         });
     }

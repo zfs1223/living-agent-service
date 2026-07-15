@@ -1,3 +1,11 @@
+---
+name: google-workspace
+description: Google Workspace
+risk: low
+source: internal
+date_added: '2026-07-13'
+---
+
 # Google Workspace
 
 > Google Workspace 集成技能，Gmail、日历、Drive、文档、表格操作

@@ -16,6 +16,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import jakarta.annotation.PostConstruct;
 import java.util.*;
 import java.util.concurrent.ExecutionException;
 
@@ -37,6 +38,7 @@ public class QdrantVectorService {
         this.defaultVectorSize = defaultVectorSize;
     }
 
+    @PostConstruct
     public void initializeCollections() {
         createCollectionIfNotExists("knowledge", defaultVectorSize);
         createCollectionIfNotExists("employee", 192);
@@ -198,6 +200,36 @@ public class QdrantVectorService {
         } catch (InterruptedException | ExecutionException e) {
             log.error("Failed to delete collection {}: {}", fullCollectionName, e.getMessage());
             Thread.currentThread().interrupt();
+        }
+    }
+
+    public long getCollectionPointCount(String collectionName) {
+        String fullCollectionName = collectionPrefix + collectionName;
+        try {
+            var info = client.getCollectionInfoAsync(fullCollectionName).get();
+            return info.getPointsCount();
+        } catch (InterruptedException | ExecutionException e) {
+            log.error("Failed to get collection info for {}: {}", fullCollectionName, e.getMessage());
+            Thread.currentThread().interrupt();
+            return -1;
+        }
+    }
+
+    public boolean vectorExists(String collectionName, String id) {
+        String fullCollectionName = collectionPrefix + collectionName;
+        try {
+            UUID uuid = UUID.fromString(id);
+            var results = client.retrieveAsync(fullCollectionName, List.of(id(uuid)),
+                io.qdrant.client.grpc.Points.WithPayloadSelector.newBuilder().setEnable(false).build(),
+                io.qdrant.client.grpc.Points.WithVectorsSelector.newBuilder().setEnable(false).build(),
+                null).get();
+            return results != null && !results.isEmpty();
+        } catch (InterruptedException | ExecutionException e) {
+            log.debug("Vector existence check failed for {}: {}", id, e.getMessage());
+            Thread.currentThread().interrupt();
+            return false;
+        } catch (IllegalArgumentException e) {
+            return false;
         }
     }
 

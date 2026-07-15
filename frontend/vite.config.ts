@@ -41,9 +41,6 @@ export default defineConfig({
                 changeOrigin: true,
                 rewriteWsOrigin: true,
                 secure: false,
-                headers: {
-                    'Sec-WebSocket-Protocol': 'auth',
-                },
             },
         },
     },

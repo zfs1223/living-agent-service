@@ -1,3 +1,11 @@
+---
+name: risk-predictor
+description: Risk Predictor - 风险预警预判器技能
+risk: low
+source: internal
+date_added: '2026-07-13'
+---
+
 # Risk Predictor - 风险预警预判器技能
 
 > 项目/预算/人员/系统风险预测与预警

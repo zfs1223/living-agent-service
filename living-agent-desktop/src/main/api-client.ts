@@ -253,6 +253,29 @@ export async function phoneLogin(phone: string, code: string): Promise<PhoneLogi
   return result;
 }
 
+/** 声纹登录 - 通过录音Blob进行声纹匹配登录 */
+export async function voicePrintLogin(audioBlob: Blob): Promise<PhoneLoginResult> {
+  const formData = new FormData();
+  formData.append('audio', audioBlob, 'voice-login.webm');
+  const token = await import('./auth').then(m => m.loadToken()).catch(() => '');
+  const result = apiRequest<PhoneLoginResult>('/api/voiceprint/login', {
+    method: 'POST',
+    body: formData,
+    headers: {
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+    },
+  } as any);
+  result.then((res) => {
+    import('./auth').then(m => m.saveToken(res.accessToken)).catch(() => {});
+  }).catch(() => {});
+  return result;
+}
+
+/** 声纹服务状态检查 */
+export async function getVoicePrintStatus(): Promise<{ available: boolean; message?: string }> {
+  return apiRequest<{ available: boolean; message?: string }>('/api/voiceprint/status');
+}
+
 /** 获取当前登录用户信息 */
 export async function getCurrentUser(): Promise<DesktopUser> {
   return apiRequest<DesktopUser>('/api/auth/me');

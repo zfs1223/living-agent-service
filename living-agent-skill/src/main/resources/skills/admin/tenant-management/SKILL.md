@@ -1,3 +1,11 @@
+---
+name: tenant-management
+description: Tenant Management
+risk: low
+source: internal
+date_added: '2026-07-13'
+---
+
 # Tenant Management
 
 > 租户管理技能，实现多租户系统的生命周期管理（闭环50）

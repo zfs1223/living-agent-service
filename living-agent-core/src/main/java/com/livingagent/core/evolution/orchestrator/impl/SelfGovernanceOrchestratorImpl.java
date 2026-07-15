@@ -3,8 +3,14 @@ package com.livingagent.core.evolution.orchestrator.impl;
 import com.livingagent.core.diagnosis.AppModeUtil;
 import com.livingagent.core.diagnosis.HealthIssue;
 import com.livingagent.core.evolution.orchestrator.*;
+import com.livingagent.core.evolution.signal.EvolutionSignal;
 import com.livingagent.core.database.repository.InterventionDecisionRepository;
 import com.livingagent.core.database.entity.InterventionDecisionEntity;
+import com.livingagent.core.security.SandboxViolationTracker;
+import com.livingagent.core.brain.BrainBoundaryEnforcer;
+import com.livingagent.core.autonomy.PerformanceStatsService;
+import com.livingagent.core.knowledge.KnowledgeConsumptionFeedback;
+import com.livingagent.core.autonomous.bounty.LedgerService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
@@ -38,10 +44,15 @@ public class SelfGovernanceOrchestratorImpl implements SelfGovernanceOrchestrato
     private final SelfGovernanceProperties properties;
     private final LoopPriorityArbiter arbiter;
     private final SelfHealingOrchestrator selfHealingOrchestrator;
-    private final InterventionDecisionRepository auditRepository; // P31: 审计持久化
+    private final InterventionDecisionRepository auditRepository;
+    private final SandboxViolationTracker sandboxViolationTracker;
+    private final BrainBoundaryEnforcer brainBoundaryEnforcer;
+    private final PerformanceStatsService performanceStatsService;
+    private final KnowledgeConsumptionFeedback knowledgeConsumptionFeedback;
+    private final LedgerService ledgerService;
 
     private final ConcurrentLinkedDeque<CrossLoopEvent> pendingEvents = new ConcurrentLinkedDeque<>();
-    private final ConcurrentLinkedDeque<GovernanceReport> auditTrail = new ConcurrentLinkedDeque<>(); // P31: 审计轨迹
+    private final ConcurrentLinkedDeque<GovernanceReport> auditTrail = new ConcurrentLinkedDeque<>();
     private volatile int totalProcessedEvents = 0;
     private volatile Instant lastOrchestrationTime = null;
 
@@ -49,11 +60,21 @@ public class SelfGovernanceOrchestratorImpl implements SelfGovernanceOrchestrato
             SelfGovernanceProperties properties,
             LoopPriorityArbiter arbiter,
             SelfHealingOrchestrator selfHealingOrchestrator,
-            InterventionDecisionRepository auditRepository) {
+            InterventionDecisionRepository auditRepository,
+            SandboxViolationTracker sandboxViolationTracker,
+            BrainBoundaryEnforcer brainBoundaryEnforcer,
+            PerformanceStatsService performanceStatsService,
+            KnowledgeConsumptionFeedback knowledgeConsumptionFeedback,
+            LedgerService ledgerService) {
         this.properties = properties;
         this.arbiter = arbiter;
         this.selfHealingOrchestrator = selfHealingOrchestrator;
         this.auditRepository = auditRepository;
+        this.sandboxViolationTracker = sandboxViolationTracker;
+        this.brainBoundaryEnforcer = brainBoundaryEnforcer;
+        this.performanceStatsService = performanceStatsService;
+        this.knowledgeConsumptionFeedback = knowledgeConsumptionFeedback;
+        this.ledgerService = ledgerService;
     }
 
     @Override
@@ -93,6 +114,43 @@ public class SelfGovernanceOrchestratorImpl implements SelfGovernanceOrchestrato
             Map.of("issueId", issue.getIssueId(), "component", issue.getComponentName(),
                    "severity", issue.getSeverity().name()),
             cooldown));
+    }
+
+    @Async
+    @EventListener
+    public void onEvolutionSignal(EvolutionSignal signal) {
+        if (signal == null) return;
+
+        int loopId = mapSignalToLoop(signal);
+        CrossLoopEvent.EventPriority priority = mapSignalToPriority(signal);
+
+        int cooldown = properties.getCooldownSeconds().getOrDefault("evolution-signal", 300);
+        submitEvent(new CrossLoopEvent(this, loopId, "evolution_signal:" + signal.getType(),
+            priority,
+            Map.of("signalId", signal.getSignalId(),
+                "signalType", signal.getType().name(),
+                "category", signal.getCategory().name(),
+                "content", signal.getContent() != null ? signal.getContent() : "",
+                "source", signal.getSource() != null ? signal.getSource() : ""),
+            cooldown));
+
+        log.info("[闭环17] EvolutionSignal consumed: type={}, category={}, source={}",
+            signal.getType(), signal.getCategory(), signal.getSource());
+    }
+
+    private int mapSignalToLoop(EvolutionSignal signal) {
+        if (signal.isRepairSignal()) return 24;
+        if (signal.isOptimizeSignal()) return 27;
+        if (signal.isInnovateSignal()) return 26;
+        return 24;
+    }
+
+    private CrossLoopEvent.EventPriority mapSignalToPriority(EvolutionSignal signal) {
+        return switch (signal.getCategory()) {
+            case REPAIR -> CrossLoopEvent.EventPriority.SELF_HEALING;
+            case OPTIMIZE -> CrossLoopEvent.EventPriority.DEGRADATION;
+            case INNOVATE -> CrossLoopEvent.EventPriority.KNOWLEDGE;
+        };
     }
 
     @Override
@@ -183,11 +241,14 @@ public class SelfGovernanceOrchestratorImpl implements SelfGovernanceOrchestrato
 
         try {
             return switch (loopId) {
+                case 1 -> dispatchWebSocketRecovery(event);
                 case 24 -> dispatchSelfHealing(event);
                 case 27 -> dispatchDegradation(event);
                 case 30 -> dispatchSecurity(event);
                 case 28 -> dispatchReceipt(event);
-                case 25, 26, 29 -> dispatchLogOnly(event);
+                case 25 -> dispatchEconomic(event);
+                case 26 -> dispatchKnowledge(event);
+                case 29 -> dispatchPersonality(event);
                 default -> {
                     log.warn("Unknown loop ID: {}", loopId);
                     yield "unknown_loop";
@@ -210,15 +271,36 @@ public class SelfGovernanceOrchestratorImpl implements SelfGovernanceOrchestrato
         if (issueId != null) {
             HealthIssue issue = new HealthIssue(issueId, "CrossLoopEvent triggered", HealthIssue.Severity.HIGH);
             issue.setType(HealthIssue.IssueType.CONNECTIVITY);
-            
+
             SelfHealingResult result = selfHealingOrchestrator.orchestrate(issue);
             log.info("[P31] SelfHealing executed: issueId={}, success={}, duration={}ms",
                 issueId, result.success(), result.durationMs());
             return result.success() ? "success" : "failed";
         }
-        
+
         log.info("[P31] SelfHealing dispatched (no issue found): eventType={}", event.getEventType());
         return "success";
+    }
+
+    private String dispatchWebSocketRecovery(CrossLoopEvent event) {
+        String eventType = event.getEventType();
+        log.info("[闭环1] WebSocket transport error received: type={}", eventType);
+
+        if (selfHealingOrchestrator != null && selfHealingOrchestrator.isEnabled()) {
+            HealthIssue issue = new HealthIssue(
+                "ws-transport-" + event.dedupeKey(),
+                "WebSocket transport error: " + eventType,
+                HealthIssue.Severity.HIGH);
+            issue.setType(HealthIssue.IssueType.CONNECTIVITY);
+
+            SelfHealingResult result = selfHealingOrchestrator.orchestrate(issue);
+            log.info("[闭环1] WebSocket recovery executed: success={}, duration={}ms",
+                result.success(), result.durationMs());
+            return result.success() ? "success" : "failed";
+        }
+
+        log.info("[闭环1] WebSocket recovery dispatched (self-healing disabled): type={}", eventType);
+        return "disabled";
     }
 
     private String dispatchDegradation(CrossLoopEvent event) {
@@ -235,17 +317,107 @@ public class SelfGovernanceOrchestratorImpl implements SelfGovernanceOrchestrato
     }
 
     private String dispatchSecurity(CrossLoopEvent event) {
-        log.warn("[P31-A] Security event (high priority): type={}", event.getEventType());
-        return "escalated";
+        Map<String, Object> payload = event.getPayload();
+        String brainId = payload != null ? (String) payload.get("brainId") : null;
+        String violationType = payload != null ? (String) payload.get("violationType") : event.getEventType();
+
+        if (brainId != null && sandboxViolationTracker != null) {
+            sandboxViolationTracker.recordViolation(brainId, violationType);
+            log.info("[P31] Security violation recorded: brain={}, type={}", brainId, violationType);
+        }
+
+        if (brainId != null && brainBoundaryEnforcer != null) {
+            try {
+                brainBoundaryEnforcer.checkAction(brainId, "SECURITY_EVENT:" + violationType);
+                log.info("[P31] Boundary enforcement triggered for brain={}", brainId);
+            } catch (Exception e) {
+                log.warn("[P31] Boundary enforcement failed: {}", e.getMessage());
+            }
+        }
+
+        log.warn("[P31] Security event dispatched: type={}, brain={}", event.getEventType(), brainId);
+        return brainId != null ? "success" : "escalated";
     }
 
     private String dispatchReceipt(CrossLoopEvent event) {
-        log.info("[P31-A] Receipt event: type={}", event.getEventType());
+        Map<String, Object> payload = event.getPayload();
+        String employeeCode = payload != null ? (String) payload.get("employeeCode") : null;
+        Double qualityScore = payload != null ? (Double) payload.get("qualityScore") : null;
+
+        if (employeeCode != null && performanceStatsService != null) {
+            double delta = (qualityScore != null && qualityScore < 0.5) ? -0.2 : 0.1;
+            performanceStatsService.adjustWeight(employeeCode, delta);
+            log.info("[P31] Receipt weight adjusted: employee={}, delta={}, quality={}",
+                employeeCode, delta, qualityScore);
+        }
+
+        // P28-B: 审核结果经验沉淀
+        if (employeeCode != null && qualityScore != null && knowledgeConsumptionFeedback != null) {
+            String knowledgeKey = "receipt-experience:" + employeeCode;
+            boolean helpful = qualityScore > 0.5;
+            knowledgeConsumptionFeedback.recordFeedback(
+                knowledgeKey, helpful, "execution-receipt-review", "P31-governance");
+            log.info("[P28-B] Receipt experience precipitated: employee={}, quality={}", employeeCode, qualityScore);
+        }
+
+        log.info("[P31] Receipt event dispatched: type={}", event.getEventType());
         return "success";
     }
 
-    private String dispatchLogOnly(CrossLoopEvent event) {
-        log.info("[P31-A] Loop {} event: type={}", event.getSourceLoop(), event.getEventType());
+    private String dispatchEconomic(CrossLoopEvent event) {
+        Map<String, Object> payload = event.getPayload();
+        String employeeId = payload != null ? (String) payload.get("employeeId") : null;
+        Integer amountCents = payload != null ? (Integer) payload.get("amountCents") : null;
+
+        if (employeeId != null && amountCents != null && ledgerService != null) {
+            String sourceType = (String) payload.getOrDefault("sourceType", "GOVERNANCE");
+            String sourceId = (String) payload.getOrDefault("sourceId", event.getEventType());
+            ledgerService.recordReward(employeeId, amountCents, "P31-governance:" + sourceType);
+            log.info("[P31] Economic event recorded: employee={}, amount={}", employeeId, amountCents);
+        } else {
+            log.info("[P31] Economic event (no action): type={}", event.getEventType());
+        }
+        return "success";
+    }
+
+    private String dispatchKnowledge(CrossLoopEvent event) {
+        Map<String, Object> payload = event.getPayload();
+        String knowledgeKey = payload != null ? (String) payload.get("knowledgeKey") : null;
+        Boolean helpful = payload != null ? (Boolean) payload.get("helpful") : null;
+
+        if (knowledgeKey != null && helpful != null && knowledgeConsumptionFeedback != null) {
+            knowledgeConsumptionFeedback.recordFeedback(knowledgeKey, helpful,
+                "P31-governance:" + event.getEventType(), "governance-orchestrator");
+            log.info("[P31] Knowledge feedback recorded: key={}, helpful={}", knowledgeKey, helpful);
+        } else {
+            log.info("[P31] Knowledge event (no action): type={}", event.getEventType());
+        }
+        return "success";
+    }
+
+    private String dispatchPersonality(CrossLoopEvent event) {
+        Map<String, Object> payload = event.getPayload();
+        String brainId = payload != null ? (String) payload.get("brainId") : null;
+        Double satisfactionDelta = payload != null ? (Double) payload.get("satisfactionDelta") : null;
+
+        if (brainId != null && brainBoundaryEnforcer != null) {
+            try {
+                String action = satisfactionDelta != null && satisfactionDelta < -0.2
+                    ? "PERSONALITY_ROLLBACK" : "PERSONALITY_EVENT:" + event.getEventType();
+                BrainBoundaryEnforcer.BoundaryCheckResult result =
+                    brainBoundaryEnforcer.checkAction(brainId, action);
+                if (result.isViolation()) {
+                    sandboxViolationTracker.recordViolation(brainId, "PERSONALITY_BOUNDARY:" + action);
+                    log.info("[P31] Personality boundary violation: brain={}, action={}", brainId, action);
+                } else {
+                    log.info("[P31] Personality boundary checked: brain={}, allowed={}", brainId, result.isAllowed());
+                }
+            } catch (Exception e) {
+                log.warn("[P31] Personality dispatch failed: {}", e.getMessage());
+            }
+        } else {
+            log.info("[P31] Personality event (no action): type={}", event.getEventType());
+        }
         return "success";
     }
 

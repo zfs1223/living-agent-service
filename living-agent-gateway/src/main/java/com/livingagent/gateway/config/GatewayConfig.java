@@ -534,9 +534,20 @@ public class GatewayConfig {
 
     @Bean
     public com.livingagent.core.security.auth.AuthFeedbackService authFeedbackService(
-            com.livingagent.core.security.auth.AuthMetricsService authMetricsService) {
+            com.livingagent.core.security.auth.AuthMetricsService authMetricsService,
+            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
         log.info("[闭环38] Initializing AuthFeedbackService (P38-B/C)");
-        return new com.livingagent.core.security.auth.AuthFeedbackService(authMetricsService);
+        com.livingagent.core.security.auth.AuthFeedbackService service =
+            new com.livingagent.core.security.auth.AuthFeedbackService(authMetricsService);
+        service.setActionHandler((method, adjustment) -> {
+            crossLoopEventBus.publish(38, "auth_strategy_adjusted",
+                com.livingagent.core.evolution.orchestrator.CrossLoopEvent.EventPriority.SECURITY,
+                java.util.Map.of("method", method,
+                    "action", adjustment.action(),
+                    "reason", adjustment.reason(),
+                    "failureRate", adjustment.failureRate()));
+        });
+        return service;
     }
 
     // ===== 闭环39: 智能体(Agent)生命周期闭环 =====
@@ -560,7 +571,26 @@ public class GatewayConfig {
             com.livingagent.core.employee.lifecycle.AgentLifecycleMonitor agentLifecycleMonitor,
             com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
         log.info("[闭环39] Initializing AgentAutoRecovery (P39-C)");
-        return new com.livingagent.core.employee.lifecycle.AgentAutoRecovery(agentLifecycleMonitor, crossLoopEventBus);
+        com.livingagent.core.employee.lifecycle.AgentAutoRecovery recovery =
+            new com.livingagent.core.employee.lifecycle.AgentAutoRecovery(agentLifecycleMonitor, crossLoopEventBus);
+        recovery.setRecoveryHandler(new com.livingagent.core.employee.lifecycle.AgentAutoRecovery.RecoveryActionHandler() {
+            @Override
+            public boolean restartAgent(String agentId, String degradedConfig) {
+                crossLoopEventBus.publish(39, "agent_restart_triggered",
+                    com.livingagent.core.evolution.orchestrator.CrossLoopEvent.EventPriority.SELF_HEALING,
+                    java.util.Map.of("agentId", agentId,
+                        "degradedConfig", degradedConfig,
+                        "action", "restart_with_degraded_config"));
+                return true;
+            }
+            @Override
+            public void onPermanentFailure(String agentId, String reason) {
+                crossLoopEventBus.publish(39, "agent_permanent_failure",
+                    com.livingagent.core.evolution.orchestrator.CrossLoopEvent.EventPriority.SECURITY,
+                    java.util.Map.of("agentId", agentId, "reason", reason));
+            }
+        });
+        return recovery;
     }
 
     // ===== 闭环40: 项目管理闭环 =====
@@ -636,50 +666,14 @@ public class GatewayConfig {
     }
 
     // ===== 闭环44: 消息通知闭环 =====
-
-    @Bean
-    public com.livingagent.core.notification.feedback.NotificationMetricsService notificationMetricsService() {
-        log.info("[闭环44] Initializing NotificationMetricsService (P44-A)");
-        return new com.livingagent.core.notification.feedback.NotificationMetricsService();
-    }
-
-    @Bean
-    public com.livingagent.core.notification.feedback.NotificationStrategyOptimizer notificationStrategyOptimizer(
-            com.livingagent.core.notification.feedback.NotificationMetricsService metricsService) {
-        log.info("[闭环44] Initializing NotificationStrategyOptimizer (P44-B)");
-        return new com.livingagent.core.notification.feedback.NotificationStrategyOptimizer(metricsService);
-    }
+    // notificationMetricsService 和 notificationStrategyOptimizer 已在 NotificationConfig 中注册，不再重复定义
 
     // ===== 闭环45: 合规管理闭环 =====
-
-    @Bean
-    public com.livingagent.core.compliance.feedback.ComplianceViolationTracker complianceViolationTracker() {
-        log.info("[闭环45] Initializing ComplianceViolationTracker (P45-A)");
-        return new com.livingagent.core.compliance.feedback.ComplianceViolationTracker();
-    }
-
-    @Bean
-    public com.livingagent.core.compliance.feedback.ComplianceRuleAutoUpdater complianceRuleAutoUpdater(
-            com.livingagent.core.compliance.feedback.ComplianceViolationTracker tracker,
-            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
-        log.info("[闭环45] Initializing ComplianceRuleAutoUpdater (P45-B)");
-        return new com.livingagent.core.compliance.feedback.ComplianceRuleAutoUpdater(tracker, crossLoopEventBus);
-    }
+    // ComplianceViolationTracker 和 ComplianceRuleAutoUpdater 已改为 @Component 自动注册
+    // JpaComplianceManager 通过 @Autowired(required=false) 注入 tracker 和 autoUpdater
 
     // ===== 闭环46: 对话管理闭环 =====
-
-    @Bean
-    public com.livingagent.core.conversation.feedback.ConversationQualityService conversationQualityService() {
-        log.info("[闭环46] Initializing ConversationQualityService (P46-A)");
-        return new com.livingagent.core.conversation.feedback.ConversationQualityService();
-    }
-
-    @Bean
-    public com.livingagent.core.conversation.feedback.ConversationArchiveService conversationArchiveService(
-            KnowledgeManager knowledgeManager) {
-        log.info("[闭环46] Initializing ConversationArchiveService (P46-B)");
-        return new com.livingagent.core.conversation.feedback.ConversationArchiveService(knowledgeManager);
-    }
+    // ConversationQualityService 和 ConversationArchiveService 已改为 @Component 自动注册
 
     // ===== 闭环47: 主动服务闭环 =====
 
@@ -697,19 +691,7 @@ public class GatewayConfig {
     }
 
     // ===== 闭环48: 记忆管理闭环 =====
-
-    @Bean
-    public com.livingagent.core.memory.feedback.MemoryConversionTracker memoryConversionTracker() {
-        log.info("[闭环48] Initializing MemoryConversionTracker (P48-A)");
-        return new com.livingagent.core.memory.feedback.MemoryConversionTracker();
-    }
-
-    @Bean
-    public com.livingagent.core.memory.feedback.MemoryConsolidationService memoryConsolidationService(
-            com.livingagent.core.memory.feedback.MemoryConversionTracker conversionTracker) {
-        log.info("[闭环48] Initializing MemoryConsolidationService (P48-B)");
-        return new com.livingagent.core.memory.feedback.MemoryConsolidationService(conversionTracker);
-    }
+    // MemoryConversionTracker 和 MemoryConsolidationService 已改为 @Component 自动注册
 
     // ===== 闭环49: 代码审查工作流闭环 =====
 
@@ -727,22 +709,10 @@ public class GatewayConfig {
     }
 
     // ===== 闭环50: 租户管理闭环 =====
-
-    @Bean
-    public com.livingagent.core.tenant.feedback.TenantHealthMonitor tenantHealthMonitor(
-            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
-        log.info("[闭环50] Initializing TenantHealthMonitor (P50-A)");
-        return new com.livingagent.core.tenant.feedback.TenantHealthMonitor(crossLoopEventBus);
-    }
+    // TenantHealthMonitor 已改为 @Component 自动注册
 
     // ===== 闭环51: 接待/访客闭环 =====
-
-    @Bean
-    public com.livingagent.core.visitor.feedback.VisitorConversionTracker visitorConversionTracker(
-            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
-        log.info("[闭环51] Initializing VisitorConversionTracker (P51-A)");
-        return new com.livingagent.core.visitor.feedback.VisitorConversionTracker(crossLoopEventBus);
-    }
+    // VisitorConversionTracker 已改为 @Component 自动注册
 
     // ===== 闭环52: 预算管理闭环 =====
 
@@ -754,85 +724,31 @@ public class GatewayConfig {
     }
 
     // ===== 闭环53: 绩效考核闭环 =====
-
-    @Bean
-    public com.livingagent.core.operation.performance.feedback.PerformanceEvaluationCycle performanceEvaluationCycle(
-            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
-        log.info("[闭环53] Initializing PerformanceEvaluationCycle (P53-A)");
-        return new com.livingagent.core.operation.performance.feedback.PerformanceEvaluationCycle(crossLoopEventBus);
-    }
+    // PerformanceEvaluationCycle 已改为 @Component 自动注册
 
     // ===== 闭环54: 积分/薪酬闭环 =====
-
-    @Bean
-    public com.livingagent.core.autonomous.bounty.feedback.CreditEconomyMonitor creditEconomyMonitor(
-            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
-        log.info("[闭环54] Initializing CreditEconomyMonitor (P54-A)");
-        return new com.livingagent.core.autonomous.bounty.feedback.CreditEconomyMonitor(crossLoopEventBus);
-    }
+    // CreditEconomyMonitor 已改为 @Component 自动注册
 
     // ===== 闭环55: 广场/社交闭环 =====
-
-    @Bean
-    public com.livingagent.core.social.feedback.PlazaEngagementTracker plazaEngagementTracker(
-            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
-        log.info("[闭环55] Initializing PlazaEngagementTracker (P55-A)");
-        return new com.livingagent.core.social.feedback.PlazaEngagementTracker(crossLoopEventBus);
-    }
+    // PlazaEngagementTracker 已改为 @Component 自动注册
 
     // ===== 闭环56: 虚拟办公室闭环 =====
-
-    @Bean
-    public com.livingagent.core.office.feedback.OfficeStateSyncMonitor officeStateSyncMonitor(
-            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
-        log.info("[闭环56] Initializing OfficeStateSyncMonitor (P56-A)");
-        return new com.livingagent.core.office.feedback.OfficeStateSyncMonitor(crossLoopEventBus);
-    }
+    // OfficeStateSyncMonitor 已改为 @Component 自动注册
 
     // ===== 闭环57: 系统设置闭环 =====
-
-    @Bean
-    public com.livingagent.core.settings.feedback.SettingsChangeImpactTracker settingsChangeImpactTracker(
-            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
-        log.info("[闭环57] Initializing SettingsChangeImpactTracker (P57-A)");
-        return new com.livingagent.core.settings.feedback.SettingsChangeImpactTracker(crossLoopEventBus);
-    }
+    // SettingsChangeImpactTracker 已改为 @Component 自动注册
 
     // ===== 闭环58: 分布式部署闭环 =====
-
-    @Bean
-    public com.livingagent.core.cluster.feedback.ClusterHealthMonitor clusterHealthMonitor(
-            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
-        log.info("[闭环58] Initializing ClusterHealthMonitor (P58-A)");
-        return new com.livingagent.core.cluster.feedback.ClusterHealthMonitor(crossLoopEventBus);
-    }
+    // ClusterHealthMonitor 已改为 @Component 自动注册
 
     // ===== 闭环59: 异常检测闭环 =====
-
-    @Bean
-    public com.livingagent.core.anomaly.feedback.AnomalyDetectionFeedbackLoop anomalyDetectionFeedbackLoop(
-            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
-        log.info("[闭环59] Initializing AnomalyDetectionFeedbackLoop (P59-A)");
-        return new com.livingagent.core.anomaly.feedback.AnomalyDetectionFeedbackLoop(crossLoopEventBus);
-    }
+    // AnomalyDetectionFeedbackLoop 已改为 @Component 自动注册
 
     // ===== 闭环60: 服务管理闭环 =====
-
-    @Bean
-    public com.livingagent.core.diagnosis.feedback.ServiceBootstrapHealthTracker serviceBootstrapHealthTracker(
-            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
-        log.info("[闭环60] Initializing ServiceBootstrapHealthTracker (P60-A)");
-        return new com.livingagent.core.diagnosis.feedback.ServiceBootstrapHealthTracker(crossLoopEventBus);
-    }
+    // ServiceBootstrapHealthTracker 已改为 @Component 自动注册
 
     // ===== 闭环61: 客户端设备闭环 =====
-
-    @Bean
-    public com.livingagent.core.security.client.feedback.ClientDeviceHealthMonitor clientDeviceHealthMonitor(
-            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
-        log.info("[闭环61] Initializing ClientDeviceHealthMonitor (P61-A)");
-        return new com.livingagent.core.security.client.feedback.ClientDeviceHealthMonitor(crossLoopEventBus);
-    }
+    // ClientDeviceHealthMonitor 已改为 @Component 自动注册
 
     // ===== 闭环62: 数据迁移闭环 =====
 

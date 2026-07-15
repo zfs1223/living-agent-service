@@ -1,3 +1,11 @@
+---
+name: distributed-deployment
+description: Distributed Deployment
+risk: low
+source: internal
+date_added: '2026-07-13'
+---
+
 # Distributed Deployment
 
 > 分布式部署技能，实现多节点集群的部署和管理（闭环58）

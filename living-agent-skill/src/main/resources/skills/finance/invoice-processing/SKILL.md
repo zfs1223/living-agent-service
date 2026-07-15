@@ -1,3 +1,11 @@
+---
+name: invoice-processing
+description: Invoice Processing
+risk: low
+source: internal
+date_added: '2026-07-13'
+---
+
 # Invoice Processing
 
 > 发票处理技能，发票识别、验真、报销流程自动化

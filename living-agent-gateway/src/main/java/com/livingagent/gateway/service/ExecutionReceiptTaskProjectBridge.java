@@ -212,6 +212,7 @@ public class ExecutionReceiptTaskProjectBridge implements EmployeeExecutionRecei
             case FAILED -> "FAILED";
             case DEGRADED -> "NEEDS_REWORK";
             case NEEDS_RETRY -> "IN_PROGRESS";
+            case NEEDS_REWORK -> "NEEDS_REWORK";
             case NEEDS_APPROVAL -> "NEEDS_HUMAN_REVIEW";
             case NEEDS_HUMAN_REVIEW -> "NEEDS_HUMAN_REVIEW";
         };

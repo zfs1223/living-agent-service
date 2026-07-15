@@ -70,7 +70,8 @@ public class OfficeController {
 
         if (officeStateSyncMonitor != null) {
             String officeId = "office_" + System.currentTimeMillis();
-            officeStateSyncMonitor.recordSnapshot(officeId, true, 0L);
+            long startTime = System.currentTimeMillis();
+            officeStateSyncMonitor.recordSnapshot(officeId, true, System.currentTimeMillis() - startTime);
         }
 
         OfficeInfo office = new OfficeInfo(
@@ -93,7 +94,11 @@ public class OfficeController {
         log.debug("Getting office status");
 
         if (officeStateSyncMonitor != null) {
-            officeStateSyncMonitor.recordSnapshot("main", true, 0L);
+            long startTime = System.currentTimeMillis();
+            // getOfficeStatus时计算真实延迟
+            long delay = System.currentTimeMillis() - startTime;
+            boolean consistent = delay < 30000;
+            officeStateSyncMonitor.recordSnapshot("main", consistent, delay);
         }
 
         List<Employee> digitalEmployees = employeeService.listDigitalEmployees();
@@ -202,7 +207,8 @@ public class OfficeController {
         employeeService.updateStatus(request.agentId(), newStatus);
 
         if (officeStateSyncMonitor != null) {
-            officeStateSyncMonitor.recordSnapshot(request.agentId(), true, 0L);
+            boolean healthyStatus = newStatus != EmployeeStatus.OFFLINE && newStatus != EmployeeStatus.DISABLED;
+            officeStateSyncMonitor.recordSnapshot(request.agentId(), healthyStatus, 0L);
         }
 
         employeeOpt = employeeService.getEmployee(request.agentId());

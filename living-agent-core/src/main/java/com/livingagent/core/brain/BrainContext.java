@@ -41,11 +41,13 @@ public class BrainContext {
         public static ChatMessage assistant(String content) { return new ChatMessage("assistant", content); }
     }
 
+    @Deprecated
     public BrainContext(String brainId, String department, String sessionId,
                         Provider provider, Memory memory, ToolRegistry toolRegistry) {
         this(brainId, department, sessionId, provider, memory, toolRegistry, null, null, null, null, null, null, null, null);
     }
 
+    @Deprecated
     public BrainContext(String brainId, String department, String sessionId,
                         Provider provider, Memory memory, ToolRegistry toolRegistry,
                         KnowledgeBase knowledgeBase, EvolutionDecisionEngine evolutionEngine,
@@ -54,6 +56,7 @@ public class BrainContext {
             knowledgeBase, evolutionEngine, personality, null, null, null, null, null);
     }
 
+    @Deprecated
     public BrainContext(String brainId, String department, String sessionId,
                         Provider provider, Memory memory, ToolRegistry toolRegistry,
                         KnowledgeBase knowledgeBase, EvolutionDecisionEngine evolutionEngine,
@@ -65,6 +68,7 @@ public class BrainContext {
             instructionFileLoader, employeeId, null);
     }
 
+    @Deprecated
     public BrainContext(String brainId, String department, String sessionId,
                         Provider provider, Memory memory, ToolRegistry toolRegistry,
                         KnowledgeBase knowledgeBase, EvolutionDecisionEngine evolutionEngine,

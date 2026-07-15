@@ -1,7 +1,7 @@
 # 语音对话功能改进方案
 
 > **生成日期**: 2026-07-09
-> **最近更新**: 2026-07-10 — Phase 1-4 全部实施完成
+> **最近更新**: 2026-07-11 — 修复 /ws/public 匿名连接问题；FrontDesk 闲聊功能已融合进 Login.tsx，不再需要独立 /frontdesk 页面
 > **关联改进项**: P1-9 桌面端语音功能 + 前端语音对话闭环 + P2-4 声纹功能
 > **目的**: 在 living-agent-service 前端和桌面端实现语音对话和声纹功能
 
@@ -22,9 +22,9 @@
 | **后端 TTS** | ✅ 已实现 | model_daemon.py (MeloTTS) |
 | **后端 Opus编解码** | ✅ 已实现 | living-agent-native (opus_codec.rs) |
 | **后端 WebSocket** | ✅ 已实现 | /ws/public 支持 Qwen3Neuron 闲聊回复 |
-| **前端闲聊页面** | ✅ 已实现 | FrontDesk.tsx，无需登录 |
+| **前端闲聊页面** | ✅ 已实现 | Login.tsx 右栏融合闲聊面板（原 FrontDesk.tsx 已合并） |
 | **桌面端闲聊** | ✅ 已实现 | FrontDeskView，智能前台入口 |
-| **前端录音** | ✅ 已实现 | FrontDesk.tsx + FrontDeskView 支持 MediaRecorder 录音 |
+| **前端录音** | ✅ 已实现 | Login.tsx + FrontDeskView 支持 MediaRecorder 录音 |
 | **前端 Opus编码** | ✅ 已实现 | 浏览器原生 WebM/Opus 编码（无需 libopus.js） |
 | **前端音频播放** | ✅ 已实现 | HTMLAudioElement + Blob URL 播放 |
 | **声纹配置** | ✅ 已实现 | VoicePrintSettings.tsx 录音注册/验证 |
@@ -43,8 +43,8 @@
 
 ### 2.1 核心目标
 
-#### 目标 1：前端独立闲聊页面
-- **Web端**：`/frontdesk` 独立页面，无需登录即可对话
+#### 目标 1：前端闲聊入口（融合进登录页）
+- **Web端**：Login.tsx 右栏融合闲聊面板，无需登录即可对话（原独立 `/frontdesk` 页面已弃用）
 - **桌面端**：启动默认闲聊模式，登录后切换办公模式
 
 #### 目标 2：闲聊与内部系统隔离
@@ -77,12 +77,20 @@
 #### Web端路由架构
 ```
 App.tsx 路由结构：
-├── <Route path="/frontdesk" element={<FrontDesk />} />  # 闲聊页面（独立，无Layout）
-├── <Route path="/login" element={<Login />} />          # 登录页面（现有）
+├── <Route path="/login" element={<Login />} />          # 登录页面（含融合闲聊 + 抽屉登录面板）
+├── <Route path="/frontdesk" element={<FrontDesk />} />  # 闲聊页面（保留备用，但主入口已合并到 /login）
 └── <Route element={<Layout />}>                         # Layout包裹的内部系统
     ├── <Route path="/" element={<Home />} />
     ├── <Route path="/chat" element={<Chat />} />
     └── ...其他内部页面
+
+Login 页面布局：
+├── 全屏 hero（双栏布局）
+│   ├── 左栏：品牌标题 + 功能特性 + 语言切换 + 登录按钮
+│   └── 右栏：智能前台闲聊面板（自动连接 /ws/public，支持文本+语音）
+└── 右侧滑出抽屉（点击"登录"打开）
+    ├── 手机登录 Tab（验证码登录）
+    └── 声纹登录 Tab（按住说话即时匹配）
 ```
 
 #### 桌面端状态切换
@@ -115,14 +123,13 @@ App.tsx 状态管理：
 ```
 living-agent-service/frontend/
 ├── src/pages/
-│   ├── FrontDesk.tsx       # 前台闲聊页面（新建，独立）
-│   │   ├── 文本聊天区
-│   │   ├── 语音模式开关（可选）
-│   │   └── 登录按钮 → /login
-│   └── App.tsx             # 路由注册（修改）
+│   ├── Login.tsx           # 登录页（含融合闲聊面板，主入口）
+│   │   ├── 右栏：文本聊天区 + 语音模式开关
+│   │   └── 抽屉：手机登录 + 声纹登录
+│   ├── FrontDesk.tsx       # 闲聊页面（保留备用，可独立访问 /frontdesk）
+│   └── App.tsx             # 路由注册
 ├── src/services/
-│   └── wsApi.ts            # wsApi.publicUrl()（现有，复用）
-│   └── dialogueApi.ts      # 音频处理（新建，可选）
+│   └── api.ts              # wsApi.publicUrl()（现有，复用）
 └── public/lib/
     ├── libopus.js          # Opus 编解码（可选，Phase 2）
     └── opus-recorder.js    # Opus 录音（可选，Phase 2）
@@ -169,23 +176,25 @@ living-agent-service/
 - WebSocket 连接：`wsApi.publicUrl()`
 - 登录按钮：跳转到 `/login`
 - 无需认证，直接对话
+- **注意**：此页面保留备用，主入口已融合进 Login.tsx 右栏
 
-#### Step 1.2: 注册路由 ✅
-- App.tsx 添加 `<Route path="/frontdesk" element={<FrontDesk />} />`
-- 独立于 ProtectedRoute，无需认证
+#### Step 1.2: 融合进 Login.tsx ✅
+- Login.tsx 右栏集成闲聊面板（原 FrontDesk 独立页面功能合并）
+- WebSocket 连接：`wsApi.publicUrl('anonymous')`
+- 支持文本 + 语音模式
+- App.tsx 保留 `/frontdesk` 路由作为备用入口
 
-#### Step 1.3: 添加入口 ✅
-- Login.tsx 添加"先去闲聊"链接 → `/frontdesk`
-
-#### Step 1.4: 后端支持 ✅
+#### Step 1.3: 后端支持 ✅
 - DepartmentWebSocketHandler 添加 `processPublicChannel()` 方法
 - AgentService 添加 `chatPublic()` 方法
 - 调用 `ModelManager.chatAsync("qwen3-0.6b", message)` 走 Qwen3Neuron
 
 #### 验收标准
-- ✅ 访问 `/frontdesk` 无需登录
+- ✅ 访问 `/login` 无需登录即可在右栏闲聊
+- ✅ 访问 `/frontdesk` 备用入口也可闲聊
 - ✅ 文本对话正常工作（走 Qwen3Neuron）
 - ✅ 登录按钮跳转正确
+- ✅ /ws/public 匿名连接正常（2026-07-11 修复 AuthHandshakeInterceptor 放行）
 
 ---
 
@@ -299,7 +308,8 @@ living-agent-service/
 ## 7. 验收标准
 
 ### 7.1 功能验收
-- ✅ 前端可访问 `/frontdesk` 页面（无需登录）
+- ✅ Login.tsx 右栏可闲聊（无需登录，走 /ws/public）
+- ✅ `/frontdesk` 备用入口可闲聊
 - ✅ 点击录音按钮可采集麦克风音频
 - ✅ 录音后自动发送到服务端并收到回复
 - ✅ 服务端回复音频可正常播放
@@ -338,16 +348,17 @@ living-agent-service/
 │   │   ├── 录制声纹样本（MediaRecorder）
 │   │   ├── 上传音频文件
 │   │   └── 查看声纹状态
-│   └── 声纹登录
-│       ├── 路径：/login（声纹登录标签页）
-│       ├── 录音 → 调用 API 验证
+│   └── 声纹登录（即时语音匹配）
+│       ├── 路径：/login 抽屉面板 → 声纹登录 Tab
+│       ├── 按住说话 → 录音 → 松开自动匹配 → 匹配成功自动登录
+│       ├── 无需文件上传，无需单独提交按钮
 │       └── 权限检查（根据用户权限显示）
 └── 桌面端
     ├── 声纹配置（登录后）
     │   └── 同 Web 端功能
     └── 声纹登录
         ├── 登录页面添加声纹登录按钮
-        └── 录音 → 发送到后端验证
+        └── 按住说话 → 录音 → 自动匹配 → 登录
 ```
 
 ### 9.2 权限控制
@@ -360,14 +371,35 @@ living-agent-service/
 
 ### 9.3 技术实现
 
+#### 声纹登录交互流程（按住说话即时匹配）
+```
+用户按住"按住说话"按钮
+  → 开始 MediaRecorder 录音
+  → 用户松开按钮
+  → 停止录音，获取 Blob
+  → 自动调用 voicePrintExtendedApi.login(blob)
+  → 后端 VoicePrintService.verify() 匹配声纹特征
+  → 匹配成功 → 自动登录（setAuth + navigate('/')）
+  → 匹配失败 → 提示"声纹未匹配，请重试或使用手机登录"
+```
+
 #### 前端录音实现
 ```typescript
-// 使用 MediaRecorder 录制音频
-const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-const mediaRecorder = new MediaRecorder(stream);
-// 录制 3-5 秒音频
-// 转换为 WAV/PCM 格式
-// 上传到后端
+// 按住说话 — 即时声纹匹配
+const vpStartRecording = async () => {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const mr = new MediaRecorder(stream);
+  mr.onstop = async () => {
+    const blob = new Blob(chunks);
+    // 直接调用声纹验证 API，无需文件上传
+    const res = await voicePrintExtendedApi.login(blob);
+    if (res.success && res.accessToken) {
+      setAuth(buildUser(res), res.accessToken);
+      navigate('/');
+    }
+  };
+  mr.start();
+};
 ```
 
 #### 后端处理流程
@@ -390,9 +422,9 @@ const mediaRecorder = new MediaRecorder(stream);
 ### 已确认决策
 
 #### 决策 1：闲聊与内部系统隔离设计 ✅ 已确认
-- **Web端**：`/frontdesk` 独立页面（无需登录），登录后跳转到 `/login` 进入内部系统
+- **Web端**：闲聊面板融合进 Login.tsx 右栏（原 `/frontdesk` 独立页面已弃用，保留备用）
 - **桌面端**：启动默认闲聊模式，登录后切换办公模式
-- **理由**：闲聊神经元（Layer 2）无需权限，内部系统需要认证
+- **理由**：闲聊神经元（Layer 2）无需权限，内部系统需要认证；融合到登录页减少用户跳转
 
 #### 决策 2：复用现有 WebSocket 端点 ✅ 已确认
 - **闲聊模式**：使用 `/ws/public`（已存在，无需新建）
@@ -404,10 +436,11 @@ const mediaRecorder = new MediaRecorder(stream);
 - **Phase 3**：可选扩展语音功能
 - **理由**：降低初期复杂度，逐步迭代
 
-#### 决策 4：页面路径 ✅ 已确认
-- **闲聊页面**：`/frontdesk`（前台）
+#### 决策 4：页面路径 ✅ 已确认（已更新）
+- **闲聊主入口**：Login.tsx 右栏（融合闲聊面板）
+- **闲聊备用入口**：`/frontdesk`（保留，独立页面）
 - **登录页面**：`/login`（现有）
-- **理由**：语义明确，符合前台概念
+- **理由**：融合到登录页减少用户跳转，保留 /frontdesk 作为备用
 
 #### 决策 5：声纹功能设计 ✅ 已确认
 - **声纹配置**：登录后，个人设置中管理（仅内部员工/企业用户）

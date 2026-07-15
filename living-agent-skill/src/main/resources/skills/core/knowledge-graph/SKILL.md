@@ -1,3 +1,11 @@
+---
+name: knowledge-graph
+description: Knowledge Graph
+risk: low
+source: internal
+date_added: '2026-07-13'
+---
+
 # Knowledge Graph
 
 > 知识图谱技能，结构化记忆和实体关系管理

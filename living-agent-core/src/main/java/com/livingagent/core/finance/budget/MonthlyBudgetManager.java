@@ -1,8 +1,12 @@
 package com.livingagent.core.finance.budget;
 
+import com.livingagent.core.evolution.orchestrator.CrossLoopEvent;
+import com.livingagent.core.evolution.orchestrator.CrossLoopEventBus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -25,15 +29,22 @@ public class MonthlyBudgetManager {
     @Value("${budget.critical-threshold:0.95}")
     private double criticalThreshold;
 
+    private final CrossLoopEventBus eventBus;
     private final Map<String, DepartmentBudget> departmentBudgets = new ConcurrentHashMap<>();
     private final Map<String, ProjectBudget> projectBudgets = new ConcurrentHashMap<>();
     private final Map<String, List<BudgetAlert>> alerts = new ConcurrentHashMap<>();
     private final Map<String, List<BudgetTransaction>> transactions = new ConcurrentHashMap<>();
+    private volatile double autoAlertThreshold;
 
-    public DepartmentBudget createDepartmentBudget(String departmentId, String departmentName, 
+    public MonthlyBudgetManager(@Autowired(required = false) CrossLoopEventBus eventBus) {
+        this.eventBus = eventBus;
+        this.autoAlertThreshold = alertThreshold;
+    }
+
+    public DepartmentBudget createDepartmentBudget(String departmentId, String departmentName,
                                                    YearMonth month, double budget) {
         String budgetId = "dept-" + departmentId + "-" + month.toString();
-        
+
         DepartmentBudget deptBudget = new DepartmentBudget(
             budgetId,
             departmentId,
@@ -45,16 +56,16 @@ public class MonthlyBudgetManager {
             BudgetStatus.ACTIVE,
             Instant.now()
         );
-        
+
         departmentBudgets.put(budgetId, deptBudget);
         log.info("Created department budget: {} for {} - ${}", budgetId, departmentName, budget);
         return deptBudget;
     }
 
-    public ProjectBudget createProjectBudget(String projectId, String projectName, 
+    public ProjectBudget createProjectBudget(String projectId, String projectName,
                                              double totalBudget, LocalDate startDate, LocalDate endDate) {
         String budgetId = "proj-" + projectId;
-        
+
         ProjectBudget projBudget = new ProjectBudget(
             budgetId,
             projectId,
@@ -67,13 +78,13 @@ public class MonthlyBudgetManager {
             BudgetStatus.ACTIVE,
             Instant.now()
         );
-        
+
         projectBudgets.put(budgetId, projBudget);
         log.info("Created project budget: {} for {} - ${}", budgetId, projectName, totalBudget);
         return projBudget;
     }
 
-    public BudgetTransaction recordExpense(String budgetId, String description, double amount, 
+    public BudgetTransaction recordExpense(String budgetId, String description, double amount,
                                            String category, String recordedBy) {
         BudgetTransaction transaction = new BudgetTransaction(
             UUID.randomUUID().toString(),
@@ -85,22 +96,22 @@ public class MonthlyBudgetManager {
             Instant.now(),
             recordedBy
         );
-        
+
         transactions.computeIfAbsent(budgetId, k -> new ArrayList<>()).add(transaction);
-        
+
         if (budgetId.startsWith("dept-")) {
             updateDepartmentSpent(budgetId, amount);
         } else if (budgetId.startsWith("proj-")) {
             updateProjectSpent(budgetId, amount);
         }
-        
+
         checkBudgetThreshold(budgetId);
-        
+
         log.info("Recorded expense: {} - ${} for {}", description, amount, budgetId);
         return transaction;
     }
 
-    public BudgetTransaction recordIncome(String budgetId, String description, double amount, 
+    public BudgetTransaction recordIncome(String budgetId, String description, double amount,
                                           String category, String recordedBy) {
         BudgetTransaction transaction = new BudgetTransaction(
             UUID.randomUUID().toString(),
@@ -112,13 +123,13 @@ public class MonthlyBudgetManager {
             Instant.now(),
             recordedBy
         );
-        
+
         transactions.computeIfAbsent(budgetId, k -> new ArrayList<>()).add(transaction);
-        
+
         if (budgetId.startsWith("proj-")) {
             updateProjectIncome(budgetId, amount);
         }
-        
+
         log.info("Recorded income: {} - ${} for {}", description, amount, budgetId);
         return transaction;
     }
@@ -151,21 +162,21 @@ public class MonthlyBudgetManager {
 
     public BudgetSummary getBudgetSummary(String budgetId) {
         List<BudgetTransaction> txList = transactions.getOrDefault(budgetId, List.of());
-        
+
         double totalIncome = txList.stream()
             .filter(t -> t.type() == TransactionType.INCOME)
             .mapToDouble(BudgetTransaction::amount)
             .sum();
-        
+
         double totalExpense = txList.stream()
             .filter(t -> t.type() == TransactionType.EXPENSE)
             .mapToDouble(BudgetTransaction::amount)
             .sum();
-        
+
         Map<String, Double> expensesByCategory = txList.stream()
             .filter(t -> t.type() == TransactionType.EXPENSE)
             .collect(HashMap::new, (m, t) -> m.merge(t.category(), t.amount(), Double::sum), HashMap::putAll);
-        
+
         return new BudgetSummary(
             budgetId,
             totalIncome,
@@ -207,7 +218,7 @@ public class MonthlyBudgetManager {
                     Instant.now(),
                     acknowledgedBy
                 );
-                
+
                 List<BudgetAlert> alertList = alerts.get(a.budgetId());
                 alertList.removeIf(x -> x.alertId().equals(alertId));
                 alertList.add(acknowledged);
@@ -216,15 +227,15 @@ public class MonthlyBudgetManager {
 
     public BudgetReport generateMonthlyReport(YearMonth month) {
         List<DepartmentBudget> monthBudgets = getDepartmentBudgets(month);
-        
+
         double totalBudget = monthBudgets.stream()
             .mapToDouble(DepartmentBudget::budget)
             .sum();
-        
+
         double totalSpent = monthBudgets.stream()
             .mapToDouble(DepartmentBudget::spent)
             .sum();
-        
+
         List<DepartmentBudgetStatus> deptStatuses = monthBudgets.stream()
             .map(b -> new DepartmentBudgetStatus(
                 b.departmentId(),
@@ -236,7 +247,7 @@ public class MonthlyBudgetManager {
             ))
             .sorted(Comparator.comparing(DepartmentBudgetStatus::utilizationPercent).reversed())
             .toList();
-        
+
         return new BudgetReport(
             month.toString(),
             month,
@@ -256,24 +267,24 @@ public class MonthlyBudgetManager {
 
     public BudgetForecast forecastMonthEnd(String budgetId) {
         List<BudgetTransaction> txList = transactions.getOrDefault(budgetId, List.of());
-        
+
         if (txList.isEmpty()) {
             return new BudgetForecast(budgetId, 0, 0, 0, 0);
         }
-        
+
         LocalDate today = LocalDate.now();
         int daysInMonth = today.lengthOfMonth();
         int daysPassed = today.getDayOfMonth();
         int daysRemaining = daysInMonth - daysPassed;
-        
+
         double spentSoFar = txList.stream()
             .filter(t -> t.type() == TransactionType.EXPENSE)
             .mapToDouble(BudgetTransaction::amount)
             .sum();
-        
+
         double dailyAverage = daysPassed > 0 ? spentSoFar / daysPassed : 0;
         double projectedSpend = spentSoFar + (dailyAverage * daysRemaining);
-        
+
         double budget = 0;
         if (budgetId.startsWith("dept-")) {
             budget = Optional.ofNullable(departmentBudgets.get(budgetId))
@@ -284,7 +295,7 @@ public class MonthlyBudgetManager {
                 .map(ProjectBudget::totalBudget)
                 .orElse(0.0);
         }
-        
+
         return new BudgetForecast(
             budgetId,
             spentSoFar,
@@ -292,6 +303,38 @@ public class MonthlyBudgetManager {
             projectedSpend,
             budget - projectedSpend
         );
+    }
+
+    // 闭环52: 定时预算分析 + 自动调整预警阈值
+    @Scheduled(fixedRate = 30 * 60 * 1000)
+    public void scheduledBudgetAnalysis() {
+        YearMonth currentMonth = YearMonth.now();
+        List<DepartmentBudget> monthBudgets = getDepartmentBudgets(currentMonth);
+        if (monthBudgets.isEmpty()) return;
+
+        long overBudgetCount = monthBudgets.stream()
+            .filter(b -> b.budget() > 0 && b.utilizationPercent() / 100 > autoAlertThreshold)
+            .count();
+        double overBudgetRate = (double) overBudgetCount / monthBudgets.size();
+
+        if (overBudgetRate > 0.30 && autoAlertThreshold > 0.6) {
+            double old = autoAlertThreshold;
+            autoAlertThreshold = Math.max(0.6, autoAlertThreshold - 0.05);
+            log.info("[闭环52] 部门超预算率{}%过高，自动预警阈值从{}%降至{}%",
+                String.format("%.0f", overBudgetRate * 100),
+                String.format("%.0f", old * 100),
+                String.format("%.0f", autoAlertThreshold * 100));
+            if (eventBus != null) {
+                eventBus.publish(52, "budget_threshold_adjusted", CrossLoopEvent.EventPriority.DEGRADATION,
+                    Map.of("autoAlertThreshold", autoAlertThreshold, "overBudgetRate", overBudgetRate), 300);
+            }
+        } else if (overBudgetRate < 0.10 && autoAlertThreshold < alertThreshold) {
+            autoAlertThreshold = Math.min(alertThreshold, autoAlertThreshold + 0.02);
+        }
+    }
+
+    public double getAutoAlertThreshold() {
+        return autoAlertThreshold;
     }
 
     private void updateDepartmentSpent(String budgetId, double amount) {
@@ -353,7 +396,7 @@ public class MonthlyBudgetManager {
     private void checkBudgetThreshold(String budgetId) {
         double budget = 0;
         double spent = 0;
-        
+
         if (budgetId.startsWith("dept-")) {
             DepartmentBudget dept = departmentBudgets.get(budgetId);
             if (dept != null) {
@@ -367,16 +410,16 @@ public class MonthlyBudgetManager {
                 spent = proj.spent();
             }
         }
-        
+
         if (budget <= 0) return;
-        
+
         double percentage = spent / budget;
-        
+
         if (percentage >= criticalThreshold) {
-            createAlert(budgetId, AlertType.CRITICAL, 
+            createAlert(budgetId, AlertType.CRITICAL,
                 String.format("Budget critical: %.1f%% used (%.2f/%.2f)", percentage * 100, spent, budget),
                 percentage);
-        } else if (percentage >= alertThreshold) {
+        } else if (percentage >= autoAlertThreshold) {
             createAlert(budgetId, AlertType.WARNING,
                 String.format("Budget warning: %.1f%% used (%.2f/%.2f)", percentage * 100, spent, budget),
                 percentage);
@@ -395,7 +438,7 @@ public class MonthlyBudgetManager {
             null,
             null
         );
-        
+
         alerts.computeIfAbsent(budgetId, k -> new ArrayList<>()).add(alert);
         log.warn("Budget alert: {} - {}", budgetId, message);
     }

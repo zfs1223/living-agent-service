@@ -2,12 +2,14 @@ package com.livingagent.core.conversation.impl;
 
 import com.livingagent.core.conversation.ConversationService;
 import com.livingagent.core.conversation.ConversationStatus;
+import com.livingagent.core.conversation.feedback.ConversationArchiveService;
 import com.livingagent.core.database.entity.DepartmentConversationEntity;
 import com.livingagent.core.database.repository.DepartmentConversationRepository;
 import com.livingagent.core.util.IdUtils;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
@@ -19,9 +21,15 @@ public class ConversationServiceImpl implements ConversationService {
     private static final Logger log = LoggerFactory.getLogger(ConversationServiceImpl.class);
 
     private final DepartmentConversationRepository repository;
+    private ConversationArchiveService archiveService;
 
     public ConversationServiceImpl(DepartmentConversationRepository repository) {
         this.repository = repository;
+    }
+
+    @Autowired(required = false)
+    public void setArchiveService(ConversationArchiveService archiveService) {
+        this.archiveService = archiveService;
     }
 
     @Override
@@ -73,7 +81,15 @@ public class ConversationServiceImpl implements ConversationService {
             conv.setStatus(ConversationStatus.ARCHIVED.getDbValue());
             conv.setArchivedAt(Instant.now());
             conv.setUpdatedAt(Instant.now());
-            return repository.save(conv);
+            DepartmentConversationEntity saved = repository.save(conv);
+
+            // 闭环46: 归档时触发知识沉淀
+            if (archiveService != null && conv.getTitle() != null) {
+                archiveService.archiveAndExtractKnowledge(
+                    conversationId, conv.getTitle(), conv.getDepartmentCode());
+            }
+
+            return saved;
         }).orElseThrow(() -> new RuntimeException("Conversation not found: " + conversationId));
     }
 

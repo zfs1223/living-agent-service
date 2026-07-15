@@ -30,7 +30,7 @@
     "myAgents": "我的数字员工",
     "myCreated": "我创建的",
     "companyShared": "公司共用",
-    "newAgent": "新建数字员工",
+    "newAgent": "新建个人助理",
     "enterprise": "公司设置",
     "documents": "文档中心",
     "adminCompanies": "公司管理",
@@ -212,6 +212,8 @@
       "approvals": "审批",
       "settings": "设置"
     },
+    "createPersonal": "新建个人助理",
+    "personalModeDesc": "创建一个专属于您的个人助理，仅您自己可以访问和使用",
     "fields": {
       "name": "名称",
       "role": "👤 角色",
@@ -1456,7 +1458,22 @@
     "loginSuccess": "登录成功，正在跳转...",
     "codeSent": "验证码已发送",
     "testModeAutoFill": "测试模式 - 验证码已自动填充: ",
-    "switchLang": "EN"
+    "switchLang": "EN",
+    "openDrawer": "登 录",
+    "drawerTitle": "欢迎回来",
+    "drawerSubtitle": "选择登录方式进入系统",
+    "tabPhone": "手机登录",
+    "tabVoiceprint": "声纹登录",
+    "voiceprintUploadHint": "上传声纹音频文件进行登录",
+    "voiceprintRecord": "录音",
+    "voiceprintSelectFile": "选择文件",
+    "voiceprintLogin": "声纹登录",
+    "voiceprintLoggingIn": "登录中...",
+    "voiceprintLoginError": "登录失败，请确认声纹已注册",
+    "voiceprintLoginSuccess": "登录成功",
+    "voiceprintLoginFailed": "登录失败",
+    "voiceprintNoFile": "请先选择音频文件",
+    "tryChat": "先去闲聊"
   },
   "registerFounder": {
     "systemInit": "系统初始化",

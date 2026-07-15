@@ -509,12 +509,14 @@ feishu:
 # ===========================================
 # RuView WiFi 感知服务配置
 # ===========================================
+# 注意：后台轮询已弃用（v2.0），请使用 SensorDataTool 按需查询
 ruview:
   api:
     base-url: ${RUVIEW_API_BASE_URL:http://ruview-sensing:3000}
     timeout-ms: ${RUVIEW_API_TIMEOUT_MS:5000}
+  # 轮询配置（已弃用 - 使用 SensorDataTool 替代）
   polling:
-    enabled: ${RUVIEW_POLLING_ENABLED:true}
+    enabled: false  # 强制禁用，不再支持后台轮询
     interval-seconds: ${RUVIEW_POLLING_INTERVAL_SECONDS:10}
   zones:
     meeting-room-a:

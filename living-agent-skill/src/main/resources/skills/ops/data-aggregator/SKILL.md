@@ -1,3 +1,11 @@
+---
+name: data-aggregator
+description: Data Aggregator - 数据聚合器技能
+risk: low
+source: internal
+date_added: '2026-07-13'
+---
+
 # Data Aggregator - 数据聚合器技能
 
 > 多源数据自动汇总分析

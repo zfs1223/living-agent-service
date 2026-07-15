@@ -19,6 +19,7 @@ import com.livingagent.core.tool.ToolContext;
 import com.livingagent.core.tool.Tool.ToolParams;
 import com.livingagent.core.tool.ToolRegistry;
 import com.livingagent.core.tool.ToolResult;
+import com.livingagent.core.tool.backend.BackendRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -64,6 +65,8 @@ public class ToolBackedEmployeeTaskExecutor implements EmployeeTaskExecutor {
     private final ExecutionCapabilityResolver capabilityResolver;
     private final FixedEmployeeRegistry fixedEmployeeRegistry;
     private final ToolRegistry toolRegistry;
+    private final BackendRegistry backendRegistry;  // 64-C-1
+    private final ActionOutputValidator outputValidator;  // 64-C-1
 
     public ToolBackedEmployeeTaskExecutor() {
         this.sandboxService = null;
@@ -71,6 +74,8 @@ public class ToolBackedEmployeeTaskExecutor implements EmployeeTaskExecutor {
         this.capabilityResolver = null;
         this.fixedEmployeeRegistry = null;
         this.toolRegistry = null;
+        this.backendRegistry = null;
+        this.outputValidator = null;
     }
 
     public ToolBackedEmployeeTaskExecutor(SandboxService sandboxService) {
@@ -79,6 +84,8 @@ public class ToolBackedEmployeeTaskExecutor implements EmployeeTaskExecutor {
         this.capabilityResolver = null;
         this.fixedEmployeeRegistry = null;
         this.toolRegistry = null;
+        this.backendRegistry = null;
+        this.outputValidator = null;
     }
 
     public ToolBackedEmployeeTaskExecutor(SandboxService sandboxService, BrainModelResolver brainModelResolver) {
@@ -87,6 +94,8 @@ public class ToolBackedEmployeeTaskExecutor implements EmployeeTaskExecutor {
         this.capabilityResolver = null;
         this.fixedEmployeeRegistry = null;
         this.toolRegistry = null;
+        this.backendRegistry = null;
+        this.outputValidator = null;
     }
 
     public ToolBackedEmployeeTaskExecutor(SandboxService sandboxService, BrainModelResolver brainModelResolver, ExecutionCapabilityResolver capabilityResolver) {
@@ -95,6 +104,8 @@ public class ToolBackedEmployeeTaskExecutor implements EmployeeTaskExecutor {
         this.capabilityResolver = capabilityResolver;
         this.fixedEmployeeRegistry = null;
         this.toolRegistry = null;
+        this.backendRegistry = null;
+        this.outputValidator = null;
     }
 
     public ToolBackedEmployeeTaskExecutor(SandboxService sandboxService, BrainModelResolver brainModelResolver,
@@ -105,6 +116,22 @@ public class ToolBackedEmployeeTaskExecutor implements EmployeeTaskExecutor {
         this.capabilityResolver = capabilityResolver;
         this.fixedEmployeeRegistry = fixedEmployeeRegistry;
         this.toolRegistry = toolRegistry;
+        this.backendRegistry = null;
+        this.outputValidator = null;
+    }
+
+    /** 64-C-1: 完整构造函数，包含 BackendRegistry 和 ActionOutputValidator */
+    public ToolBackedEmployeeTaskExecutor(SandboxService sandboxService, BrainModelResolver brainModelResolver,
+                                          ExecutionCapabilityResolver capabilityResolver,
+                                          FixedEmployeeRegistry fixedEmployeeRegistry, ToolRegistry toolRegistry,
+                                          BackendRegistry backendRegistry, ActionOutputValidator outputValidator) {
+        this.sandboxService = sandboxService;
+        this.brainModelResolver = brainModelResolver;
+        this.capabilityResolver = capabilityResolver;
+        this.fixedEmployeeRegistry = fixedEmployeeRegistry;
+        this.toolRegistry = toolRegistry;
+        this.backendRegistry = backendRegistry;
+        this.outputValidator = outputValidator;
     }
 
     @Override
@@ -133,6 +160,26 @@ public class ToolBackedEmployeeTaskExecutor implements EmployeeTaskExecutor {
             }
         }
 
+        // 64-C-1: 行动准备度检查（工具健康 + 前置条件 + 输入完整性）
+        if (backendRegistry != null && assignmentTask != null) {
+            ActionReadinessChecker readinessChecker = new ActionReadinessChecker(backendRegistry);
+            List<String> toolsToCheck = availableTools != null ? availableTools : List.of();
+            ActionReadinessChecker.ReadinessResult readiness = readinessChecker.check(assignmentTask, toolsToCheck);
+            if (readiness.isBlocked()) {
+                log.warn("Task blocked by readiness check: employee={}, blockers={}", employeeCode, readiness.blockers());
+                return new ExecutionResult(
+                    false, "BLOCKED",
+                    "行动准备度检查未通过: " + String.join("; ", readiness.blockers()),
+                    List.of(), List.of(),
+                    Map.of("readinessBlockers", readiness.blockers(), "readinessWarnings", readiness.warnings()),
+                    "Action readiness check blocked"
+                );
+            }
+            if (!readiness.warnings().isEmpty()) {
+                log.info("Task readiness warnings: employee={}, warnings={}", employeeCode, readiness.warnings());
+            }
+        }
+
         String effectiveEnv = executionEnvironment;
         if (effectiveEnv == null || effectiveEnv.isBlank()) {
             effectiveEnv = determineEnvironment(taskType, 1).getCode();
@@ -154,7 +201,7 @@ public class ToolBackedEmployeeTaskExecutor implements EmployeeTaskExecutor {
             if (!normalizedTaskType.equals(taskType)) {
                 log.info("Normalized task type: employee={}, rawType={}, normalizedType={}", employeeCode, taskType, normalizedTaskType);
             }
-            return switch (normalizedTaskType) {
+            ExecutionResult rawResult = switch (normalizedTaskType) {
                 case "web_prototype", "web_development" ->
                     executeWebTask(employeeCode, taskDescription, assignmentTask, availableTools, effectiveEnv);
                 case "document_generation" ->
@@ -170,6 +217,8 @@ public class ToolBackedEmployeeTaskExecutor implements EmployeeTaskExecutor {
                 default ->
                     executeGenericTask(employeeCode, taskDescription, assignmentTask, availableTools, effectiveEnv);
             };
+            // 64-C-1: 输出验证
+            return validateAndWrapResult(rawResult, assignmentTask);
         } catch (Exception e) {
             log.error("Task execution failed: employee={}, type={}, env={}, error={}", 
                 employeeCode, taskType, effectiveEnv, e.getMessage(), e);
@@ -1181,5 +1230,66 @@ public class ToolBackedEmployeeTaskExecutor implements EmployeeTaskExecutor {
         if (taskType == null) return false;
         String lower = taskType.toLowerCase(java.util.Locale.ROOT);
         return lower.contains("document") || lower.contains("report") || lower.contains("review");
+    }
+
+    /**
+     * 64-C-1: 输出验证包装方法
+     * 对执行结果进行4层验证，验证失败返回 NEEDS_REWORK 状态
+     */
+    private ExecutionResult validateAndWrapResult(ExecutionResult rawResult, EmployeeWorkAssignment assignment) {
+        if (outputValidator == null || !rawResult.success()) {
+            return rawResult;
+        }
+        String contentToValidate = extractContentForValidation(rawResult);
+        String artifactType = inferArtifactType(rawResult);
+        if (contentToValidate != null && !contentToValidate.isBlank()) {
+            var validationResult = outputValidator.validate(contentToValidate, artifactType, assignment);
+            if (!validationResult.valid()) {
+                log.warn("Output validation failed: issues={}", validationResult.issues());
+                return new ExecutionResult(
+                    false, "NEEDS_REWORK",
+                    "输出验证失败: " + String.join("; ", validationResult.issues()),
+                    rawResult.artifacts(), rawResult.usedTools(),
+                    Map.of("validationIssues", validationResult.issues(), "validationWarnings", validationResult.warnings()),
+                    "Output validation failed"
+                );
+            }
+            if (!validationResult.warnings().isEmpty()) {
+                log.info("Output validation warnings: {}", validationResult.warnings());
+            }
+        }
+        return rawResult;
+    }
+
+    private String extractContentForValidation(ExecutionResult result) {
+        if (result.artifacts() != null && !result.artifacts().isEmpty()) {
+            StringBuilder sb = new StringBuilder();
+            for (var artifact : result.artifacts()) {
+                if (artifact.content() != null) {
+                    sb.append(artifact.content());
+                    sb.append("\n");
+                }
+            }
+            return sb.toString().trim();
+        }
+        if (result.summary() != null) {
+            return result.summary();
+        }
+        return null;
+    }
+
+    private String inferArtifactType(ExecutionResult result) {
+        if (result.artifacts() != null && !result.artifacts().isEmpty()) {
+            String fileType = result.artifacts().get(0).fileType();
+            if (fileType != null) {
+                return switch (fileType.toLowerCase()) {
+                    case "html", "htm" -> "html";
+                    case "md", "markdown" -> "markdown";
+                    case "json" -> "json";
+                    default -> "text";
+                };
+            }
+        }
+        return "text";
     }
 }

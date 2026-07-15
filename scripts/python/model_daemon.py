@@ -57,6 +57,9 @@ CAM_MODEL_DIR = os.environ.get('CAM_MODEL_DIR',
 SPEAKER_DATA_FILE = os.environ.get('SPEAKER_DATA_FILE',
     '/app/data/speaker_embeddings.json')
 SPEAKER_THRESHOLD = float(os.environ.get('SPEAKER_THRESHOLD', '0.33'))
+# 远程声纹服务配置
+SPEAKER_USE_REMOTE = os.environ.get('SPEAKER_USE_REMOTE', 'false').lower() == 'true'
+SPEAKER_SERVICE_URL = os.environ.get('SPEAKER_SERVICE_URL', 'http://host.docker.internal:8390')
 
 CHAT_CONFIG = {
     'max_history_turns': 5,
@@ -638,13 +641,21 @@ class ModelManager:
         
         llama_cpp_path = os.environ.get('LLAMA_CPP_PATH', '/opt/llama.cpp')
         llama_cli_path = os.path.join(llama_cpp_path, 'build', 'bin', 'llama-cli')
+        llama_server_path = os.path.join(llama_cpp_path, 'build', 'bin', 'llama-server')
         
-        if os.path.exists(llama_cli_path):
-            print(f"[ModelDaemon] 使用 llama.cpp CLI: {llama_cli_path}", file=sys.stderr, flush=True)
-            self.llama_cli_path = llama_cli_path
-        else:
+        # 优先使用llama-server（独立进程，稳定），回退到llama-cli
+        if os.path.exists(llama_server_path):
+            self.llama_server_path = llama_server_path
             self.llama_cli_path = None
-            print("[ModelDaemon] ❌ llama.cpp CLI 未找到", file=sys.stderr, flush=True)
+            print(f"[ModelDaemon] 使用 llama.cpp server: {llama_server_path}", file=sys.stderr, flush=True)
+        elif os.path.exists(llama_cli_path):
+            self.llama_server_path = None
+            self.llama_cli_path = llama_cli_path
+            print(f"[ModelDaemon] 使用 llama.cpp CLI: {llama_cli_path}", file=sys.stderr, flush=True)
+        else:
+            self.llama_server_path = None
+            self.llama_cli_path = None
+            print("[ModelDaemon] ❌ llama.cpp server/CLI 均未找到", file=sys.stderr, flush=True)
         
         if os.path.exists(QWEN3_MODEL_FILE):
             print(f"[ModelDaemon] ✅ Qwen3-0.6B 模型文件存在: {QWEN3_MODEL_FILE}", file=sys.stderr, flush=True)
@@ -652,8 +663,16 @@ class ModelManager:
         if os.path.exists(QWEN35_MODEL_FILE):
             print(f"[ModelDaemon] ✅ Qwen3.5-2B 模型文件存在: {QWEN35_MODEL_FILE}", file=sys.stderr, flush=True)
         
-        # 两个模型都使用 llama.cpp CLI
-        if self.llama_cli_path and os.path.exists(self.llama_cli_path):
+        # 使用llama-server时，启动独立服务进程
+        if self.llama_server_path:
+            self._start_llama_servers()
+            if os.path.exists(QWEN3_MODEL_FILE):
+                self.models_loaded['qwen3'] = True
+                print("[ModelDaemon] ✅ Qwen3-0.6B 将通过 llama-server 使用 (沟通模型)", file=sys.stderr, flush=True)
+            if os.path.exists(QWEN35_MODEL_FILE):
+                self.models_loaded['qwen35'] = True
+                print("[ModelDaemon] ✅ Qwen3.5-2B 将通过 llama-server 使用 (任务转达模型)", file=sys.stderr, flush=True)
+        elif self.llama_cli_path and os.path.exists(self.llama_cli_path):
             if os.path.exists(QWEN3_MODEL_FILE):
                 self.models_loaded['qwen3'] = True
                 print("[ModelDaemon] ✅ Qwen3-0.6B 将通过 CLI 使用 (沟通模型)", file=sys.stderr, flush=True)
@@ -661,7 +680,60 @@ class ModelManager:
                 self.models_loaded['qwen35'] = True
                 print("[ModelDaemon] ✅ Qwen3.5-2B 将通过 CLI 使用 (任务转达模型)", file=sys.stderr, flush=True)
         else:
-            print("[ModelDaemon] ❌ llama.cpp CLI 不可用，LLM 模型无法加载", file=sys.stderr, flush=True)
+            print("[ModelDaemon] ❌ llama.cpp 不可用，LLM 模型无法加载", file=sys.stderr, flush=True)
+    
+    def _start_llama_servers(self):
+        """启动llama-server进程（每个模型一个）"""
+        self.llama_server_procs = {}
+        self.llama_server_ports = {}
+        
+        base_port = int(os.environ.get('LLAMA_SERVER_BASE_PORT', '8393'))
+        
+        models_to_start = []
+        if os.path.exists(QWEN3_MODEL_FILE):
+            models_to_start.append(('qwen3', QWEN3_MODEL_FILE, 512))  # 闲聊：小上下文，快速响应
+        if os.path.exists(QWEN35_MODEL_FILE):
+            models_to_start.append(('qwen35', QWEN35_MODEL_FILE, 4096))  # 工具路由：中等上下文，平衡速度
+        
+        for i, (model_key, model_path, ctx_size) in enumerate(models_to_start):
+            port = base_port + i
+            try:
+                proc = subprocess.Popen(
+                    [
+                        self.llama_server_path,
+                        '-m', model_path,
+                        '--ctx-size', str(ctx_size),
+                        '--port', str(port),
+                        '--host', '127.0.0.1',
+                        '-t', '2',
+                        '-np', '1',
+                        '--metrics'
+                    ],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                    preexec_fn=os.setsid if hasattr(os, 'setsid') else None
+                )
+                self.llama_server_procs[model_key] = proc
+                self.llama_server_ports[model_key] = port
+                print(f"[ModelDaemon] ✅ llama-server 启动: model={model_key}, port={port}, pid={proc.pid}", file=sys.stderr, flush=True)
+            except Exception as e:
+                print(f"[ModelDaemon] ❌ llama-server 启动失败: model={model_key}, error={str(e)}", file=sys.stderr, flush=True)
+        
+        # 等待服务器就绪
+        import urllib.request
+        max_wait = 30
+        for model_key, port in self.llama_server_ports.items():
+            for attempt in range(max_wait):
+                try:
+                    req = urllib.request.Request(f'http://127.0.0.1:{port}/health')
+                    with urllib.request.urlopen(req, timeout=2) as resp:
+                        if resp.status == 200:
+                            print(f"[ModelDaemon] ✅ llama-server 就绪: model={model_key}, port={port}", file=sys.stderr, flush=True)
+                            break
+                except Exception:
+                    time.sleep(1)
+            else:
+                print(f"[ModelDaemon] ⚠️ llama-server 就绪超时: model={model_key}, port={port}", file=sys.stderr, flush=True)
     
     def _load_melotts(self):
         print("[ModelDaemon] 🔊 加载 MeloTTS...", file=sys.stderr, flush=True)
@@ -735,6 +807,14 @@ class ModelManager:
     
     def _load_cam(self):
         """加载CAM++声纹识别模型"""
+        # 如果配置了远程声纹服务，跳过本地模型加载
+        if SPEAKER_USE_REMOTE:
+            print(f"[ModelDaemon] 🎤 使用远程声纹服务: {SPEAKER_SERVICE_URL}", file=sys.stderr, flush=True)
+            self.speaker_service_url = SPEAKER_SERVICE_URL
+            self.models_loaded['cam'] = True  # 标记为已加载（实际使用远程服务）
+            self._load_speaker_data()
+            return
+        
         print("[ModelDaemon] 🎤 加载 CAM++ 声纹识别模型...", file=sys.stderr, flush=True)
         try:
             cam_dir = Path(CAM_MODEL_DIR)
@@ -817,6 +897,11 @@ class ModelManager:
     
     def extract_speaker_embedding(self, audio_path):
         """提取说话人embedding"""
+        # 远程模式：调用HTTP API
+        if SPEAKER_USE_REMOTE:
+            return self._extract_speaker_embedding_remote(audio_path)
+        
+        # 本地模式：使用CAM模型
         if not self.models_loaded['cam'] or self.cam_model is None:
             return None
         
@@ -842,6 +927,43 @@ class ModelManager:
         except Exception as e:
             print(f"[ModelDaemon] ⚠️ 提取embedding失败: {e}", file=sys.stderr, flush=True)
             return None
+    
+    def _extract_speaker_embedding_remote(self, audio_path):
+        """远程调用声纹提取API"""
+        try:
+            import urllib.request
+            import urllib.error
+            import random
+            import string
+            
+            url = f"{self.speaker_service_url}/extract"
+            
+            # 读取音频文件
+            with open(audio_path, 'rb') as f:
+                audio_data = f.read()
+            
+            boundary = '----WebKitFormBoundary' + ''.join(random.choices(string.ascii_letters + string.digits, k=16))
+            body = f'--{boundary}\r\n'
+            body += f'Content-Disposition: form-data; name="audio"; filename="audio.wav"\r\n'
+            body += 'Content-Type: audio/wav\r\n\r\n'
+            body_encode = body.encode('utf-8')
+            end_boundary = f'\r\n--{boundary}--\r\n'.encode('utf-8')
+            
+            req = urllib.request.Request(
+                url,
+                data=body_encode + audio_data + end_boundary,
+                headers={'Content-Type': f'multipart/form-data; boundary={boundary}'},
+                method='POST'
+            )
+            
+            with urllib.request.urlopen(req, timeout=30) as response:
+                result = json.loads(response.read().decode('utf-8'))
+            
+            if result.get('success') and 'embedding' in result:
+                return np.array(result['embedding'], dtype=np.float32).flatten()
+        except Exception as e:
+            print(f"[ModelDaemon] ❌ 远程声纹提取失败: {str(e)}", file=sys.stderr, flush=True)
+        return None
     
     def cosine_similarity(self, a, b):
         """计算余弦相似度"""
@@ -1019,40 +1141,541 @@ class ModelManager:
 - 你只负责日常问候和简单交流
 - 工具调用、部门引导等专业事务由其他系统处理"""
     
+    # ===== 公共工具定义（与公司内部工具独立，不混合） =====
+    PUBLIC_TOOL_DEFINITIONS = [
+        {
+            "name": "weather_query",
+            "description": "查询指定城市的当前天气情况，包括温度、湿度、天气状况等",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "location": {
+                        "type": "string",
+                        "description": "城市名称，如'广州'、'北京'、'上海'"
+                    }
+                },
+                "required": ["location"]
+            }
+        },
+        {
+            "name": "time_query",
+            "description": "获取当前时间或指定时区的时间信息",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "timezone": {
+                        "type": "string",
+                        "description": "时区名称，如'Asia/Shanghai'、'UTC'。不指定则返回本地时间"
+                    }
+                },
+                "required": []
+            }
+        },
+        {
+            "name": "calculator",
+            "description": "数学计算器，支持加减乘除、幂运算、括号等",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "expression": {
+                        "type": "string",
+                        "description": "数学表达式，如'(3+5)*2'、'100/4'"
+                    }
+                },
+                "required": ["expression"]
+            }
+        },
+        {
+            "name": "translation",
+            "description": "中英文翻译服务",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "需要翻译的文本"
+                    },
+                    "direction": {
+                        "type": "string",
+                        "description": "翻译方向：'zh2en'(中译英)或'en2zh'(英译中)"
+                    }
+                },
+                "required": ["text", "direction"]
+            }
+        },
+        {
+            "name": "encyclopedia",
+            "description": "常识性问题百科解答，如历史、地理、科学等基础知识",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "question": {
+                        "type": "string",
+                        "description": "需要解答的常识性问题"
+                    }
+                },
+                "required": ["question"]
+            }
+        }
+    ]
+
     def _build_tool_system_prompt(self) -> str:
-        """构建任务转达模型系统提示词 - Qwen3.5-2B"""
-        return """你是公司的前台任务转达助手，负责将访客需求转达给相应部门。
+        """构建智能前台工具提示词 - Qwen3.5-2B
 
-角色定位：
-- 任务分析和部门路由专家
-- 理解访客需求并匹配到正确的部门或人员
-- 不处理具体业务，只负责转达和引导
+        注意：这是"智能前台"的工具路由，只处理公共工具，不涉及公司内部管理。
+        公司内部部门路由由Java端的ToolNeuron处理（需要登录认证）。
+        公共工具和公司内部工具是完全独立的，不能混合。
+        """
+        # 构建工具定义的简化格式（小模型更适合简洁描述而非完整JSON Schema）
+        tool_descs = []
+        for t in self.PUBLIC_TOOL_DEFINITIONS:
+            params_desc = ', '.join(
+                p["description"] for p in t["parameters"].get("properties", {}).values()
+            )
+            req_params = ', '.join(t["parameters"].get("required", []))
+            tool_descs.append('- ' + t["name"] + '(' + req_params + '): ' + t["description"])
+        tools_text = '\n'.join(tool_descs)
 
-部门列表：
-- 技术部：代码、开发、部署、测试、运维
-- 行政部：文档、流程、行政事务
-- 财务部：报销、发票、预算
-- 人事部：招聘、考勤、绩效
-- 法务部：合同、合规检查
-- 销售部：客户、订单、市场
-- 客服部：工单、问题解答
-- 运营部：数据分析、运营策略
+        # 所有含花括号{}的JSON内容必须用变量拼接，不能放在f-string中
+        tool_call_fmt = '{"tool_call": true, "tool": "TOOL_NAME", "parameters": PARAMS}'
+        weather_example = '{"tool_call": true, "tool": "weather_query", "parameters": {"location": "广州"}}'
+        time_example = '{"tool_call": true, "tool": "time_query", "parameters": {"timezone": "Asia/Shanghai"}}'
+        calc_example = '{"tool_call": true, "tool": "calculator", "parameters": {"expression": "100/4"}}'
+        no_tool_example = '您好！我可以为您提供公共信息服务。请问有什么需要帮助的？'
 
-工作方式：
-1. 分析访客需求的关键词和意图
-2. 确定应该转达的部门或人员
-3. 简洁告知访客将转达给谁处理
+        prompt = (
+            "你是公司的智能前台助手，负责接待访客并提供公共服务。\n\n"
+            "公共工具（所有访客可用，与公司内部工具独立）：\n"
+            + tools_text + "\n\n"
+            "输出规则（严格遵守）：\n"
+            "- 当用户需要使用工具时，你必须输出以下JSON格式，不能输出任何其他文字：\n"
+            "  " + tool_call_fmt + "\n"
+            "- 当不需要工具时，直接输出中文文本回复，不能输出JSON：\n"
+            "  " + no_tool_example + "\n\n"
+            "示例：\n"
+            "用户：广州天气怎么样\n"
+            "助手：" + weather_example + "\n\n"
+            "用户：现在几点了\n"
+            "助手：" + time_example + "\n\n"
+            "用户：计算100除以4\n"
+            "助手：" + calc_example + "\n\n"
+            "用户：你好\n"
+            "助手：您好！我是公司的智能前台助手，有什么可以帮您的吗？\n\n"
+            "用户：公司有多少员工\n"
+            "助手：关于公司内部信息，需要登录后联系相关部门。我目前只提供公共服务，如天气查询、时间查询、翻译、计算等。\n\n"
+            "绝对禁止：\n"
+            "- 输出思考过程或分析步骤\n"
+            "- 输出包含\"Thinking Process\"的文本\n"
+            "- 混合JSON和文字\n"
+            "- 提供公司内部信息\n\n"
+            "/no_think"
+        )
 
-注意：
-- 只负责转达，不执行具体操作
-- 复杂问题建议访客直接联系相关部门"""
+        return prompt
     
+    def _filter_thinking_process(self, text: str) -> str:
+        """过滤Qwen3思考模式输出的思考过程，只保留最终回复
+        
+        Qwen3在思考模式下可能输出：
+        - "Thinking Process: ..." 开头的完整思考过程
+        - "<think>...</think>" 标签包裹的思考内容
+        - 多行思考后才有实际回复
+        
+        此方法提取思考过程后面的实际助手回复。
+        """
+        if not text:
+            return text
+        
+        # 检测常见思考过程标记
+        thinking_markers = [
+            "Thinking Process:",
+            "Think Process:",
+            "<think>",
+            "## Thinking",
+            "**Thinking**:",
+        ]
+        
+        # 尝试提取思考过程后的实际内容
+        for marker in thinking_markers:
+            if marker in text:
+                # 找到标记位置
+                marker_pos = text.find(marker)
+                
+                # 尝试找思考过程结束的位置
+                # Qwen3的思考过程通常以双换行+实际回复开头结束
+                # 或者以</think>标签结束
+                
+                after_marker = text[marker_pos + len(marker):]
+                
+                # 检查是否有</think>结束标签
+                end_tag = "</think>"
+                if end_tag in after_marker:
+                    end_pos = after_marker.find(end_tag) + len(end_tag)
+                    actual_response = after_marker[end_pos:].strip()
+                    if actual_response:
+                        return actual_response
+                
+                # 尝试通过模式匹配提取最终回复
+                # 思考过程后面通常有明显的分隔（如多个换行后跟着中文回复）
+                lines = after_marker.split('\n')
+                
+                # 找到第一个非空行开始的回复
+                # 跳过思考过程的各行（通常以空行、数字列表等开头）
+                in_thinking = True
+                response_lines = []
+                
+                for i, line in enumerate(lines):
+                    stripped = line.strip()
+                    
+                    # 检测思考过程结束的标志
+                    # 1. 连续空行后的非空行
+                    # 2. 以中文开头的行（实际回复通常直接是中文句子）
+                    # 3. "Assistant:" 或 "助手：" 开头的行
+                    
+                    if in_thinking:
+                        # 跳过空行
+                        if not stripped:
+                            continue
+                        
+                        # 检测是否是思考过程的格式（通常以数字、点、横线开头）
+                        if stripped.startswith(('1.', '2.', '3.', '-', '*', '•', '>', '分析', 'Determine', 'Draft', 'Plan', 'Wait', 'Refined', 'Actually')):
+                            continue
+                        
+                        # 检测是否是实际的回复开头（中文或英文的正常句子）
+                        if stripped and (
+                            stripped[0].encode('utf-8')[0] > 127 or  # 中文字符
+                            stripped.startswith(('您好', '你好', 'Hello', 'Hi', 'I ', 'We ', 'Yes', 'No')) or
+                            ':' in stripped[:10]  # "Assistant:" 格式
+                        ):
+                            in_thinking = False
+                            response_lines.append(line)
+                    else:
+                        response_lines.append(line)
+                
+                if response_lines:
+                    return '\n'.join(response_lines).strip()
+        
+        # 策略4：使用正则表达式提取中文问候语开头的回复
+        import re
+        
+        # 匹配引号内的中文回复
+        quoted_match = re.search(r'"(您好[^"]+)"', text)
+        if quoted_match:
+            return quoted_match.group(1).strip()
+        
+        # 匹配中文问候语开头的回复
+        greeting_match = re.search(r'(您好[！？。，].*?)(?:\n\n|\Z)', text, re.DOTALL)
+        if greeting_match:
+            return greeting_match.group(1).strip()
+        
+        greeting_match = re.search(r'(我是您的智能前台助手[^。\n]*[。？！])', text)
+        if greeting_match:
+            return greeting_match.group(1).strip()
+        
+        greeting_match = re.search(r'(请问您想[^\n]*[？？])', text)
+        if greeting_match:
+            return greeting_match.group(1).strip()
+        
+        # 如果没有找到思考标记，直接返回原文
+        return text.strip()
+
+    def _parse_tool_call(self, text: str) -> Optional[Dict]:
+        """从模型输出中解析工具调用JSON
+
+        模型可能输出以下格式之一：
+        1. 纯JSON: {"tool_call": true, "tool": "weather_query", "parameters": {"location": "广州"}}
+        2. JSON嵌入在文本中
+        3. 混合思考过程+JSON
+
+        Returns:
+            如果解析成功，返回 {"tool_call": True, "tool": str, "parameters": dict}
+            如果不是工具调用，返回 None
+        """
+        if not text:
+            return None
+
+        # 先过滤思考过程
+        cleaned = self._filter_thinking_process(text)
+
+        # 策略1: 直接尝试解析整个清理后的文本为JSON
+        for candidate in [cleaned, text]:
+            candidate = candidate.strip()
+            # 移除可能的markdown代码块标记
+            if candidate.startswith('```'):
+                candidate = re.sub(r'^```(?:json)?\s*\n?', '', candidate)
+                candidate = re.sub(r'\n?```$', '', candidate)
+                candidate = candidate.strip()
+
+            try:
+                parsed = json.loads(candidate)
+                if isinstance(parsed, dict) and parsed.get('tool_call') is True:
+                    tool_name = parsed.get('tool')
+                    parameters = parsed.get('parameters', {})
+                    if tool_name and isinstance(tool_name, str):
+                        return {"tool_call": True, "tool": tool_name, "parameters": parameters}
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        # 策略2: 在文本中搜索JSON块（可能被其他文字包裹）
+        json_patterns = [
+            r'\{[^{}]*"tool_call"\s*:\s*true[^{}]*\}',  # 单层JSON
+            r'\{[^{}]*"tool_call"\s*:\s*True[^{}]*\}',   # Python风格布尔
+        ]
+        for pattern in json_patterns:
+            matches = re.finditer(pattern, text, re.DOTALL)
+            for match in matches:
+                json_str = match.group()
+                # 修复Python风格的True为JSON的true
+                json_str = json_str.replace('True', 'true').replace('False', 'false')
+                try:
+                    parsed = json.loads(json_str)
+                    if isinstance(parsed, dict) and parsed.get('tool_call') is True:
+                        tool_name = parsed.get('tool')
+                        parameters = parsed.get('parameters', {})
+                        if tool_name and isinstance(tool_name, str):
+                            return {"tool_call": True, "tool": tool_name, "parameters": parameters}
+                except (json.JSONDecodeError, ValueError):
+                    pass
+
+        # 策略3: 更宽松的搜索 - 找包含 "tool" 和 "parameters" 键的JSON对象
+        json_block_pattern = r'\{(?:[^{}]|(?:\{[^{}]*\}))*\}'
+        for match in re.finditer(json_block_pattern, text, re.DOTALL):
+            json_str = match.group()
+            try:
+                parsed = json.loads(json_str)
+                if isinstance(parsed, dict):
+                    # 检查是否有工具调用的关键字段
+                    tool_name = parsed.get('tool') or parsed.get('name') or parsed.get('function')
+                    params = parsed.get('parameters') or parsed.get('args') or parsed.get('arguments')
+                    if tool_name and isinstance(tool_name, str):
+                        # 验证是否是已知公共工具
+                        known_tools = [t['name'] for t in self.PUBLIC_TOOL_DEFINITIONS]
+                        if tool_name in known_tools:
+                            return {"tool_call": True, "tool": tool_name, "parameters": params or {}}
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        return None
+
+    def _execute_public_tool(self, tool_name: str, parameters: Dict) -> Dict:
+        """执行公共工具并返回结果
+
+        公共工具是完全独立的，不涉及公司内部工具（gitlab/jenkins等）。
+        公共工具对所有访客可用，无需认证。
+
+        Args:
+            tool_name: 工具名称
+            parameters: 工具参数
+
+        Returns:
+            {"success": bool, "result": str, "tool": str, "parameters": dict}
+        """
+        import datetime
+        try:
+            if tool_name == 'weather_query':
+                location = parameters.get('location', '')
+                if not location:
+                    return {"success": False, "result": "请提供城市名称", "tool": tool_name, "parameters": parameters}
+                # 使用wttr.in免费天气API（无需密钥，公开服务）
+                weather_result = self._query_weather(location)
+                return {"success": weather_result.get('success', False),
+                        "result": weather_result.get('result', '天气查询失败'),
+                        "tool": tool_name, "parameters": parameters}
+
+            elif tool_name == 'time_query':
+                timezone = parameters.get('timezone', 'Asia/Shanghai')
+                now = datetime.datetime.now(tz=datetime.timezone.utc)
+                try:
+                    import zoneinfo
+                    tz = zoneinfo.ZoneInfo(timezone)
+                    local_time = now.astimezone(tz)
+                    result = f"当前时间({timezone}): {local_time.strftime('%Y年%m月%d日 %H:%M:%S')}"
+                except Exception:
+                    # 回退：使用UTC偏移估算
+                    result = f"当前UTC时间: {now.strftime('%Y年%m月%d日 %H:%M:%S')}"
+                return {"success": True, "result": result, "tool": tool_name, "parameters": parameters}
+
+            elif tool_name == 'calculator':
+                expression = parameters.get('expression', '')
+                if not expression:
+                    return {"success": False, "result": "请提供数学表达式", "tool": tool_name, "parameters": parameters}
+                # 安全计算：只允许数字和基本运算符
+                safe_expr = re.sub(r'[^\d+\-*/().%\s]', '', expression)
+                if not safe_expr:
+                    return {"success": False, "result": "表达式无效", "tool": tool_name, "parameters": parameters}
+                try:
+                    calc_result = eval(safe_expr, {"__builtins__": {}}, {})
+                    return {"success": True, "result": f"{expression} = {calc_result}",
+                            "tool": tool_name, "parameters": parameters}
+                except Exception as e:
+                    return {"success": False, "result": f"计算错误: {str(e)}",
+                            "tool": tool_name, "parameters": parameters}
+
+            elif tool_name == 'translation':
+                text_to_translate = parameters.get('text', '')
+                direction = parameters.get('direction', 'zh2en')
+                if not text_to_translate:
+                    return {"success": False, "result": "请提供需要翻译的文本",
+                            "tool": tool_name, "parameters": parameters}
+                # 使用模型自身进行翻译（无需外部API）
+                if direction == 'zh2en':
+                    trans_prompt = f"请将以下中文翻译为英文，只输出翻译结果：\n{text_to_translate}"
+                else:
+                    trans_prompt = f"请将以下英文翻译为中文，只输出翻译结果：\n{text_to_translate}"
+                trans_result = self.generate_text(trans_prompt, model='qwen3',
+                                                  max_tokens=256, temperature=0.3)
+                if trans_result.get('success'):
+                    translated = self._filter_thinking_process(trans_result.get('text', ''))
+                    return {"success": True, "result": translated,
+                            "tool": tool_name, "parameters": parameters}
+                else:
+                    return {"success": False, "result": "翻译失败",
+                            "tool": tool_name, "parameters": parameters}
+
+            elif tool_name == 'encyclopedia':
+                question = parameters.get('question', '')
+                if not question:
+                    return {"success": False, "result": "请提供问题",
+                            "tool": tool_name, "parameters": parameters}
+                # 使用模型自身的知识回答百科问题
+                enc_prompt = f"请简明回答以下常识性问题，只输出答案：\n{question}"
+                enc_result = self.generate_text(enc_prompt, model='qwen3',
+                                                 max_tokens=256, temperature=0.5)
+                if enc_result.get('success'):
+                    answer = self._filter_thinking_process(enc_result.get('text', ''))
+                    return {"success": True, "result": answer,
+                            "tool": tool_name, "parameters": parameters}
+                else:
+                    return {"success": False, "result": "百科查询失败",
+                            "tool": tool_name, "parameters": parameters}
+
+            else:
+                return {"success": False, "result": f"未知公共工具: {tool_name}",
+                        "tool": tool_name, "parameters": parameters}
+
+        except Exception as e:
+            return {"success": False, "result": f"工具执行异常: {str(e)}",
+                    "tool": tool_name, "parameters": parameters}
+
+    def _query_weather(self, location: str) -> Dict:
+        """通过wttr.in免费API查询天气
+
+        wttr.in 是公开的免费天气服务，无需API密钥。
+        """
+        import urllib.request
+        import urllib.error
+
+        try:
+            # 使用wttr.in的JSON格式API
+            encoded_location = urllib.request.quote(location)
+            url = f'https://wttr.in/{encoded_location}?format=j1&lang=zh'
+
+            req = urllib.request.Request(url, headers={
+                'User-Agent': 'LivingAgentService/1.0',
+                'Accept-Language': 'zh-CN,zh;q=0.9'
+            })
+
+            with urllib.request.urlopen(req, timeout=10) as response:
+                data = json.loads(response.read().decode('utf-8'))
+
+            current = data.get('current_condition', [{}])[0]
+            temp_c = current.get('temp_C', 'N/A')
+            humidity = current.get('humidity', 'N/A')
+            desc = current.get('lang_zh', [{}])[0].get('value', '') if current.get('lang_zh') else current.get('weatherDesc', [{}])[0].get('value', '')
+            wind_speed = current.get('windspeedKmph', 'N/A')
+            feels_like = current.get('FeelsLikeC', 'N/A')
+
+            # 找到城市名（中文优先）
+            area = data.get('nearest_area', [{}])[0]
+            city_name = area.get('areaName', [{}])[0].get('value', location)
+
+            result_text = (
+                f"{city_name}当前天气：{desc}，"
+                f"温度{temp_c}°C（体感{feels_like}°C），"
+                f"湿度{humidity}%，"
+                f"风速{wind_speed}km/h"
+            )
+            return {"success": True, "result": result_text}
+
+        except urllib.error.URLError as e:
+            # 网络不可用时，尝试回退方案
+            print(f"[ModelDaemon] 天气API不可用: {e}", file=sys.stderr, flush=True)
+            return {"success": False, "result": f"天气查询暂时不可用（网络问题），请稍后再试"}
+        except Exception as e:
+            print(f"[ModelDaemon] 天气查询异常: {e}", file=sys.stderr, flush=True)
+            return {"success": False, "result": f"天气查询失败"}
+
     def generate_text(self, prompt, model='qwen3', max_tokens=1000, temperature=0.7, session_id=None):
         start_time = time.time()
         
         with self.stats_lock:
             self.stats['total_requests'] += 1
         
+        # 优先使用llama-server（独立进程，端口8393+）
+        if hasattr(self, 'llama_server_ports') and self.llama_server_ports:
+            return self._generate_text_via_server(prompt, model, max_tokens, temperature, start_time)
+        
+        # 回退：llama-cli CLI（可能崩溃）
+        return self._generate_text_via_cli(prompt, model, max_tokens, temperature, start_time)
+    
+    def _generate_text_via_server(self, prompt, model, max_tokens, temperature, start_time):
+        """通过llama-server HTTP API调用（推荐，稳定）"""
+        import urllib.request
+        import urllib.error
+        
+        model_key = model if model in self.llama_server_ports else 'qwen3'
+        port = self.llama_server_ports.get(model_key, 8393)
+        
+        try:
+            url = f'http://127.0.0.1:{port}/v1/chat/completions'
+            data = json.dumps({
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": max_tokens,
+                "temperature": temperature
+            }).encode('utf-8')
+            
+            req = urllib.request.Request(
+                url,
+                data=data,
+                headers={'Content-Type': 'application/json'},
+                method='POST'
+            )
+            
+            with urllib.request.urlopen(req, timeout=120) as response:
+                result_json = json.loads(response.read().decode('utf-8'))
+            
+            if result_json.get('choices') and len(result_json['choices']) > 0:
+                choice = result_json['choices'][0]
+                msg = choice.get('message', {})
+                response_text = msg.get('content', '')
+                # Qwen3思考模式：如果content为空但有reasoning_content，取reasoning_content
+                if not response_text and msg.get('reasoning_content'):
+                    response_text = msg.get('reasoning_content', '')
+                
+                # 过滤Qwen3思考模式输出的思考过程（只保留最终回复）
+                response_text = self._filter_thinking_process(response_text)
+                
+                latency = int((time.time() - start_time) * 1000)
+                with self.stats_lock:
+                    self.stats['total_latency_ms'] += latency
+                    if model_key == 'qwen3':
+                        self.stats['chat_model_calls'] += 1
+                        self.stats['chat_latency_ms'] += latency
+                    else:
+                        self.stats['tool_model_calls'] += 1
+                        self.stats['tool_latency_ms'] += latency
+                
+                return {"success": True, "text": response_text, "model": model_key, "backend": "llama-server", "latency_ms": latency}
+            else:
+                return {"success": False, "error": f"llama-server返回格式错误: {result_json}"}
+                
+        except urllib.error.URLError as e:
+            return {"success": False, "error": f"llama-server连接失败: {str(e)}"}
+        except Exception as e:
+            return {"success": False, "error": f"LLM失败: {str(e)}"}
+    
+    def _generate_text_via_cli(self, prompt, model, max_tokens, temperature, start_time):
+        """通过llama-cli调用（回退方案，可能崩溃）"""
         model_path = QWEN3_MODEL_FILE if model == 'qwen3' else QWEN35_MODEL_FILE
         model_key = model
         model_lock = self.qwen3_lock if model == 'qwen3' else self.qwen35_lock
@@ -1095,6 +1718,9 @@ class ModelManager:
                     response = result.stdout.strip()
                     if response.startswith(prompt):
                         response = response[len(prompt):].strip()
+                    
+                    # 过滤Qwen3思考模式输出的思考过程
+                    response = self._filter_thinking_process(response)
                     
                     latency = int((time.time() - start_time) * 1000)
                     with self.stats_lock:
@@ -1148,29 +1774,23 @@ class ModelManager:
                     }
             
             if target_model == DualModelIntentClassifier.TargetModel.TOOL:
+                # 工具路由意图：调用工具模型(qwen35)处理
+                # 使用多轮对话格式发送，以更好地支持结构化工具调用
                 system_prompt = self._build_tool_system_prompt()
-                if history:
-                    full_prompt = self._build_prompt_with_history(system_prompt, user_input, history)
-                else:
-                    full_prompt = f"{system_prompt}\n\n用户：{user_input}\n助手："
-                
-                result = self.generate_text(
-                    full_prompt,
-                    model='qwen35',
-                    max_tokens=CHAT_CONFIG['max_tokens_tool'],
-                    temperature=CHAT_CONFIG['temperature_tool'],
-                    session_id=session_id
+
+                result = self._generate_tool_call_response(
+                    system_prompt, user_input, history, session_id
                 )
-                
+
                 if result.get('success'):
                     result['intent'] = intent
                     result['confidence'] = confidence
                     result['target_model'] = 'tool-neuron'
-                    
+
                     routing_result = NeuronRouter.route(user_input, intent)
                     if routing_result['success']:
                         result['routing'] = routing_result
-                
+
                 return result
             
             if target_model == DualModelIntentClassifier.TargetModel.MAIN:
@@ -1207,7 +1827,234 @@ class ModelManager:
             result['target_model'] = 'chat-neuron'
         
         return result
-    
+
+    def _generate_tool_call_response(self, system_prompt: str, user_input: str,
+                                      history: List[Dict] = None, session_id: str = None) -> Dict:
+        """生成工具调用响应：检测工具调用 → 执行 → 返回结果
+
+        流程：
+        1. 调用Qwen3.5-2B模型生成响应
+        2. 解析模型输出是否包含tool_call JSON
+        3. 如果是工具调用 → 执行公共工具 → 将结果格式化为回复
+        4. 如果不是工具调用 → 返回模型文本回复
+        """
+        start_time = time.time()
+
+        # 使用llama-server的chat格式（支持system+user多消息）
+        if hasattr(self, 'llama_server_ports') and self.llama_server_ports:
+            result = self._generate_tool_via_server(system_prompt, user_input, history, session_id)
+        else:
+            # 回退：使用拼接prompt方式
+            if history:
+                full_prompt = self._build_prompt_with_history(system_prompt, user_input, history)
+            else:
+                full_prompt = f"{system_prompt}\n\n用户：{user_input}\n助手："
+            result = self.generate_text(
+                full_prompt,
+                model='qwen35',
+                max_tokens=CHAT_CONFIG['max_tokens_tool'],
+                temperature=CHAT_CONFIG['temperature_tool'],
+                session_id=session_id
+            )
+
+        if not result.get('success'):
+            return result
+
+        model_output = result.get('text', '')
+
+        # 解析是否为工具调用
+        tool_call_parsed = self._parse_tool_call(model_output)
+
+        if tool_call_parsed and tool_call_parsed.get('tool_call'):
+            # 工具调用 → 执行公共工具
+            tool_name = tool_call_parsed['tool']
+            tool_params = tool_call_parsed['parameters']
+            print(f"[ModelDaemon] 检测到工具调用: tool={tool_name}, params={tool_params}",
+                  file=sys.stderr, flush=True)
+
+            tool_result = self._execute_public_tool(tool_name, tool_params)
+
+            if tool_result.get('success'):
+                # 工具执行成功 → 格式化结果为自然语言回复
+                tool_reply = self._format_tool_result_as_reply(tool_name, tool_params, tool_result)
+                latency = int((time.time() - start_time) * 1000)
+                return {
+                    "success": True,
+                    "text": tool_reply,
+                    "model": "tool-neuron+public-tool",
+                    "tool_call": True,
+                    "tool": tool_name,
+                    "parameters": tool_params,
+                    "tool_result": tool_result.get('result', ''),
+                    "intent": "tool_call",
+                    "confidence": 0.9,
+                    "latency_ms": latency
+                }
+            else:
+                # 工具执行失败 → 提示用户
+                latency = int((time.time() - start_time) * 1000)
+                return {
+                    "success": True,
+                    "text": f"抱歉，{tool_result.get('result', '工具执行失败')}。请稍后再试。",
+                    "model": "tool-neuron",
+                    "tool_call": True,
+                    "tool": tool_name,
+                    "parameters": tool_params,
+                    "tool_result": tool_result.get('result', ''),
+                    "tool_success": False,
+                    "intent": "tool_call",
+                    "confidence": 0.9,
+                    "latency_ms": latency
+                }
+        else:
+            # 不是工具调用 → 返回模型文本回复（过滤思考过程）
+            cleaned_text = self._filter_thinking_process(model_output)
+            result['text'] = cleaned_text
+            # 标记这不是工具调用，便于Java端识别
+            result['tool_call'] = False
+            return result
+
+    def _generate_tool_via_server(self, system_prompt: str, user_input: str,
+                                   history: List[Dict] = None, session_id: str = None) -> Dict:
+        """通过llama-server的chat/completions格式生成工具调用响应
+
+        使用system+user多消息格式，优于拼接prompt方式，
+        能更好地引导模型输出结构化的工具调用JSON。
+        同时通过/no_think标记和低temperature抑制Qwen3的thinking模式。
+        """
+        import urllib.request
+        import urllib.error
+
+        model_key = 'qwen35'
+        port = self.llama_server_ports.get(model_key, 8394)
+
+        start_time = time.time()
+
+        try:
+            url = f'http://127.0.0.1:{port}/v1/chat/completions'
+
+            # 构建消息：system + few-shot assistant/user pairs + 当前用户输入
+            # 通过few-shot assistant回答作为格式示范，引导模型输出JSON
+            few_shot_messages = [
+                {"role": "system", "content": system_prompt + "\n\n/no_think"},
+                # Few-shot: 示范工具调用格式
+                {"role": "user", "content": "广州天气怎么样"},
+                {"role": "assistant", "content": '{"tool_call": true, "tool": "weather_query", "parameters": {"location": "广州"}}'},
+                {"role": "user", "content": "你好"},
+                {"role": "assistant", "content": '您好！我是公司的智能前台助手，有什么可以帮您的吗？'},
+            ]
+
+            # 加入对话历史（如果有）
+            if history:
+                for turn in history:
+                    role = turn.get('role', 'user')
+                    content = turn.get('content', '')
+                    if role == 'user':
+                        few_shot_messages.append({"role": "user", "content": content})
+                    elif role == 'assistant':
+                        few_shot_messages.append({"role": "assistant", "content": content})
+
+            # 当前用户输入
+            few_shot_messages.append({"role": "user", "content": user_input})
+
+            # 使用低temperature + 添加repeat_penalty抑制发散
+            data = json.dumps({
+                "messages": few_shot_messages,
+                "max_tokens": CHAT_CONFIG['max_tokens_tool'],
+                "temperature": max(CHAT_CONFIG['temperature_tool'], 0.1),
+                "repeat_penalty": 1.2
+            }).encode('utf-8')
+
+            req = urllib.request.Request(
+                url,
+                data=data,
+                headers={'Content-Type': 'application/json'},
+                method='POST'
+            )
+
+            with urllib.request.urlopen(req, timeout=120) as response:
+                result_json = json.loads(response.read().decode('utf-8'))
+
+            if result_json.get('choices') and len(result_json['choices']) > 0:
+                choice = result_json['choices'][0]
+                msg = choice.get('message', {})
+                response_text = msg.get('content', '')
+                # 如果content为空但reasoning_content有值，合并使用
+                if not response_text and msg.get('reasoning_content'):
+                    response_text = msg.get('reasoning_content', '')
+
+                # 检查是否有function_call响应（OpenAI function calling格式）
+                if msg.get('function_call'):
+                    func_call = msg['function_call']
+                    tool_name = func_call.get('name', '')
+                    try:
+                        tool_params = json.loads(func_call.get('arguments', '{}'))
+                    except json.JSONDecodeError:
+                        tool_params = {}
+                    return {"success": True, "text": json.dumps({
+                        "tool_call": True, "tool": tool_name, "parameters": tool_params
+                    }), "model": model_key, "backend": "llama-server",
+                            "latency_ms": int((time.time() - start_time) * 1000)}
+
+                # 检查是否有tool_calls响应（新版OpenAI格式）
+                if msg.get('tool_calls') and len(msg['tool_calls']) > 0:
+                    tc = msg['tool_calls'][0]
+                    tool_name = tc.get('function', {}).get('name', '')
+                    try:
+                        tool_params = json.loads(tc.get('function', {}).get('arguments', '{}'))
+                    except json.JSONDecodeError:
+                        tool_params = {}
+                    return {"success": True, "text": json.dumps({
+                        "tool_call": True, "tool": tool_name, "parameters": tool_params
+                    }), "model": model_key, "backend": "llama-server",
+                            "latency_ms": int((time.time() - start_time) * 1000)}
+
+                latency = int((time.time() - start_time) * 1000)
+                with self.stats_lock:
+                    self.stats['total_latency_ms'] += latency
+                    self.stats['tool_model_calls'] += 1
+                    self.stats['tool_latency_ms'] += latency
+
+                return {"success": True, "text": response_text, "model": model_key,
+                        "backend": "llama-server", "latency_ms": latency}
+            else:
+                return {"success": False, "error": f"llama-server返回格式错误: {result_json}"}
+
+        except urllib.error.URLError as e:
+            # llama-server失败 → 回退到拼接prompt方式
+            print(f"[ModelDaemon] llama-server工具调用失败，回退: {e}", file=sys.stderr, flush=True)
+            if history:
+                full_prompt = self._build_prompt_with_history(system_prompt, user_input, history)
+            else:
+                full_prompt = f"{system_prompt}\n\n用户：{user_input}\n助手："
+            return self.generate_text(
+                full_prompt,
+                model='qwen35',
+                max_tokens=CHAT_CONFIG['max_tokens_tool'],
+                temperature=CHAT_CONFIG['temperature_tool'],
+                session_id=session_id
+            )
+        except Exception as e:
+            print(f"[ModelDaemon] 工具调用server异常: {e}", file=sys.stderr, flush=True)
+            return {"success": False, "error": f"工具调用server异常: {str(e)}"}
+
+    def _format_tool_result_as_reply(self, tool_name: str, params: Dict, tool_result: Dict) -> str:
+        """将工具执行结果格式化为自然语言回复"""
+        result_text = tool_result.get('result', '')
+
+        tool_reply_templates = {
+            'weather_query': f"您好！为您查询到{params.get('location', '')}的天气信息：{result_text}",
+            'time_query': f"您好！{result_text}",
+            'calculator': f"您好！计算结果是：{result_text}",
+            'translation': f"您好！翻译结果：{result_text}",
+            'encyclopedia': f"您好！{result_text}",
+        }
+
+        template = tool_reply_templates.get(tool_name)
+        if template:
+            return template
+        return f"您好！查询结果：{result_text}"
+
     def _build_prompt_with_history(self, system_prompt: str, user_input: str, history: List[Dict]) -> str:
         parts = [system_prompt, ""]
         
@@ -1859,12 +2706,31 @@ def start_llm_http_server(model_manager, port=8392):
                 self.send_json_response({"object": "list", "data": models})
             
             elif path in ('/health', '/v1/health'):
-                self.send_json_response({
-                    "status": "healthy",
-                    "qwen35_loaded": model_manager.models_loaded.get('qwen35', False),
-                    "qwen3_loaded": model_manager.models_loaded.get('qwen3', False),
-                    "llama_cli_available": model_manager.llama_cli_path is not None
-                })
+                # 直接代理到llama-server健康检查
+                server_ports = getattr(model_manager, 'llama_server_ports', {})
+                if server_ports:
+                    health_info = {
+                        "status": "healthy",
+                        "qwen35_loaded": model_manager.models_loaded.get('qwen35', False),
+                        "qwen3_loaded": model_manager.models_loaded.get('qwen3', False),
+                        "llama_servers": {}
+                    }
+                    import urllib.request
+                    for model_key, port in server_ports.items():
+                        try:
+                            req = urllib.request.Request(f'http://127.0.0.1:{port}/health')
+                            with urllib.request.urlopen(req, timeout=2) as resp:
+                                health_info['llama_servers'][model_key] = json.loads(resp.read().decode('utf-8'))
+                        except Exception:
+                            health_info['llama_servers'][model_key] = {"status": "unreachable"}
+                    self.send_json_response(health_info)
+                else:
+                    self.send_json_response({
+                        "status": "healthy",
+                        "qwen35_loaded": model_manager.models_loaded.get('qwen35', False),
+                        "qwen3_loaded": model_manager.models_loaded.get('qwen3', False),
+                        "llama_cli_available": model_manager.llama_cli_path is not None
+                    })
             else:
                 self.send_json_response({"error": {"message": "Not found"}}, 404)
         
@@ -1882,7 +2748,36 @@ def start_llm_http_server(model_manager, port=8392):
                 self.send_json_response({"error": {"message": f"Invalid request body: {str(e)}"}}, 400)
                 return
             
+            # 直接代理到llama-server，不走generate_text()
             model = body.get('model', 'qwen3.5-2b')
+            internal_model = 'qwen35'
+            if '0.6' in model or model == 'qwen3-0.6b':
+                internal_model = 'qwen3'
+            
+            server_ports = getattr(model_manager, 'llama_server_ports', {})
+            if server_ports:
+                port = server_ports.get(internal_model, 8393)
+                try:
+                    import urllib.request
+                    # 直接转发请求到llama-server
+                    proxy_req = urllib.request.Request(
+                        f'http://127.0.0.1:{port}{path}',
+                        data=json.dumps(body).encode('utf-8'),
+                        headers={'Content-Type': 'application/json'},
+                        method='POST'
+                    )
+                    with urllib.request.urlopen(proxy_req, timeout=120) as resp:
+                        self.send_response(resp.status)
+                        self.send_header('Content-Type', 'application/json; charset=utf-8')
+                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self.end_headers()
+                        self.wfile.write(resp.read())
+                    return
+                except Exception as e:
+                    self.send_json_response({"error": {"message": f"llama-server代理失败: {str(e)}"}}, 502)
+                    return
+            
+            # 回退：走generate_text()
             messages = body.get('messages', [])
             max_tokens = body.get('max_tokens', CHAT_CONFIG['max_tokens_tool'])
             temperature = body.get('temperature', CHAT_CONFIG['temperature_tool'])
@@ -1903,10 +2798,6 @@ def start_llm_http_server(model_manager, port=8392):
                 elif role == 'assistant':
                     prompt_parts.append(f"Assistant: {content}")
             prompt = "\n".join(prompt_parts)
-            
-            internal_model = 'qwen35'
-            if '0.6' in model or model == 'qwen3-0.6b':
-                internal_model = 'qwen3'
             
             result = model_manager.generate_text(
                 prompt, model=internal_model,
@@ -1961,16 +2852,19 @@ def main():
     session_manager = SessionManager(manager, max_workers=10)
     manager.session_manager = session_manager
     
-    # 启动声纹识别HTTP服务
-    speaker_http_port = int(os.environ.get('SPEAKER_HTTP_PORT', '8391'))
-    speaker_http_thread = threading.Thread(
-        target=start_speaker_http_server,
-        args=(manager, speaker_http_port),
-        name="SpeakerHTTPServer",
-        daemon=True
-    )
-    speaker_http_thread.start()
-    print(f"[ModelDaemon] 🎤 声纹识别HTTP服务启动于端口 {speaker_http_port}", file=sys.stderr, flush=True)
+    # 启动声纹识别HTTP服务（仅本地模式）
+    if not SPEAKER_USE_REMOTE:
+        speaker_http_port = int(os.environ.get('SPEAKER_HTTP_PORT', '8391'))
+        speaker_http_thread = threading.Thread(
+            target=start_speaker_http_server,
+            args=(manager, speaker_http_port),
+            name="SpeakerHTTPServer",
+            daemon=True
+        )
+        speaker_http_thread.start()
+        print(f"[ModelDaemon] 🎤 声纹识别HTTP服务启动于端口 {speaker_http_port}", file=sys.stderr, flush=True)
+    else:
+        print(f"[ModelDaemon] 🎤 声纹识别使用远程服务: {SPEAKER_SERVICE_URL}，跳过本地HTTP服务", file=sys.stderr, flush=True)
     
     # 启动LLM OpenAI兼容HTTP服务（供 fuck-u-code 等外部工具调用）
     llm_http_port = int(os.environ.get('LLM_HTTP_PORT', '8392'))
@@ -2092,6 +2986,55 @@ def main():
                         result = {"success": True, "message": "守护进程已关闭"}
                         write_control_response(result)
                         break
+
+                    elif command == 'llm_chat':
+                        # 处理LLM聊天请求（使用高级方法，支持意图识别+快速响应）
+                        model_id = params.get('model_id', 'qwen3')
+                        prompt = params.get('prompt', '')
+                        session_id = params.get('session_id') or f'public-{request_id}'
+                        history = params.get('history', [])
+                        
+                        print(f"[ModelDaemon] llm_chat开始处理: prompt='{prompt[:50]}...', session_id={session_id}", file=sys.stderr, flush=True)
+                        
+                        if not prompt:
+                            result = {"success": False, "error": "缺少prompt参数"}
+                        else:
+                            try:
+                                print(f"[ModelDaemon] 调用generate_chat_response...", file=sys.stderr, flush=True)
+                                # 使用generate_chat_response获取意图识别+快速响应+任务路由
+                                gen_result = manager.generate_chat_response(
+                                    session_id=session_id,
+                                    user_input=prompt,
+                                    history=history if history else None
+                                )
+                                print(f"[ModelDaemon] generate_chat_response返回: success={gen_result.get('success')}", file=sys.stderr, flush=True)
+                                if gen_result.get('success'):
+                                    result = {
+                                        "success": True,
+                                        # 同时返回text和response字段，兼容不同调用方
+                                        "response": gen_result.get('text', ''),
+                                        "text": gen_result.get('text', ''),
+                                        "model": gen_result.get('model', model_id),
+                                        "intent": gen_result.get('intent', 'casual_chat'),
+                                        "confidence": gen_result.get('confidence', 0.5),
+                                        "latency_ms": gen_result.get('latency_ms', 0),
+                                        # 工具调用字段（公共工具独立，与公司内部工具不混合）
+                                        "tool_call": gen_result.get('tool_call', False),
+                                        "tool": gen_result.get('tool', ''),
+                                        "parameters": gen_result.get('parameters', {}),
+                                        "tool_result": gen_result.get('tool_result', ''),
+                                    }
+                                    # 如果是工具调用成功，日志记录
+                                    if gen_result.get('tool_call'):
+                                        print(f"[ModelDaemon] 公共工具调用完成: tool={gen_result.get('tool')}, result={gen_result.get('tool_result', '')[:80]}",
+                                              file=sys.stderr, flush=True)
+                                else:
+                                    result = {
+                                        "success": False,
+                                        "error": gen_result.get('error', 'LLM生成失败')
+                                    }
+                            except Exception as e:
+                                result = {"success": False, "error": f"LLM聊天异常: {str(e)}"}
 
                     else:
                         result = {

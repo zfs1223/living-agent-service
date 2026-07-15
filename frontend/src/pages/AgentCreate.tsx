@@ -78,7 +78,7 @@ export default function AgentCreate() {
     // Current company (tenant) selection from layout sidebar
     const [currentTenant] = useState<string | null>(() => localStorage.getItem('current_tenant_id'));
 
-    // 判断是否为个人数字人创建模式（普通员工创建协助数字人）
+    // 判断是否为个人助理创建模式（普通员工创建个人助理）
     const isPersonalMode = searchParams.get('type') === 'personal';
     const isEnterprise = user?.identity === 'INTERNAL_ENTERPRISE' || user?.access_level === 'FULL';
 
@@ -525,12 +525,12 @@ For humans, the message is delivered via their available channel (e.g. Feishu).`
             <div className="page-header">
                 <h1 className="page-title">
                     {isPersonalMode
-                        ? (t('agent.createPersonal') || '创建个人数字人')
+                        ? (t('agent.createPersonal') || '新建个人助理')
                         : t('nav.newAgent')}
                 </h1>
                 {isPersonalMode && (
                     <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                        {t('agent.personalModeDesc') || '创建一个专属于您的数字人助手，仅您自己可以访问'}
+                        {t('agent.personalModeDesc') || '创建一个专属于您的个人助理，仅您自己可以访问和使用'}
                     </p>
                 )}
             </div>
@@ -784,7 +784,7 @@ For humans, the message is delivered via their available channel (e.g. Feishu).`
                                 fontSize: '13px',
                                 color: 'var(--accent-text)'
                             }}>
-                                {t('agent.personalModePermission') || '个人数字人仅您自己可以访问和使用'}
+                                {t('agent.personalModePermission') || '个人助理仅您自己可以访问和使用'}
                             </div>
                         )}
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px' }}>

@@ -1,3 +1,11 @@
+---
+name: self-improving
+description: Self Improving
+risk: low
+source: internal
+date_added: '2026-07-13'
+---
+
 # Self Improving
 
 > 自我改进技能，捕获学习、错误和纠正以实现持续改进

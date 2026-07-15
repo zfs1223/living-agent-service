@@ -87,10 +87,15 @@ public class JpaEmployeeServiceImpl implements EmployeeService {
         if (request.type() == IdUtils.EmployeeType.DIGITAL) {
             entity.setEmployeeType("DIGITAL");
             entity.setIdentity("digital_employee");
-            entity.setAccessLevel("DEPARTMENT");
+            entity.setAccessLevel(
+                request.permissionAccessLevel() != null ? request.permissionAccessLevel() : "DEPARTMENT"
+            );
             entity.setBrainDomain(request.department());
             entity.setMaxConcurrentTasks(5);
             entity.setOrigin(request.origin() != null ? request.origin().name() : EmployeeOrigin.PERSONAL.name());
+            if (request.primaryModelId() != null && !request.primaryModelId().isBlank()) {
+                entity.setModel(request.primaryModelId());
+            }
             try {
                 entity.setSkills(objectMapper.writeValueAsString(request.skills()));
                 entity.setCapabilities(objectMapper.writeValueAsString(request.capabilities()));

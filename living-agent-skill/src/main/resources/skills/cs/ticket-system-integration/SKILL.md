@@ -1,3 +1,11 @@
+---
+name: ticket-system-integration
+description: Ticket System Integration
+risk: low
+source: internal
+date_added: '2026-07-13'
+---
+
 # Ticket System Integration
 
 > 工单系统集成技能，连接客服工单系统、自动分配、SLA监控

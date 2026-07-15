@@ -237,17 +237,53 @@ public class DistributedDeploymentServiceImpl implements DistributedDeploymentSe
         if (clusterHealthMonitor != null) {
             clusterHealthMonitor.recordRebalance("shard rebalance triggered");
         }
-        
+
         List<NodeInfo> onlineNodes = nodes.values().stream()
             .filter(n -> n.status() == NodeStatus.ONLINE)
             .collect(Collectors.toList());
-        
+
         if (onlineNodes.size() < 2) {
             log.warn("Not enough online nodes for rebalancing");
             return;
         }
-        
-        log.info("Shard rebalancing completed");
+
+        // 计算每个节点的shard数量
+        Map<String, List<String>> nodeShards = new HashMap<>();
+        for (NodeInfo node : onlineNodes) {
+            nodeShards.put(node.nodeId(), new ArrayList<>(node.shardIds()));
+        }
+        for (ShardInfo shard : shards.values()) {
+            if (shard.status() == ShardStatus.ACTIVE && nodeShards.containsKey(shard.primaryNodeId())) {
+                nodeShards.get(shard.primaryNodeId()).add(shard.shardId());
+            }
+        }
+
+        int totalShards = (int) shards.values().stream()
+            .filter(s -> s.status() == ShardStatus.ACTIVE).count();
+        int targetPerNode = Math.max(1, totalShards / onlineNodes.size());
+
+        // 从过载节点迁移shard到欠载节点
+        int migrated = 0;
+        for (Map.Entry<String, List<String>> entry : nodeShards.entrySet()) {
+            String nodeId = entry.getKey();
+            List<String> shardIds = entry.getValue();
+            while (shardIds.size() > targetPerNode + 1) {
+                String shardToMove = shardIds.remove(shardIds.size() - 1);
+                NodeInfo targetNode = onlineNodes.stream()
+                    .filter(n -> nodeShards.getOrDefault(n.nodeId(), List.of()).size() < targetPerNode)
+                    .findFirst().orElse(null);
+
+                if (targetNode != null) {
+                    migrateShard(shardToMove, targetNode.nodeId());
+                    nodeShards.get(targetNode.nodeId()).add(shardToMove);
+                    migrated++;
+                } else {
+                    break;
+                }
+            }
+        }
+
+        log.info("[闭环58] Shard rebalancing completed: {} shards migrated across {} nodes", migrated, onlineNodes.size());
     }
 
     @Override
@@ -456,6 +492,20 @@ public class DistributedDeploymentServiceImpl implements DistributedDeploymentSe
 
     @Override
     public void executeDeploymentPlan(String planId) {
-        log.info("Executing deployment plan: {}", planId);
+        log.info("[闭环58] Executing deployment plan: {}", planId);
+
+        for (NodeInfo node : nodes.values()) {
+            if (node.status() == NodeStatus.ONLINE) {
+                heartbeat(node.nodeId(), new NodeHealth(
+                    node.cpuUsage(), node.memoryUsage(), node.storageUsage(),
+                    node.vectorCount(), node.knowledgeCount(), Map.of()));
+            }
+        }
+
+        rebalanceShards();
+
+        log.info("[闭环58] Deployment plan {} executed: {} nodes, {} shards active",
+            planId, nodes.size(), shards.values().stream()
+                .filter(s -> s.status() == ShardStatus.ACTIVE).count());
     }
 }

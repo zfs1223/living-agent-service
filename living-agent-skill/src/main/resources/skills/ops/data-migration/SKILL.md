@@ -1,3 +1,11 @@
+---
+name: data-migration
+description: Data Migration
+risk: low
+source: internal
+date_added: '2026-07-13'
+---
+
 # Data Migration
 
 > 数据迁移技能，实现数据库和数据的迁移管理（闭环62）

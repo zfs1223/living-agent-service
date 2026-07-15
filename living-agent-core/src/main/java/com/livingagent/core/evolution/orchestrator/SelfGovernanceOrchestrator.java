@@ -1,6 +1,7 @@
 package com.livingagent.core.evolution.orchestrator;
 
 import com.livingagent.core.diagnosis.HealthIssue;
+import com.livingagent.core.evolution.signal.EvolutionSignal;
 
 /**
  * P31-A: 跨闭环协同治理接口。
@@ -17,4 +18,6 @@ public interface SelfGovernanceOrchestrator {
     void onCrossLoopEvent(CrossLoopEvent event);
     
     void onHealthIssue(HealthIssue issue);
+    
+    void onEvolutionSignal(EvolutionSignal signal);
 }

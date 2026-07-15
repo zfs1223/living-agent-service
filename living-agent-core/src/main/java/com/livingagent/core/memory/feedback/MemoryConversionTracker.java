@@ -2,6 +2,7 @@ package com.livingagent.core.memory.feedback;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.util.concurrent.atomic.LongAdder;
@@ -10,6 +11,7 @@ import java.util.concurrent.atomic.LongAdder;
  * 闭环48-P48-A: 记忆→知识转化追踪器
  * 追踪记忆→知识转化率/引用率/归档率
  */
+@Component
 public class MemoryConversionTracker {
 
     private static final Logger log = LoggerFactory.getLogger(MemoryConversionTracker.class);

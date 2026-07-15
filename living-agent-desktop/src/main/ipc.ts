@@ -86,6 +86,19 @@ export function registerIpcHandlers(): void {
     return result;
   });
 
+  // 声纹登录：接收渲染进程传来的录音Buffer
+  ipcMain.handle('auth:voiceprint-login', async (_e, audioBuffer: ArrayBuffer) => {
+    const blob = new Blob([audioBuffer], { type: 'audio/webm' });
+    const { voicePrintLogin } = await import('./api-client');
+    return voicePrintLogin(blob);
+  });
+
+  // 声纹服务状态
+  ipcMain.handle('auth:voiceprint-status', async () => {
+    const { getVoicePrintStatus } = await import('./api-client');
+    return getVoicePrintStatus();
+  });
+
   ipcMain.handle('auth:me', async () => {
     return getCurrentUser();
   });

@@ -155,6 +155,26 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
         }
 
         Optional<AuthContext> ctxOpt = getAuthContext(session);
+
+        // public 通道允许匿名访问
+        if ("public".equals(department)) {
+            if (ctxOpt.isEmpty()) {
+                // 匿名用户：构造最小化会话
+                String userId = "guest_" + session.getId();
+                AccessLevel accessLevel = AccessLevel.CHAT_ONLY;
+                registerSessionIndexes(session, department, userId, accessLevel, null);
+                log.info("WebSocket connected (anonymous): dept=public, sessionId={}", session.getId());
+                return;
+            }
+            // 已登录用户走 public 通道：正常注册
+            AuthContext ctx = ctxOpt.get();
+            String userId = ctx.getEmployeeId() != null ? ctx.getEmployeeId() : "user_" + session.getId();
+            AccessLevel accessLevel = ctx.getAccessLevel() != null ? ctx.getAccessLevel() : AccessLevel.CHAT_ONLY;
+            registerSessionIndexes(session, department, userId, accessLevel, ctx);
+            log.info("WebSocket connected (authenticated): user={}, dept=public, sessionId={}", userId, session.getId());
+            return;
+        }
+
         if (ctxOpt.isEmpty()) {
             String failureReason = authFailureReasons.remove(session.getId());
             if ("TOKEN_INVALID".equals(failureReason)) {
@@ -173,22 +193,50 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
             return;
         }
 
+        if (!checkConnectionLimits(session, department)) return;
+
+        String userId = ctx.getEmployeeId() != null ? ctx.getEmployeeId() : "visitor_" + session.getId();
+        AccessLevel accessLevel = ctx.getAccessLevel() != null ? ctx.getAccessLevel() : AccessLevel.CHAT_ONLY;
+        
+        String clientId = registerClientDevice(session, department);
+
+        if (clientId != null && !clientId.isBlank()) {
+            log.info("Department WebSocket clientId bound: sessionId={}, clientId={}, dept={}", 
+                session.getId(), clientId, department);
+            winAutomationGateway.registerSession(clientId, session);
+        }
+        
+        registerSessionIndexes(session, department, userId, accessLevel, ctx);
+
+        log.info("WebSocket connected: user={}, dept={}, sessionId={}, accessLevel={}",
+            userId, department, session.getId(), accessLevel);
+
+        handleReconnection(session, department, userId);
+
+        broadcastSystemMessage(department, new SystemMessage("USER_JOINED", userId, ctx.getName(), department));
+        sendOnlineUsers(department);
+
+        sendProactiveReport(session, userId);
+    }
+
+    /** Check global and department connection limits, closing session if exceeded. Returns false if rejected. */
+    private boolean checkConnectionLimits(WebSocketSession session, String department) throws Exception {
         if (sessionIndex.size() >= MAX_GLOBAL_CONNECTIONS) {
             log.warn("WebSocket connection rejected: global limit reached ({})", MAX_GLOBAL_CONNECTIONS);
             session.close(new CloseStatus(4029, "GLOBAL_CONNECTION_LIMIT"));
-            return;
+            return false;
         }
         Set<WebSocketSession> deptSessions = departmentChannels.get(department);
         if (deptSessions != null && deptSessions.size() >= MAX_DEPARTMENT_CONNECTIONS) {
             log.warn("WebSocket connection rejected: department {} limit reached ({})", department, MAX_DEPARTMENT_CONNECTIONS);
             session.close(new CloseStatus(4030, "DEPARTMENT_CONNECTION_LIMIT"));
-            return;
+            return false;
         }
+        return true;
+    }
 
-        String userId = ctx.getEmployeeId() != null ? ctx.getEmployeeId() : "visitor_" + session.getId();
-        AccessLevel accessLevel = ctx.getAccessLevel() != null ? ctx.getAccessLevel() : AccessLevel.CHAT_ONLY;
-        
-        // 解析 clientId 和设备信息（从 URL 查询参数）
+    /** Register client device from query params. Returns resolved clientId (may differ from input if recovered). */
+    private String registerClientDevice(WebSocketSession session, String department) {
         String clientId = extractQueryParam(session.getUri(), "clientId");
         String hostname = extractQueryParam(session.getUri(), "hostname");
         String macAddress = extractQueryParam(session.getUri(), "macAddress");
@@ -196,7 +244,6 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
         String osUser = extractQueryParam(session.getUri(), "osUser");
         String applications = extractQueryParam(session.getUri(), "applications");
         
-        // 设备注册：确保 clientId 与设备指纹绑定
         if (clientId != null && !clientId.isBlank() && hostname != null && !hostname.isBlank()) {
             try {
                 ClientDeviceInfo deviceInfo = new ClientDeviceInfo(
@@ -206,17 +253,14 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
                 );
                 ClientDeviceEntity device = deviceRegistryService.registerOrUpdate(deviceInfo);
                 
-                // 保存应用列表（如果提供了）
                 if (applications != null && !applications.isBlank()) {
                     deviceRegistryService.updateApplications(clientId, applications);
                     log.info("Device applications updated: clientId={}, apps={}", clientId, applications);
                 }
                 
-                // 使用服务器返回的 clientId（可能是找回的原 clientId）
                 if (!device.getClientId().equals(clientId)) {
                     log.info("Device clientId recovered: original={}, recovered={}", clientId, device.getClientId());
                     clientId = device.getClientId();
-                    // 通知客户端使用新的 clientId
                     sendJson(session, Map.of(
                         "type", "device_registered",
                         "clientId", device.getClientId(),
@@ -227,106 +271,118 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
                 log.warn("Device registration failed: clientId={}, hostname={}, error={}", clientId, hostname, e.getMessage());
             }
         }
-        
-        if (clientId != null && !clientId.isBlank()) {
-            log.info("Department WebSocket clientId bound: sessionId={}, clientId={}, dept={}", 
-                session.getId(), clientId, department);
-            // 注册到 Windows 自动化网关，供 win_automation 工具查找客户端
-            winAutomationGateway.registerSession(clientId, session);
-        }
-        
+        return clientId;
+    }
+
+    /** Register session into all internal index maps and connection registry. */
+    private void registerSessionIndexes(WebSocketSession session, String department, String userId,
+            AccessLevel accessLevel, AuthContext ctx) {
         departmentChannels.computeIfAbsent(department, k -> ConcurrentHashMap.newKeySet())
             .add(session);
         sessionToDepartment.put(session.getId(), department);
         sessionToUser.put(session.getId(), userId);
         sessionIndex.put(session.getId(), session);
         sessionLastActive.put(session.getId(), Instant.now());
-        sessionToAuthContext.put(session.getId(), ctx);
+        // ConcurrentHashMap不允许null值，只有ctx非null时才put
+        if (ctx != null) {
+            sessionToAuthContext.put(session.getId(), ctx);
+        }
         sessionConnectTime.put(session.getId(), Instant.now());
         sessionAccessLevel.put(session.getId(), accessLevel);
         sessionSendLocks.computeIfAbsent(session.getId(), id -> new ReentrantLock());
 
-        connectionRegistry.register(session.getId(), userId, ctx.getTenantId(),
-            new ConnectionContext(
-                session.getId(), userId, ctx.getTenantId(), ctx.getDepartment(),
-                null, null, null, null, null,
-                Instant.now(), Instant.now(), Map.of()
-            ));
+        if (ctx != null) {
+            connectionRegistry.register(session.getId(), userId, ctx.getTenantId(),
+                new ConnectionContext(
+                    session.getId(), userId, ctx.getTenantId(), ctx.getDepartment(),
+                    null, null, null, null, null,
+                    Instant.now(), Instant.now(), Map.of()
+                ));
+        } else {
+            // 匿名用户：使用默认 tenantId 和 department
+            connectionRegistry.register(session.getId(), userId, "public",
+                new ConnectionContext(
+                    session.getId(), userId, "public", department,
+                    null, null, null, null, null,
+                    Instant.now(), Instant.now(), Map.of()
+                ));
+        }
+    }
 
-        log.info("WebSocket connected: user={}, dept={}, sessionId={}, accessLevel={}",
-            userId, department, session.getId(), accessLevel);
-
-        // === 增强重连逻辑：支持断线重连 ===
+    /** Handle reconnection: restore conversation binding, replay history and pending events. */
+    private void handleReconnection(WebSocketSession session, String department, String userId) {
         String reconnectConversationId = extractQueryParam(session.getUri(), "conversationId");
-        if (reconnectConversationId != null && !reconnectConversationId.isBlank()) {
-            connectionRegistry.bindConversation(session.getId(), reconnectConversationId);
-            log.info("WebSocket reconnected with conversationId: user={}, convId={}", userId, reconnectConversationId);
+        if (reconnectConversationId == null || reconnectConversationId.isBlank()) return;
 
-            try {
-                departmentChatService.bindSessionToConversation(session.getId(), reconnectConversationId);
-            } catch (Exception bindEx) {
-                log.debug("Failed to bind session to conversation for receipt routing: {}", bindEx.getMessage());
-            }
+        connectionRegistry.bindConversation(session.getId(), reconnectConversationId);
+        log.info("WebSocket reconnected with conversationId: user={}, convId={}", userId, reconnectConversationId);
 
-            try {
-                // 发送对话历史
-                List<?> history = departmentChatService.getConversationHistory(reconnectConversationId, 20);
-                if (!history.isEmpty()) {
-                    Map<String, Object> reconnectMsg = new HashMap<>();
-                    reconnectMsg.put("type", "reconnected");
-                    reconnectMsg.put("conversationId", reconnectConversationId);
-                    reconnectMsg.put("historyCount", history.size());
-                    reconnectMsg.put("history", history);
-                    sendJson(session, reconnectMsg);
-                }
-                
-                // 补发断线期间的待处理事件（如果支持 PersistentConnectionRegistry）
-                if (connectionRegistry instanceof PersistentConnectionRegistry persistent) {
-                    List<EventQueueService.PendingEvent> pendingEvents = persistent.getPendingEvents(session.getId());
-                    if (!pendingEvents.isEmpty()) {
-                        log.info("Replaying {} pending events for sessionId={}", pendingEvents.size(), session.getId());
-                        for (var event : pendingEvents) {
-                            try {
-                                Map<String, Object> eventMsg = objectMapper.readValue(event.payload(), Map.class);
-                                eventMsg.put("type", "replay");
-                                eventMsg.put("eventId", event.eventId());
-                                sendJson(session, eventMsg);
-                                persistent.markEventSent(session.getId(), event.eventId());
-                            } catch (Exception ex) {
-                                log.warn("Failed to replay event: {}", ex.getMessage());
-                            }
-                        }
-                        persistent.clearSentEvents(session.getId());
-                    }
-                }
-            } catch (Exception e) {
-                log.debug("Failed to send reconnection data: {}", e.getMessage());
-            }
+        try {
+            departmentChatService.bindSessionToConversation(session.getId(), reconnectConversationId);
+        } catch (Exception bindEx) {
+            log.debug("Failed to bind session to conversation for receipt routing: {}", bindEx.getMessage());
         }
 
-        broadcastSystemMessage(department, new SystemMessage("USER_JOINED", userId, ctx.getName(), department));
-        sendOnlineUsers(department);
-
-        // PR-1: 登录时触发主动汇报（仅首次连接，非重连）
-        if (proactiveOrchestrator != null && sessionProactiveReported.get(session.getId()) == null) {
-            try {
-                OrchestrationResult proactiveResult = proactiveOrchestrator.runForUser(userId);
-                if (proactiveResult != null && !proactiveResult.suggestions().isEmpty()) {
-                    Map<String, Object> proactiveMsg = new HashMap<>();
-                    proactiveMsg.put("type", "proactive_report");
-                    proactiveMsg.put("userId", userId);
-                    proactiveMsg.put("suggestions", proactiveResult.suggestions());
-                    proactiveMsg.put("alerts", proactiveResult.alerts());
-                    proactiveMsg.put("metadata", proactiveResult.metadata());
-                    proactiveMsg.put("timestamp", Instant.now().toString());
-                    sendJson(session, proactiveMsg);
-                    sessionProactiveReported.put(session.getId(), true);
-                    log.info("Proactive report sent to user {} on login: {} suggestions, {} alerts",
-                        userId, proactiveResult.suggestions().size(), proactiveResult.alerts().size());
-                }
-            } catch (Exception e) {
-                log.debug("Failed to generate proactive report for user {}: {}", userId, e.getMessage());
+        try {
+            List<?> history = departmentChatService.getConversationHistory(reconnectConversationId, 20);
+            if (!history.isEmpty()) {
+                Map<String, Object> reconnectMsg = new HashMap<>();
+                reconnectMsg.put("type", "reconnected");
+                reconnectMsg.put("conversationId", reconnectConversationId);
+                reconnectMsg.put("historyCount", history.size());
+                reconnectMsg.put("history", history);
+                sendJson(session, reconnectMsg);
             }
+            
+            replayPendingEvents(session);
+        } catch (Exception e) {
+            log.debug("Failed to send reconnection data: {}", e.getMessage());
+        }
+    }
+
+    /** Replay pending events from PersistentConnectionRegistry after reconnection. */
+    private void replayPendingEvents(WebSocketSession session) {
+        if (!(connectionRegistry instanceof PersistentConnectionRegistry persistent)) return;
+
+        List<EventQueueService.PendingEvent> pendingEvents = persistent.getPendingEvents(session.getId());
+        if (pendingEvents.isEmpty()) return;
+
+        log.info("Replaying {} pending events for sessionId={}", pendingEvents.size(), session.getId());
+        for (var event : pendingEvents) {
+            try {
+                Map<String, Object> eventMsg = objectMapper.readValue(event.payload(), Map.class);
+                eventMsg.put("type", "replay");
+                eventMsg.put("eventId", event.eventId());
+                sendJson(session, eventMsg);
+                persistent.markEventSent(session.getId(), event.eventId());
+            } catch (Exception ex) {
+                log.warn("Failed to replay event: {}", ex.getMessage());
+            }
+        }
+        persistent.clearSentEvents(session.getId());
+    }
+
+    /** PR-1: Send proactive report on first connection (not reconnection). */
+    private void sendProactiveReport(WebSocketSession session, String userId) {
+        if (proactiveOrchestrator == null || sessionProactiveReported.get(session.getId()) != null) return;
+
+        try {
+            OrchestrationResult proactiveResult = proactiveOrchestrator.runForUser(userId);
+            if (proactiveResult != null && !proactiveResult.suggestions().isEmpty()) {
+                Map<String, Object> proactiveMsg = new HashMap<>();
+                proactiveMsg.put("type", "proactive_report");
+                proactiveMsg.put("userId", userId);
+                proactiveMsg.put("suggestions", proactiveResult.suggestions());
+                proactiveMsg.put("alerts", proactiveResult.alerts());
+                proactiveMsg.put("metadata", proactiveResult.metadata());
+                proactiveMsg.put("timestamp", Instant.now().toString());
+                sendJson(session, proactiveMsg);
+                sessionProactiveReported.put(session.getId(), true);
+                log.info("Proactive report sent to user {} on login: {} suggestions, {} alerts",
+                    userId, proactiveResult.suggestions().size(), proactiveResult.alerts().size());
+            }
+        } catch (Exception e) {
+            log.debug("Failed to generate proactive report for user {}: {}", userId, e.getMessage());
         }
     }
 
@@ -450,124 +506,24 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
         log.info("processWithBrain: dept={}, userId={}, sessionId={}, contentLength={}", 
             department, userId, sessionId, content.length());
 
-        // 发送思考指示器
-        try {
-            Map<String, Object> thinkingMsg = Map.of(
-                "type", "thinking",
-                "content", ""
-            );
-            sendJson(session, thinkingMsg);
-            log.info("Thinking indicator sent for dept={}", department);
-        } catch (Exception e) {
-            log.warn("Failed to send thinking indicator: {}", e.getMessage());
-        }
+        sendThinkingIndicator(session, department);
 
-        // 异步处理部门文本对话：直接进入部门大脑，不经过 AgentService/Qwen3Neuron/chat。
         String requestId = UUID.randomUUID().toString();
         String brainName = com.livingagent.core.security.Department.mapDepartmentToBrain(department);
         Optional<com.livingagent.core.brain.Brain> brainOpt = departmentChatService.getBrainByDepartment(department);
         if (brainOpt.isEmpty()) {
-            try {
-                if (session.isOpen()) {
-                    Map<String, Object> errorMsg = Map.of(
-                        "type", "error",
-                        "code", "NO_BRAIN",
-                        "message", "部门大脑未注册"
-                    );
-                    sendJson(session, errorMsg);
-                }
-            } catch (Exception e) {
-                log.warn("Failed to send no brain message: {}", e.getMessage());
-            }
+            sendBrainNotFoundError(session);
             return;
         }
 
-        // 将 clientId 和 accessLevel 设置到 brain context 中（供 win_automation 等工具使用）
         com.livingagent.core.brain.Brain brain = brainOpt.get();
-        if (brain.getContext() != null) {
-            String clientId = extractQueryParam(session.getUri(), "clientId");
-            AccessLevel accessLevel = sessionAccessLevel.getOrDefault(sessionId, AccessLevel.CHAT_ONLY);
-            // ConcurrentHashMap 不允许 null value，只有 clientId 非空时才设置
-            if (clientId != null && !clientId.isBlank()) {
-                brain.getContext().setClientId(clientId);
-            }
-            brain.getContext().setAccessLevel(accessLevel.getLevel());
-            log.debug("Brain context updated: clientId={}, accessLevel={}", clientId, accessLevel);
-        }
-        
-        // P2-4: executionId 将从 chatResult 中获取
+        updateBrainContext(brain, session, sessionId);
 
         connectionRegistry.updateLastActivity(sessionId);
 
         departmentChatService.processDepartmentBrainAsync(
                 requestId, department, brainName, brainOpt.get(), content, sessionId, userId, userId, conversationId)
-            .thenAccept(chatResult -> {
-                log.info("thenAccept callback triggered: requestId={}, sessionId={}, sessionOpen={}, success={}",
-                    requestId, sessionId, session.isOpen(), chatResult.success());
-                try {
-                    if (!session.isOpen()) {
-                        log.warn("Session already closed when trying to send response: sessionId={}, requestId={}", sessionId, requestId);
-                        return;
-                    }
-                    
-                    if (chatResult.success()) {
-                        Map<String, Object> doneMsg = new HashMap<>();
-                        doneMsg.put("type", "done");
-                        doneMsg.put("content", chatResult.text());
-                        doneMsg.put("model", chatResult.model());
-                        doneMsg.put("department", chatResult.department());
-                        doneMsg.put("brain", chatResult.brain());
-                        doneMsg.put("intent", chatResult.intent());
-                        doneMsg.put("neuron", chatResult.neuron());
-                        doneMsg.put("accessLevel", sessionAccessLevel.getOrDefault(sessionId, AccessLevel.CHAT_ONLY).name());
-                        // P2-4: 从 chatResult 中获取 executionId
-                        if (chatResult.executionId() != null) {
-                            doneMsg.put("executionId", chatResult.executionId());
-                        }
-                        if (chatResult.conversationId() != null) {
-                            doneMsg.put("conversationId", chatResult.conversationId());
-                        } else {
-                            connectionRegistry.getContext(sessionId).ifPresent(ctx -> {
-                                if (ctx.conversationId() != null) {
-                                    doneMsg.put("conversationId", ctx.conversationId());
-                                }
-                            });
-                        }
-
-                        log.info("Sending done message to session: sessionId={}, requestId={}, contentLength={}",
-                            sessionId, requestId, chatResult.text() != null ? chatResult.text().length() : 0);
-                        sendJson(session, doneMsg);
-                        log.info("Done message sent successfully: sessionId={}, requestId={}", sessionId, requestId);
-                        
-                        // 响应发送成功后更新活动时间，防止连接被判定为 zombie
-                        sessionLastActive.put(sessionId, Instant.now());
-
-                        // 广播给其他用户（除了发送者）
-                        BrainResponse brainResponse = new BrainResponse(
-                            UUID.randomUUID().toString(),
-                            "brain_" + department,
-                            department + "Brain",
-                            department,
-                            chatResult.text(),
-                            Instant.now()
-                        );
-                        broadcastExcept(department, brainResponse, session.getId());
-                    } else {
-                        // 错误响应：使用统一的错误码
-                        log.warn("Sending error response: sessionId={}, requestId={}, status={}, reason={}",
-                            sessionId, requestId, chatResult.status(), chatResult.reason());
-                        Map<String, Object> errorMsg = Map.of(
-                            "type", "error",
-                            "code", chatResult.status(),
-                            "message", chatResult.reason() != null ? chatResult.reason() : "处理失败"
-                        );
-                        sendJson(session, errorMsg);
-                    }
-                } catch (Exception e) {
-                    log.error("Failed to process brain result: requestId={}, sessionId={}, error={}",
-                        requestId, sessionId, e.getMessage());
-                }
-            })
+            .thenAccept(chatResult -> handleBrainChatResult(session, department, sessionId, requestId, chatResult))
             .exceptionally(e -> {
                 log.error("Brain processing failed for dept={}, user={}: {}", department, userId, e.getMessage());
                 try {
@@ -584,6 +540,101 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
                 }
                 return null;
             });
+    }
+
+    private void sendThinkingIndicator(WebSocketSession session, String department) {
+        try {
+            sendJson(session, Map.of("type", "thinking", "content", ""));
+            log.info("Thinking indicator sent for dept={}", department);
+        } catch (Exception e) {
+            log.warn("Failed to send thinking indicator: {}", e.getMessage());
+        }
+    }
+
+    private void sendBrainNotFoundError(WebSocketSession session) {
+        try {
+            if (session.isOpen()) {
+                sendJson(session, Map.of("type", "error", "code", "NO_BRAIN", "message", "部门大脑未注册"));
+            }
+        } catch (Exception e) {
+            log.warn("Failed to send no brain message: {}", e.getMessage());
+        }
+    }
+
+    private void updateBrainContext(com.livingagent.core.brain.Brain brain, WebSocketSession session, String sessionId) {
+        if (brain.getContext() == null) return;
+
+        String clientId = extractQueryParam(session.getUri(), "clientId");
+        AccessLevel accessLevel = sessionAccessLevel.getOrDefault(sessionId, AccessLevel.CHAT_ONLY);
+        if (clientId != null && !clientId.isBlank()) {
+            brain.getContext().setClientId(clientId);
+        }
+        brain.getContext().setAccessLevel(accessLevel.getLevel());
+        log.debug("Brain context updated: clientId={}, accessLevel={}", clientId, accessLevel);
+    }
+
+    private void handleBrainChatResult(WebSocketSession session, String department, String sessionId,
+            String requestId, com.livingagent.gateway.service.DepartmentChatService.DepartmentChatResult chatResult) {
+        log.info("thenAccept callback triggered: requestId={}, sessionId={}, sessionOpen={}, success={}",
+            requestId, sessionId, session.isOpen(), chatResult.success());
+        try {
+            if (!session.isOpen()) {
+                log.warn("Session already closed when trying to send response: sessionId={}, requestId={}", sessionId, requestId);
+                return;
+            }
+            
+            if (chatResult.success()) {
+                Map<String, Object> doneMsg = new HashMap<>();
+                doneMsg.put("type", "done");
+                doneMsg.put("content", chatResult.text());
+                doneMsg.put("model", chatResult.model());
+                doneMsg.put("department", chatResult.department());
+                doneMsg.put("brain", chatResult.brain());
+                doneMsg.put("intent", chatResult.intent());
+                doneMsg.put("neuron", chatResult.neuron());
+                doneMsg.put("accessLevel", sessionAccessLevel.getOrDefault(sessionId, AccessLevel.CHAT_ONLY).name());
+                if (chatResult.executionId() != null) {
+                    doneMsg.put("executionId", chatResult.executionId());
+                }
+                if (chatResult.conversationId() != null) {
+                    doneMsg.put("conversationId", chatResult.conversationId());
+                } else {
+                    connectionRegistry.getContext(sessionId).ifPresent(ctx -> {
+                        if (ctx.conversationId() != null) {
+                            doneMsg.put("conversationId", ctx.conversationId());
+                        }
+                    });
+                }
+
+                log.info("Sending done message to session: sessionId={}, requestId={}, contentLength={}",
+                    sessionId, requestId, chatResult.text() != null ? chatResult.text().length() : 0);
+                sendJson(session, doneMsg);
+                log.info("Done message sent successfully: sessionId={}, requestId={}", sessionId, requestId);
+                
+                sessionLastActive.put(sessionId, Instant.now());
+
+                BrainResponse brainResponse = new BrainResponse(
+                    UUID.randomUUID().toString(),
+                    "brain_" + department,
+                    department + "Brain",
+                    department,
+                    chatResult.text(),
+                    Instant.now()
+                );
+                broadcastExcept(department, brainResponse, session.getId());
+            } else {
+                log.warn("Sending error response: sessionId={}, requestId={}, status={}, reason={}",
+                    sessionId, requestId, chatResult.status(), chatResult.reason());
+                sendJson(session, Map.of(
+                    "type", "error",
+                    "code", chatResult.status(),
+                    "message", chatResult.reason() != null ? chatResult.reason() : "处理失败"
+                ));
+            }
+        } catch (Exception e) {
+            log.error("Failed to process brain result: requestId={}, sessionId={}, error={}",
+                requestId, sessionId, e.getMessage());
+        }
     }
 
     /**
@@ -850,10 +901,15 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
         log.info("Public channel chat: userId={}, contentLength={}", userId, content.length());
         try {
             sendJson(session, Map.of("type", "thinking", "content", ""));
-        } catch (Exception ignored) {}
+            log.debug("Sent 'thinking' status to public channel session");
+        } catch (Exception e) {
+            log.warn("Failed to send 'thinking' status: {}", e.getMessage());
+        }
 
+        log.debug("Calling agentService.chatPublic() for userId={}", userId);
         agentService.chatPublic(content, userId)
             .thenAccept(response -> {
+                log.debug("chatPublic completed with response length: {}", response != null ? response.length() : 0);
                 try {
                     if (session.isOpen()) {
                         sendJson(session, Map.of(
@@ -861,12 +917,14 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
                             "content", response,
                             "timestamp", Instant.now().toString()
                         ));
+                        log.debug("Sent 'done' response to public channel session");
                     }
                 } catch (Exception e) {
                     log.warn("Failed to send public channel response: {}", e.getMessage());
                 }
             })
             .exceptionally(ex -> {
+                log.error("chatPublic failed with exception: {}", ex.getMessage(), ex);
                 try {
                     if (session.isOpen()) {
                         sendJson(session, Map.of(

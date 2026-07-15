@@ -1,3 +1,11 @@
+---
+name: contract-management
+description: Contract Management
+risk: low
+source: internal
+date_added: '2026-07-13'
+---
+
 # Contract Management
 
 > 合同管理技能，管理合同生命周期、审批流程、到期提醒

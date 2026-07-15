@@ -114,6 +114,16 @@ public class ProjectHealthMonitor {
         baselines.remove(projectId);
     }
 
+    public ProjectHealthSummary getHealthSummary() {
+        int total = baselines.size();
+        int deviation = (int) baselines.values().stream()
+            .filter(b -> b.deadline().isBefore(Instant.now()))
+            .count();
+        return new ProjectHealthSummary(total, deviation);
+    }
+
+    public record ProjectHealthSummary(int totalProjects, int deviationProjects) {}
+
     public enum ProjectHealthStatus {
         HEALTHY, CAUTION, WARNING, CRITICAL
     }

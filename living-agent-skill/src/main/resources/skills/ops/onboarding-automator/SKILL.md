@@ -1,3 +1,11 @@
+---
+name: onboarding-automator
+description: Onboarding Automator - 入职自动化器技能
+risk: low
+source: internal
+date_added: '2026-07-13'
+---
+
 # Onboarding Automator - 入职自动化器技能
 
 > 新员工入职准备

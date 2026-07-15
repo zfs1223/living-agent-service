@@ -31,14 +31,29 @@ public class CodeReviewQualityOptimizer {
         CodeReviewMetricsService.CodeReviewMetricsReport report = metricsService.getReport();
         if (report.totalReviews() < 5) return;
 
+        boolean strategyChanged = false;
+
         if (report.avgReworkCycles() > HIGH_REWORK_THRESHOLD) {
-            log.info("[闭环49] 平均返工次数{}/次偏高，建议优化代码规范和预检清单",
-                String.format("%.1f", report.avgReworkCycles()));
+            qualityThreshold = Math.max(40, qualityThreshold - 5);
+            log.info("[闭环49] 平均返工次数{}次偏高，降低质量阈值至{}以减少阻断",
+                String.format("%.1f", report.avgReworkCycles()), qualityThreshold);
+            strategyChanged = true;
         }
 
         if (report.approvalRate() < 0.50) {
-            log.info("[闭环49] 审查通过率{}%偏低，建议加强代码预检或调整审查标准",
-                String.format("%.0f%%", report.approvalRate() * 100));
+            qualityThreshold = Math.max(40, qualityThreshold - 5);
+            log.info("[闭环49] 审查通过率{}%偏低，降低质量阈值至{}以减少返工",
+                String.format("%.0f", report.approvalRate() * 100), qualityThreshold);
+            strategyChanged = true;
+        } else if (report.approvalRate() > 0.85 && report.avgReworkCycles() < 1.5) {
+            qualityThreshold = Math.min(80, qualityThreshold + 3);
+            log.info("[闭环49] 审查通过率{}%良好，适当提高质量阈值至{}",
+                String.format("%.0f", report.approvalRate() * 100), qualityThreshold);
+            strategyChanged = true;
+        }
+
+        if (strategyChanged) {
+            adjustThresholdBasedOnBaseline();
         }
     }
 

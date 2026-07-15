@@ -31,6 +31,7 @@ import com.livingagent.core.security.AuthContext;
 import com.livingagent.core.security.PermissionChangeEvent;
 import com.livingagent.core.security.auth.UnifiedAuthService;
 import com.livingagent.core.security.auth.UnifiedAuthService.AuthSession;
+import com.livingagent.core.evolution.orchestrator.CrossLoopEventBus;
 import com.livingagent.gateway.service.AgentService;
 
 import jakarta.annotation.PostConstruct;
@@ -48,6 +49,7 @@ public class AgentWebSocketHandler extends TextWebSocketHandler {
     private final AccessGateService accessGateService;
     private final WebSocketRateLimiter rateLimiter;
     private final WindowsAutomationClientGatewayImpl winAutomationGateway;
+    private final CrossLoopEventBus crossLoopEventBus;
     private final Map<String, WebSocketSession> sessions;
     private final Map<String, String> sessionToAgent;
     private final Map<String, String> sessionToUser;
@@ -62,7 +64,7 @@ public class AgentWebSocketHandler extends TextWebSocketHandler {
     // P3-A: 连接数限制
     private static final int MAX_AGENT_CONNECTIONS = 200;
 
-    public AgentWebSocketHandler(ObjectMapper objectMapper, AgentService agentService, UnifiedAuthService authService, EmployeeService employeeService, AccessGateService accessGateService, WebSocketRateLimiter rateLimiter, WindowsAutomationClientGatewayImpl winAutomationGateway) {
+    public AgentWebSocketHandler(ObjectMapper objectMapper, AgentService agentService, UnifiedAuthService authService, EmployeeService employeeService, AccessGateService accessGateService, WebSocketRateLimiter rateLimiter, WindowsAutomationClientGatewayImpl winAutomationGateway, CrossLoopEventBus crossLoopEventBus) {
         this.objectMapper = objectMapper;
         this.agentService = agentService;
         this.authService = authService;
@@ -70,6 +72,7 @@ public class AgentWebSocketHandler extends TextWebSocketHandler {
         this.accessGateService = accessGateService;
         this.rateLimiter = rateLimiter;
         this.winAutomationGateway = winAutomationGateway;
+        this.crossLoopEventBus = crossLoopEventBus;
         this.sessions = new ConcurrentHashMap<>();
         this.sessionToAgent = new ConcurrentHashMap<>();
         this.sessionToUser = new ConcurrentHashMap<>();
@@ -522,6 +525,15 @@ public class AgentWebSocketHandler extends TextWebSocketHandler {
     @Override
     public void handleTransportError(WebSocketSession session, Throwable exception) throws Exception {
         log.error("WebSocket transport error: sessionId={}", session.getId(), exception);
+
+        if (crossLoopEventBus != null) {
+            crossLoopEventBus.publish(1, "websocket_transport_error",
+                com.livingagent.core.evolution.orchestrator.CrossLoopEvent.EventPriority.SELF_HEALING,
+                Map.of("sessionId", session.getId(),
+                       "errorType", exception.getClass().getSimpleName(),
+                       "errorMessage", exception.getMessage() != null ? exception.getMessage() : "unknown"),
+                300);
+        }
     }
     
     private void sendMessage(WebSocketSession session, Map<String, Object> message) {

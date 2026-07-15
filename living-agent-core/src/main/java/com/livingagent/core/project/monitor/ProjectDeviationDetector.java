@@ -84,6 +84,14 @@ public class ProjectDeviationDetector {
         return correctionStrategies.getOrDefault(projectId, "CONTINUE_MONITORING");
     }
 
+    public Map<String, DeviationAnalysis> getAllAnalyses() {
+        Map<String, DeviationAnalysis> result = new java.util.HashMap<>();
+        for (String projectId : deviationHistory.keySet()) {
+            result.put(projectId, analyzeDeviation(projectId));
+        }
+        return Map.copyOf(result);
+    }
+
     public record DeviationRecord(
         String projectId, double deviation,
         double timeProgress, double taskProgress,

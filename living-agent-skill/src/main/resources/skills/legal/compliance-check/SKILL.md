@@ -1,3 +1,11 @@
+---
+name: compliance-check
+description: Compliance Check
+risk: low
+source: internal
+date_added: '2026-07-13'
+---
+
 # Compliance Check
 
 > 合规检查技能，自动化合规审查、政策解读、风险预警

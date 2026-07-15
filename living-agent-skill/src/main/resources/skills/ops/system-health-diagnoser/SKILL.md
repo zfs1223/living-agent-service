@@ -1,3 +1,11 @@
+---
+name: system-health-diagnoser
+description: System Health Diagnoser - 系统健康诊断器技能
+risk: low
+source: internal
+date_added: '2026-07-13'
+---
+
 # System Health Diagnoser - 系统健康诊断器技能
 
 > 主动异常检测与诊断

@@ -31,7 +31,12 @@ const api = {
       ipcRenderer.invoke('auth:sms-send', phone, type || 'login') as Promise<{ success: boolean; message: string; expiresIn: number; code?: string }>,
     phoneLogin: (phone: string, code: string) =>
       ipcRenderer.invoke('auth:phone-login', phone, code) as Promise<{ accessToken: string; user: DesktopUser }>,
-    me: () => ipcRenderer.invoke('auth:me') as Promise<DesktopUser>
+    me: () => ipcRenderer.invoke('auth:me') as Promise<DesktopUser>,
+    // 声纹登录
+    voicePrintLogin: (audioBuffer: ArrayBuffer) =>
+      ipcRenderer.invoke('auth:voiceprint-login', audioBuffer) as Promise<{ accessToken: string; user: DesktopUser }>,
+    voicePrintStatus: () =>
+      ipcRenderer.invoke('auth:voiceprint-status') as Promise<{ available: boolean; message?: string }>
   },
 
   /* ============ 文件系统 ============ */

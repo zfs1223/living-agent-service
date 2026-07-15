@@ -63,6 +63,7 @@ public class LLMEmployeeCreationServiceImpl implements LLMEmployeeCreationServic
     private final EmployeeService employeeService;
     private final FixedEmployeeRegistry fixedEmployeeRegistry;
     private final AutonomyTraceService traceService;
+    private final EmployeeCreationImprovementTracker improvementTracker;
 
     public LLMEmployeeCreationServiceImpl(
             BrainRegistry brainRegistry,
@@ -73,6 +74,20 @@ public class LLMEmployeeCreationServiceImpl implements LLMEmployeeCreationServic
         this.employeeService = employeeService;
         this.fixedEmployeeRegistry = fixedEmployeeRegistry;
         this.traceService = traceService;
+        this.improvementTracker = null;
+    }
+
+    public LLMEmployeeCreationServiceImpl(
+            BrainRegistry brainRegistry,
+            EmployeeService employeeService,
+            FixedEmployeeRegistry fixedEmployeeRegistry,
+            AutonomyTraceService traceService,
+            EmployeeCreationImprovementTracker improvementTracker) {
+        this.brainRegistry = brainRegistry;
+        this.employeeService = employeeService;
+        this.fixedEmployeeRegistry = fixedEmployeeRegistry;
+        this.traceService = traceService;
+        this.improvementTracker = improvementTracker;
     }
 
     @Override
@@ -187,12 +202,25 @@ public class LLMEmployeeCreationServiceImpl implements LLMEmployeeCreationServic
             null,
             null,
             EmployeeOrigin.EVOLVED,
-            employeeId
+            employeeId,
+            null,
+            null,
+            null,
+            null,
+            "DEPARTMENT",
+            null,
+            null
         );
 
         Employee employee = employeeService.createEmployee(request);
         log.info("Created LLM-proposed employee: {} ({}) -> {}",
             proposal.name(), uniqueCode, employeeId);
+
+        // 闭环35 improvement: 记录创建员工供后续绩效评估
+        if (improvementTracker != null) {
+            improvementTracker.recordCreatedEmployee(employeeId, proposal.department(), proposal.justification());
+        }
+
         return employee;
     }
 

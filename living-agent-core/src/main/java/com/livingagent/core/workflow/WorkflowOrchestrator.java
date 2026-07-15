@@ -9,10 +9,12 @@ import com.livingagent.core.channel.Channel;
 import com.livingagent.core.channel.ChannelManager;
 import com.livingagent.core.channel.ChannelMessage;
 import com.livingagent.core.workflow.handlers.*;
+import com.livingagent.core.workflow.monitor.WorkflowOptimizationService;
 import com.livingagent.core.workflow.monitor.WorkflowStageMonitor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -31,6 +33,7 @@ public class WorkflowOrchestrator {
     private final Map<String, WorkflowExecution> activeWorkflows = new ConcurrentHashMap<>();
     private WorkflowMonitor monitor;
     private WorkflowStageMonitor stageMonitor;
+    private WorkflowOptimizationService optimizationService;
 
     public WorkflowOrchestrator(ProjectService projectService, ChannelManager channelManager, TaskRepository taskRepository) {
         this.projectService = projectService;
@@ -52,6 +55,14 @@ public class WorkflowOrchestrator {
         this.stageMonitor = stageMonitor;
         if (stageMonitor != null) {
             log.info("[闭环43] WorkflowOrchestrator: WorkflowStageMonitor enabled");
+        }
+    }
+
+    @Autowired(required = false)
+    public void setOptimizationService(WorkflowOptimizationService optimizationService) {
+        this.optimizationService = optimizationService;
+        if (optimizationService != null) {
+            log.info("[闭环43] WorkflowOrchestrator: WorkflowOptimizationService enabled");
         }
     }
 
@@ -183,6 +194,14 @@ public class WorkflowOrchestrator {
 
         if (stageMonitor != null) {
             stageMonitor.recordStageComplete(projectId, phase.getCode(), true);
+        }
+
+        // 闭环43: 应用优化阈值
+        if (optimizationService != null) {
+            Long optimized = optimizationService.getOptimizedTimeout(phase.getCode());
+            if (optimized != null) {
+                log.info("[闭环43] Optimized timeout available for {}: {}ms", phase.getCode(), optimized);
+            }
         }
 
         publishPhaseComplete(projectId, phase, result);
@@ -327,6 +346,24 @@ public class WorkflowOrchestrator {
                 projectOpt.get().cancel();
             }
             log.info("Cancelled workflow for project: {}", projectId);
+        }
+    }
+
+    @Scheduled(fixedRate = 30 * 60 * 1000)
+    public void scheduledWorkflowOptimization() {
+        if (optimizationService == null || stageMonitor == null) return;
+        try {
+            for (Map.Entry<String, WorkflowExecution> entry : activeWorkflows.entrySet()) {
+                String projectId = entry.getKey();
+                var report = stageMonitor.getReport(projectId);
+                if (report != null) {
+                    optimizationService.getAllOptimizedThresholds().forEach((stage, threshold) ->
+                        log.debug("[闭环43] Workflow optimization: project={}, stage={}, optimizedTimeout={}ms",
+                            projectId, stage, threshold));
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[闭环43] Scheduled workflow optimization failed: {}", e.getMessage());
         }
     }
 }

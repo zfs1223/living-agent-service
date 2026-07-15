@@ -1,3 +1,11 @@
+---
+name: proactive-agent
+description: Proactive Agent - 主动代理技能
+risk: low
+source: internal
+date_added: '2026-07-13'
+---
+
 # Proactive Agent - 主动代理技能
 
 > 智能体主动执行、任务调度和自主行动能力

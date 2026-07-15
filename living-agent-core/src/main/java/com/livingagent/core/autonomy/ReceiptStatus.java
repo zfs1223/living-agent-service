@@ -10,6 +10,7 @@ public enum ReceiptStatus {
     FAILED("FAILED", "执行失败"),
     DEGRADED("DEGRADED", "降级完成"),
     NEEDS_RETRY("NEEDS_RETRY", "需要重试"),
+    NEEDS_REWORK("NEEDS_REWORK", "需要返工"),  // 64-D-2: 输出验证失败时使用
     NEEDS_APPROVAL("NEEDS_APPROVAL", "需要审批"),
     NEEDS_HUMAN_REVIEW("NEEDS_HUMAN_REVIEW", "需要人工审核");
 
@@ -49,8 +50,9 @@ public enum ReceiptStatus {
 
     /**
      * 判断是否需要人工介入
+     * 64-D-2: NEEDS_REWORK 视为需要人工介入（返工需人工判定）
      */
     public boolean needsHumanIntervention() {
-        return this == NEEDS_APPROVAL || this == NEEDS_HUMAN_REVIEW;
+        return this == NEEDS_APPROVAL || this == NEEDS_HUMAN_REVIEW || this == NEEDS_REWORK;
     }
 }

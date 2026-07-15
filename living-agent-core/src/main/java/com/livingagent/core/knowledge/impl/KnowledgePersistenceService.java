@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -182,16 +183,19 @@ public class KnowledgePersistenceService {
         Optional<KnowledgeEntryEntity> optEntity = repository.findByKey(key);
         if (optEntity.isPresent()) {
             KnowledgeEntryEntity entity = optEntity.get();
+            String vectorId = entity.getVectorId();
             
-            if (vectorSearchEnabled && entity.getVectorId() != null) {
+            // 先删PG（事务保障），再删向量（best-effort，失败由一致性校验清理）
+            repository.delete(entity);
+            
+            if (vectorSearchEnabled && vectorId != null) {
                 try {
-                    vectorService.deleteVector(COLLECTION_NAME, entity.getVectorId());
+                    vectorService.deleteVector(COLLECTION_NAME, vectorId);
                 } catch (Exception e) {
-                    log.warn("Failed to delete vector for {}: {}", key, e.getMessage());
+                    log.warn("Vector deletion failed after PG delete for {}, will be reconciled: {}", key, e.getMessage());
                 }
             }
             
-            repository.delete(entity);
             log.debug("Deleted knowledge: {}", key);
         }
     }
@@ -281,18 +285,26 @@ public class KnowledgePersistenceService {
     public int cleanupExpiredKnowledge(int daysOld) {
         Instant threshold = Instant.now().minusSeconds(daysOld * 86400L);
         List<KnowledgeEntryEntity> expired = repository.findUnusedBefore(threshold);
-        
-        for (KnowledgeEntryEntity entity : expired) {
-            if (entity.getVectorId() != null && vectorSearchEnabled) {
+
+        // 先收集vectorId，再删PG，最后删向量
+        List<String> vectorIds = expired.stream()
+            .map(KnowledgeEntryEntity::getVectorId)
+            .filter(Objects::nonNull)
+            .collect(Collectors.toList());
+
+        repository.deleteAll(expired);
+
+        // PG删除成功后，best-effort删除向量
+        if (vectorSearchEnabled) {
+            for (String vectorId : vectorIds) {
                 try {
-                    vectorService.deleteVector(COLLECTION_NAME, entity.getVectorId());
+                    vectorService.deleteVector(COLLECTION_NAME, vectorId);
                 } catch (Exception e) {
-                    log.warn("Failed to delete vector during cleanup: {}", e.getMessage());
+                    log.warn("Vector deletion failed during cleanup for {}, will be reconciled: {}", vectorId, e.getMessage());
                 }
             }
         }
-        
-        repository.deleteAll(expired);
+
         log.info("Cleaned up {} expired knowledge entries", expired.size());
         return expired.size();
     }
@@ -420,5 +432,40 @@ public class KnowledgePersistenceService {
         entry.getMetadata().putAll(entity.getMetadata());
         
         return entry;
+    }
+
+    @Scheduled(fixedRate = 60 * 60 * 1000) // 每小时一次
+    @Transactional(readOnly = true)
+    public void reconcileVectorConsistency() {
+        if (!vectorSearchEnabled || vectorService == null) return;
+
+        try {
+            List<KnowledgeEntryEntity> pgEntries = repository.findWithVectors();
+            long pgVectorCount = pgEntries.size();
+            long qdrantPointCount = vectorService.getCollectionPointCount(COLLECTION_NAME);
+
+            if (qdrantPointCount < 0) {
+                log.warn("Vector reconciliation: unable to get Qdrant point count");
+                return;
+            }
+
+            int staleVectorIds = 0;
+            int orphanedVectors = (int) (qdrantPointCount - pgVectorCount);
+
+            for (KnowledgeEntryEntity entity : pgEntries) {
+                if (entity.getVectorId() != null && !vectorService.vectorExists(COLLECTION_NAME, entity.getVectorId())) {
+                    staleVectorIds++;
+                }
+            }
+
+            if (staleVectorIds > 0 || orphanedVectors > 0) {
+                log.warn("Vector consistency issue: pgVectors={}, qdrantPoints={}, staleVectorIds={}, orphanedVectors={}",
+                    pgVectorCount, qdrantPointCount, staleVectorIds, orphanedVectors);
+            } else {
+                log.debug("Vector consistency check passed: pgVectors={}, qdrantPoints={}", pgVectorCount, qdrantPointCount);
+            }
+        } catch (Exception e) {
+            log.warn("Vector reconciliation failed: {}", e.getMessage());
+        }
     }
 }

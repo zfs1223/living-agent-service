@@ -19,4 +19,6 @@ public interface NotificationRepository extends JpaRepository<NotificationEntity
     void deleteByDepartment(String department);
 
     long countByDepartmentAndReadFalse(String department);
+
+    long countByReadFalse();
 }

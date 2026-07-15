@@ -214,16 +214,11 @@ public class BrainRegistryImpl implements BrainRegistry {
 
     private BrainContext createBrainContext(Brain brain) {
         BrainPersonality personality = personalityByBrain.get(brain.getName());
-        return new BrainContext(
-            brain.getId(),
-            brain.getDepartment(),
-            "session_" + System.currentTimeMillis(),
-            null,
-            null,
-            null,
-            null,
-            null,
-            personality
-        );
+        return BrainContext.builder()
+            .brainId(brain.getId())
+            .department(brain.getDepartment())
+            .sessionId("session_" + System.currentTimeMillis())
+            .personality(personality)
+            .build();
     }
 }

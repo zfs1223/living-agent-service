@@ -10,6 +10,7 @@ import java.util.Map;
 import java.util.HashMap;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -50,6 +51,8 @@ public class AgentService {
     private final BrainRegistry brainRegistry;
     private final ConcurrentHashMap<String, SessionContext> activeSessions;
     private final ConcurrentHashMap<String, AudioNative.Processor> audioProcessors;
+    /** Sessions where audio processing is unavailable (Native lib not loaded) */
+    private final Set<String> audioDisabledSessions = ConcurrentHashMap.newKeySet();
 
     /** 挂起会话：断线后暂不销毁，等待重连 */
     private final ConcurrentHashMap<String, SuspendedSession> suspendedSessions;
@@ -133,6 +136,7 @@ public class AgentService {
             audioProcessors.put(sessionId, audioProcessor);
         } catch (UnsatisfiedLinkError e) {
             log.warn("AudioNative not available, audio processing disabled for session: {}", sessionId);
+            audioDisabledSessions.add(sessionId);
         }
 
         CompletableFuture<Void> sessionReadyFuture = modelManager.createSession(sessionId)
@@ -170,6 +174,7 @@ public class AgentService {
         }
         
         AudioNative.Processor processor = audioProcessors.remove(sessionId);
+        audioDisabledSessions.remove(sessionId);
         if (processor != null) {
             processor.close();
         }
@@ -729,9 +734,12 @@ public class AgentService {
         }
         
         if (audioProcessor == null) {
+            String message = audioDisabledSessions.contains(sessionId)
+                ? "Audio processing unavailable (Native library not loaded)"
+                : "Audio processor not initialized";
             return CompletableFuture.completedFuture(Map.of(
                 "type", "error",
-                "message", "Audio processor not initialized"
+                "message", message
             ));
         }
         
@@ -1051,12 +1059,16 @@ public class AgentService {
             .thenCompose(ignored -> processAudioFullChain(tempSessionId, base64AudioData))
             .thenApply(response -> {
                 // 清理临时 session
-                try { modelManager.destroySession(tempSessionId); } catch (Exception ignored) {}
+                try { modelManager.destroySession(tempSessionId); } catch (Exception e) {
+                    log.debug("Failed to destroy temp session {}: {}", tempSessionId, e.getMessage());
+                }
                 return response;
             })
             .exceptionally(ex -> {
                 log.error("Public audio chat failed: userId={}, error={}", userId, ex.getMessage());
-                try { modelManager.destroySession(tempSessionId); } catch (Exception ignored) {}
+                try { modelManager.destroySession(tempSessionId); } catch (Exception e) {
+                    log.debug("Failed to destroy temp session {}: {}", tempSessionId, e.getMessage());
+                }
                 return Map.of("type", "error", "message", "语音处理失败");
             });
     }

@@ -538,6 +538,7 @@ public class MainBrain extends AbstractBrain {
             }
         } catch (Exception e) {
             log.error("Failed to forward message to department {}: {}", department, e.getMessage(), e);
+            publishResponse(original, "跨部门消息转发至 " + department + " 失败: " + e.getMessage(), null);
         }
     }
 

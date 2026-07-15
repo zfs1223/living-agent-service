@@ -44,6 +44,14 @@ export function App() {
   const [countdown, setCountdown] = useState(0);
   const [testCode, setTestCode] = useState('');
 
+  // 登录Tab切换：phone / voiceprint
+  const [loginTab, setLoginTab] = useState<'phone' | 'voiceprint'>('phone');
+  const [vpRecording, setVpRecording] = useState(false);
+  const [vpLoading, setVpLoading] = useState(false);
+  const [vpError, setVpError] = useState('');
+  const vpMediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const vpChunksRef = useRef<Blob[]>([]);
+
   useEffect(() => {
     void (async () => {
       const ok = await window.livingAgentAPI.isBackendConfigured();
@@ -173,6 +181,52 @@ export function App() {
     setCurrentUser(null);
   }
 
+  /** 声纹登录 - 按住录音 */
+  async function startVoicePrintRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+      vpChunksRef.current = [];
+      mr.ondataavailable = (e) => { if (e.data.size > 0) vpChunksRef.current.push(e.data); };
+      mr.start();
+      vpMediaRecorderRef.current = mr;
+      setVpRecording(true);
+      setVpError('');
+    } catch (err: any) {
+      setVpError('无法访问麦克风，请检查权限');
+    }
+  }
+
+  /** 声纹登录 - 松开停止录音并自动匹配 */
+  async function stopVoicePrintRecording() {
+    const mr = vpMediaRecorderRef.current;
+    if (!mr || mr.state === 'inactive') return;
+    setVpRecording(false);
+    setVpLoading(true);
+
+    await new Promise<void>((resolve) => {
+      mr.onstop = () => resolve();
+      mr.stop();
+    });
+
+    // 停止麦克风
+    mr.stream.getTracks().forEach((t) => t.stop());
+
+    const blob = new Blob(vpChunksRef.current, { type: 'audio/webm' });
+    const arrayBuffer = await blob.arrayBuffer();
+
+    try {
+      const res = await window.livingAgentAPI.auth.voicePrintLogin(arrayBuffer);
+      setHasToken(true);
+      setCurrentUser(res.user);
+      setShowLoginDialog(false);
+    } catch (err: any) {
+      setVpError(err.message || '声纹匹配失败，请重试或使用手机登录');
+    } finally {
+      setVpLoading(false);
+    }
+  }
+
   async function handleOpenInBrowser() {
     // 打开 Web 前端（不是后端 API 地址）
     const url = await window.livingAgentAPI.getBackendUrl();
@@ -256,32 +310,26 @@ export function App() {
         </div>
 
         <nav className="sidebar-nav">
-          {/* 基础功能 */}
+          {/* 基础功能 - 始终显示 */}
           <div className="nav-section">
             <div className="nav-section-title">基础功能</div>
-            <button
-              className={view === 'frontdesk' ? 'nav-item active' : 'nav-item'}
-              onClick={() => handleNav('frontdesk')}
-            >
-              🤖 智能前台
-            </button>
             <button
               className={view === 'home' ? 'nav-item active' : 'nav-item'}
               onClick={() => handleNav('home')}
             >
               🏠 概览
             </button>
+          </div>
+
+          {/* 内部功能 - 仅登录后显示 */}
+          {hasToken && (
+          <div className="nav-section">
+            <div className="nav-section-title">内部功能</div>
             <button
               className={view === 'chat' ? 'nav-item active' : 'nav-item'}
               onClick={() => handleNav('chat')}
             >
               💬 部门聊天
-            </button>
-            <button
-              className={view === 'chat-public' ? 'nav-item active' : 'nav-item'}
-              onClick={() => handleNav('chat-public')}
-            >
-              🗨️ 闲聊
             </button>
             {(currentUser?.accessLevel === 'FULL' || currentUser?.identity === 'INTERNAL_ENTERPRISE') && (
             <button
@@ -358,6 +406,7 @@ export function App() {
               💾 本地保存
             </button>
           </div>
+          )}
 
           {/* 管理功能（权限控制） */}
           {(currentUser?.role === 'org_admin' || currentUser?.role === 'platform_admin' || currentUser?.accessLevel === 'FULL') && (
@@ -380,7 +429,7 @@ export function App() {
             </div>
           )}
 
-          {/* 设置 */}
+          {/* 设置 - 始终显示 */}
           <div className="nav-section">
             <button
               className={view === 'settings' ? 'nav-item active' : 'nav-item'}
@@ -420,6 +469,7 @@ export function App() {
             hasToken={hasToken}
             clientInfo={clientInfo}
             onNav={handleNav}
+            onLogin={handleLogin}
           />
         )}
         {view === 'chat' && (
@@ -475,82 +525,150 @@ export function App() {
         <div className="login-dialog-overlay" onClick={() => setShowLoginDialog(false)}>
           <div className="login-dialog" onClick={(e) => e.stopPropagation()}>
             <h2>🔑 登录 Living Agent</h2>
-            <p className="login-hint">使用手机号 + 短信验证码登录</p>
 
-            {loginError && (
-              <div className="login-error">
-                <span>⚠</span> {loginError}
-              </div>
-            )}
+            {/* Tab 切换 */}
+            <div style={{ display: 'flex', gap: 0, marginBottom: 16, borderBottom: '1px solid #333' }}>
+              <button
+                onClick={() => { setLoginTab('phone'); setLoginError(''); setVpError(''); }}
+                style={{
+                  flex: 1, padding: '10px 0', border: 'none', cursor: 'pointer',
+                  background: loginTab === 'phone' ? '#6366f1' : 'transparent',
+                  color: loginTab === 'phone' ? '#fff' : '#888',
+                  fontWeight: 600, fontSize: 13, transition: 'all 0.2s',
+                }}
+              >
+                📱 手机登录
+              </button>
+              <button
+                onClick={() => { setLoginTab('voiceprint'); setLoginError(''); setVpError(''); }}
+                style={{
+                  flex: 1, padding: '10px 0', border: 'none', cursor: 'pointer',
+                  background: loginTab === 'voiceprint' ? '#6366f1' : 'transparent',
+                  color: loginTab === 'voiceprint' ? '#fff' : '#888',
+                  fontWeight: 600, fontSize: 13, transition: 'all 0.2s',
+                }}
+              >
+                🎤 声纹登录
+              </button>
+            </div>
 
-            {/* 测试模式提示 */}
-            {testCode && (
-              <div className="test-code-hint">
-                <span>🧪 测试模式：验证码已自动填入</span>
-                <strong>{testCode}</strong>
-              </div>
-            )}
+            {/* 手机号登录 Tab */}
+            {loginTab === 'phone' && (
+            <>
+              <p className="login-hint">使用手机号 + 短信验证码登录</p>
 
-            <form onSubmit={handlePhoneLogin} className="login-form">
-              <div className="login-field">
-                <label htmlFor="desktop-login-phone">手机号</label>
-                <input
-                  id="desktop-login-phone"
-                  type="tel"
-                  value={loginPhone}
-                  onChange={(e) => setLoginPhone(e.target.value)}
-                  placeholder="请输入手机号"
-                  required
-                  autoFocus
-                  maxLength={11}
-                />
-              </div>
+              {loginError && (
+                <div className="login-error">
+                  <span>⚠</span> {loginError}
+                </div>
+              )}
 
-              <div className="login-field">
-                <label htmlFor="desktop-login-smscode">验证码</label>
-                <div style={{ display: 'flex', gap: 8 }}>
+              {testCode && (
+                <div className="test-code-hint">
+                  <span>🧪 测试模式：验证码已自动填入</span>
+                  <strong>{testCode}</strong>
+                </div>
+              )}
+
+              <form onSubmit={handlePhoneLogin} className="login-form">
+                <div className="login-field">
+                  <label htmlFor="desktop-login-phone">手机号</label>
                   <input
-                    id="desktop-login-smscode"
-                    value={loginCode}
-                    onChange={(e) => setLoginCode(e.target.value)}
-                    placeholder="请输入验证码"
+                    id="desktop-login-phone"
+                    type="tel"
+                    value={loginPhone}
+                    onChange={(e) => setLoginPhone(e.target.value)}
+                    placeholder="请输入手机号"
                     required
-                    style={{ flex: 1 }}
-                    maxLength={6}
+                    autoFocus
+                    maxLength={11}
                   />
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={handleSendSms}
-                    disabled={countdown > 0 || loginLoading || !loginPhone}
-                    style={{ whiteSpace: 'nowrap', minWidth: 100 }}
-                  >
-                    {countdown > 0 ? `${countdown}s` : (loginLoading ? '发送中...' : '发送验证码')}
-                  </button>
+                </div>
+
+                <div className="login-field">
+                  <label htmlFor="desktop-login-smscode">验证码</label>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input
+                      id="desktop-login-smscode"
+                      value={loginCode}
+                      onChange={(e) => setLoginCode(e.target.value)}
+                      placeholder="请输入验证码"
+                      required
+                      style={{ flex: 1 }}
+                      maxLength={6}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={handleSendSms}
+                      disabled={countdown > 0 || loginLoading || !loginPhone}
+                      style={{ whiteSpace: 'nowrap', minWidth: 100 }}
+                    >
+                      {countdown > 0 ? `${countdown}s` : (loginLoading ? '发送中...' : '发送验证码')}
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  className="btn btn-primary login-submit-btn"
+                  disabled={loginLoading || !loginPhone || !loginCode}
+                >
+                  {loginLoading ? (
+                    <span className="login-spinner" />
+                  ) : (
+                    <>登录 →</>
+                  )}
+                </button>
+              </form>
+            </>
+            )}
+
+            {/* 声纹登录 Tab */}
+            {loginTab === 'voiceprint' && (
+            <>
+              <p className="login-hint">按住录音按钮说话，松开后自动声纹匹配登录</p>
+
+              {vpError && (
+                <div className="login-error">
+                  <span>⚠</span> {vpError}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: '24px 0' }}>
+                <button
+                  onMouseDown={startVoicePrintRecording}
+                  onMouseUp={stopVoicePrintRecording}
+                  onMouseLeave={() => { if (vpRecording) stopVoicePrintRecording(); }}
+                  onTouchStart={(e) => { e.preventDefault(); startVoicePrintRecording(); }}
+                  onTouchEnd={stopVoicePrintRecording}
+                  disabled={vpLoading}
+                  style={{
+                    width: 80, height: 80, borderRadius: '50%',
+                    background: vpRecording ? 'radial-gradient(circle, #ef4444, #991b1b)' : vpLoading ? '#444' : 'radial-gradient(circle, #6366f1, #4338ca)',
+                    border: vpRecording ? '3px solid #fca5a5' : '3px solid rgba(99,102,241,0.3)',
+                    color: '#fff', fontSize: 32, cursor: vpLoading ? 'not-allowed' : 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    transition: 'all 0.2s', boxShadow: vpRecording ? '0 0 24px rgba(239,68,68,0.4)' : '0 0 12px rgba(99,102,241,0.2)',
+                  }}
+                >
+                  {vpLoading ? '⏳' : vpRecording ? '⏺️' : '🎤'}
+                </button>
+                <div style={{ fontSize: 13, color: vpRecording ? '#ef4444' : '#888', textAlign: 'center' }}>
+                  {vpLoading ? '声纹匹配中...' : vpRecording ? '正在录音，松开停止' : '按住说话'}
                 </div>
               </div>
+            </>
+            )}
 
-              <button
-                type="submit"
-                className="btn btn-primary login-submit-btn"
-                disabled={loginLoading || !loginPhone || !loginCode}
-              >
-                {loginLoading ? (
-                  <span className="login-spinner" />
-                ) : (
-                  <>登录 →</>
-                )}
-              </button>
-
-              <button
-                type="button"
-                className="btn btn-ghost-link"
-                onClick={() => setShowLoginDialog(false)}
-                style={{ marginTop: 8, width: '100%' }}
-              >
-                取消
-              </button>
-            </form>
+            <button
+              type="button"
+              className="btn btn-ghost-link"
+              onClick={() => setShowLoginDialog(false)}
+              style={{ marginTop: 8, width: '100%' }}
+            >
+              取消
+            </button>
           </div>
         </div>
       )}
@@ -773,13 +891,97 @@ function HomeView({
   backend,
   hasToken,
   clientInfo,
-  onNav
+  onNav,
+  onLogin
 }: {
   backend: BackendStatus;
   hasToken: boolean;
   clientInfo: ClientInfo | null;
   onNav: (v: View) => void;
+  onLogin: () => void;
 }) {
+  // ── Integrated FrontDesk chat (auto-connect) ──
+  const [messages, setMessages] = useState<{ role: 'user' | 'assistant' | 'system'; content: string; audioUrl?: string }[]>([]);
+  const [input, setInput] = useState('');
+  const [connected, setConnected] = useState(false);
+  const [isWaiting, setIsWaiting] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const anonymousId = useRef(`guest_${Date.now().toString(36)}`);
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const chatContainerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+
+  useEffect(() => {
+    if (!backend.url) return;
+    const protocol = backend.url.startsWith('https') ? 'wss' : 'ws';
+    const urlBase = backend.url.replace(/^https?:\/\//, '');
+    const wsUrl = `${protocol}://${urlBase}/ws/public?token=anonymous`;
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+    ws.onopen = () => setConnected(true);
+    ws.onclose = () => setConnected(false);
+    ws.onerror = () => setConnected(false);
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'connected' || data.type === 'pong' || data.type === 'PONG') return;
+        if (data.type === 'thinking') { setIsWaiting(true); setMessages(prev => [...prev, { role: 'assistant', content: '...' }]); return; }
+        if (data.type === 'done') {
+          setIsWaiting(false);
+          setMessages(prev => {
+            const filtered = prev.filter(m => !(m.role === 'assistant' && m.content === '...'));
+            const newMsg: { role: 'assistant'; content: string; audioUrl?: string } = { role: 'assistant', content: data.content || '' };
+            if (data.audio) {
+              const audioBlob = new Blob([Uint8Array.from(atob(data.audio), c => c.charCodeAt(0))], { type: 'audio/wav' });
+              newMsg.audioUrl = URL.createObjectURL(audioBlob);
+            }
+            return [...filtered, newMsg];
+          });
+          return;
+        }
+        if (data.type === 'chunk' || data.type === 'response') {
+          setIsWaiting(false);
+          setMessages(prev => {
+            const filtered = prev.filter(m => !(m.role === 'assistant' && m.content === '...'));
+            const last = prev[prev.length - 1];
+            if (last && last.role === 'assistant' && last.content !== '...') {
+              return [...prev.slice(0, -1), { ...last, content: last.content + (data.content || '') }];
+            }
+            return [...filtered, { role: 'assistant', content: data.content || '' }];
+          });
+          return;
+        }
+        if (data.type === 'asr_result' && data.text) { setMessages(prev => [...prev, { role: 'user', content: `🎤 ${data.text}` }]); return; }
+        if (data.type === 'error') { setIsWaiting(false); setMessages(prev => [...prev, { role: 'system', content: data.message || 'Error' }]); }
+      } catch { /* ignore */ }
+    };
+    return () => { ws.close(); };
+  }, [backend.url]);
+
+  useEffect(() => {
+    return () => { if (currentAudioRef.current) currentAudioRef.current.pause(); };
+  }, []);
+
+  useEffect(() => {
+    if (chatContainerRef.current) chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+  }, [messages]);
+
+  const sendMessage = () => {
+    if (!input.trim() || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    const content = input.trim();
+    setMessages(prev => [...prev, { role: 'user', content }]);
+    setInput('');
+    setIsWaiting(true);
+    wsRef.current.send(JSON.stringify({ type: 'chat', content, userId: anonymousId.current }));
+  };
+
+  const playAudio = (url: string) => {
+    if (currentAudioRef.current) currentAudioRef.current.pause();
+    const a = new Audio(url); currentAudioRef.current = a; a.play().catch(() => undefined);
+  };
+
   return (
     <div className="home-view">
       <div className="home-hero">
@@ -788,6 +990,67 @@ function HomeView({
           桌面端是<span style={{ color: '#fff', background: 'rgba(255,255,255,0.2)', padding: '0 6px', borderRadius: 3 }}>独立安装</span>的客户端应用，
           与服务端 Web 端通过 HTTP API 通信，不共享代码。
         </p>
+        {!hasToken && (
+          <button onClick={onLogin} style={{ marginTop: 12, padding: '8px 24px', borderRadius: 8, background: '#6366f1', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
+            🔑 登录内部系统
+          </button>
+        )}
+        {hasToken && (
+          <span style={{ marginTop: 12, display: 'inline-block', padding: '6px 16px', borderRadius: 8, background: 'rgba(47,229,141,0.12)', color: '#2fe58d', fontSize: 13 }}>
+            ✓ 已登录内部系统
+          </span>
+        )}
+      </div>
+
+      {/* ── Integrated Chat Panel ── */}
+      <div style={{ margin: '0 0 16px', borderRadius: 12, background: 'var(--bg-secondary, #1a1a2e)', border: '1px solid var(--border-subtle, #2a2a3e)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span>💬</span>
+            <strong style={{ fontSize: 14 }}>智能前台</strong>
+          </div>
+          <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: connected ? 'rgba(47,229,141,0.12)' : 'rgba(255,80,80,0.12)', color: connected ? '#2fe58d' : '#f44' }}>
+            {connected ? '在线' : '离线'}
+          </span>
+        </div>
+
+        <div ref={chatContainerRef} style={{ flex: 1, overflowY: 'auto', padding: '12px 16px', minHeight: 160, maxHeight: 280 }}>
+          {messages.length === 0 && (
+            <div style={{ textAlign: 'center', color: '#888', padding: '32px 0' }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>💬</div>
+              <p style={{ margin: 0, fontSize: 13 }}>你好！我是智能前台，有什么可以帮你的？</p>
+              <p style={{ fontSize: 11, color: '#555', margin: '4px 0 0' }}>支持文字和语音对话 · 无需登录</p>
+            </div>
+          )}
+          {messages.map((msg, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start', marginBottom: 8 }}>
+              <div style={{
+                maxWidth: '75%', padding: '8px 12px', borderRadius: msg.role === 'user' ? '10px 10px 2px 10px' : '10px 10px 10px 2px',
+                background: msg.role === 'user' ? '#6366f1' : msg.role === 'system' ? '#4a1515' : '#2a2a3e',
+                color: msg.role === 'user' ? '#fff' : msg.role === 'system' ? '#f88' : '#ddd',
+                fontSize: 13, lineHeight: 1.5, wordBreak: 'break-word',
+              }}>
+                {msg.content}
+                {msg.audioUrl && <button onClick={() => playAudio(msg.audioUrl!)} style={{ marginTop: 4, fontSize: 10, padding: '2px 6px', borderRadius: 4, border: '1px solid #444', background: '#1a1a2e', color: '#aaa', cursor: 'pointer' }}>🔊 播放</button>}
+              </div>
+            </div>
+          ))}
+          <div ref={messagesEndRef} />
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, padding: '10px 16px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+          <input
+            value={input} onChange={e => setInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') sendMessage(); }}
+            placeholder="输入消息..." disabled={isWaiting || !connected}
+            style={{ flex: 1, padding: '8px 12px', borderRadius: 6, border: '1px solid #333', background: '#1a1a2e', color: '#ddd', fontSize: 13, outline: 'none' }}
+          />
+          <button onClick={sendMessage} disabled={!input.trim() || isWaiting || !connected}
+            style={{ padding: '8px 16px', borderRadius: 6, border: 'none', background: input.trim() && !isWaiting && connected ? '#6366f1' : '#333', color: input.trim() && !isWaiting && connected ? '#fff' : '#666', cursor: 'pointer', fontSize: 13 }}>
+            发送
+          </button>
+        </div>
+        <div style={{ padding: '0 16px 6px', fontSize: 9, color: '#555' }}>Qwen3 闲聊神经元 · 无需登录</div>
       </div>
 
       {clientInfo && (
@@ -821,44 +1084,15 @@ function HomeView({
       )}
 
       <div className="home-grid">
-        <button className="action-card" onClick={() => onNav('chat')}>
-          <span className="icon">💬</span>
-          <span className="title">部门聊天</span>
-          <span className="desc">通过 WebSocket 直连后端，实时部门消息 / AI 对话</span>
-          <span className="badge">核心</span>
+        {/* 内部系统入口 - 仅未登录时显示 */}
+        {!hasToken && (
+        <button className="action-card" onClick={onLogin}>
+          <span className="icon">🏢</span>
+          <span className="title">内部系统</span>
+          <span className="desc">登录后可访问部门聊天、任务、项目、审批等内部功能</span>
+          <span className="badge">需登录</span>
         </button>
-
-        <button className="action-card" onClick={() => onNav('tasks')}>
-          <span className="icon">📋</span>
-          <span className="title">公共任务栏</span>
-          <span className="desc">浏览部门公开任务、固定数字员工无法处理时派发的任务</span>
-          <span className="badge">主要功能</span>
-        </button>
-
-        <button className="action-card" onClick={() => onNav('artifacts')}>
-          <span className="icon">📦</span>
-          <span className="title">我的产物</span>
-          <span className="desc">查看和下载已完成的任务产物</span>
-          <span className="badge">推荐</span>
-        </button>
-
-        <button className="action-card" onClick={() => onNav('local-save')}>
-          <span className="icon">💾</span>
-          <span className="title">本地产物保存</span>
-          <span className="desc">将服务器上的产物按权限自动备份到本机文件夹</span>
-          <span className="badge">推荐</span>
-        </button>
-
-        <button className="action-card" onClick={() => onNav('settings')}>
-          <span className="icon">⚙️</span>
-          <span className="title">设置</span>
-          <span className="desc">后端地址、客户端标识、登录态</span>
-          {backend.url ? (
-            <span className="badge">{backend.url}</span>
-          ) : (
-            <span className="badge warn">未配置后端</span>
-          )}
-        </button>
+        )}
       </div>
 
       <section className="home-status">

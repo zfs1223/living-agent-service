@@ -56,8 +56,11 @@ public class VitalSignsService {
     }
 
     public VitalSnapshot getCurrentVitals() {
-        HealthStatus overallHealth = healthMonitor.checkHealth();
+        // 使用缓存的健康状态，避免重复调用checkHealth()导致双重健康检查
+        // HealthMonitorImpl每60秒自动执行checkHealth()，这里只获取缓存结果
         Map<String, HealthStatus> componentStatus = healthMonitor.getAllComponentStatus();
+        // 根据组件状态计算整体健康分数
+        HealthStatus overallHealth = computeOverallHealth(componentStatus);
         int activeConnections = connectionCountSupplier.getAsInt();
         boolean degradedMode = degradedModeSupplier.getAsBoolean();
 
@@ -92,6 +95,40 @@ public class VitalSignsService {
         history.addFirst(snapshot);
         while (history.size() > MAX_HISTORY) {
             history.removeLast();
+        }
+    }
+
+    /**
+     * 根据组件状态计算整体健康状态（使用缓存结果，避免重复检查）
+     */
+    private HealthStatus computeOverallHealth(Map<String, HealthStatus> componentStatus) {
+        if (componentStatus.isEmpty()) {
+            return HealthStatus.healthy("system");
+        }
+
+        double totalScore = 0.0;
+        int unhealthyCount = 0;
+        int degradedCount = 0;
+
+        for (HealthStatus status : componentStatus.values()) {
+            totalScore += status.getScore();
+            if (status.getStatus() == HealthStatus.Status.UNHEALTHY) {
+                unhealthyCount++;
+            } else if (status.getStatus() == HealthStatus.Status.DEGRADED) {
+                degradedCount++;
+            }
+        }
+
+        double avgScore = componentStatus.isEmpty() ? 100.0 : totalScore / componentStatus.size();
+
+        if (unhealthyCount > 0) {
+            return HealthStatus.unhealthy("system",
+                String.format("%d unhealthy components out of %d", unhealthyCount, componentStatus.size()));
+        } else if (degradedCount > 0) {
+            return HealthStatus.degraded("system",
+                String.format("%d degraded components out of %d", degradedCount, componentStatus.size()));
+        } else {
+            return HealthStatus.healthy("system");
         }
     }
 

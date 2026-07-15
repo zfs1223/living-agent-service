@@ -109,33 +109,8 @@ public class ConversationOrchestrator {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 // P0-2.5: 检查是否存在待澄清的上下文，如果有则恢复原编排
-                ClarificationContext clarificationCtx = pendingClarifications.get(sessionId);
-                if (clarificationCtx != null) {
-                    // 检查是否超时（30分钟）
-                    if (System.currentTimeMillis() - clarificationCtx.timestamp() > CLARIFICATION_TIMEOUT_MS) {
-                        log.info("Clarification context expired for session={}, removing", sessionId);
-                        pendingClarifications.remove(sessionId);
-                        deleteClarificationFile(sessionId);
-                    } else {
-                        // 恢复原编排上下文，跳过意图分析直接进入执行
-                        log.info("Resuming orchestration after clarification for session={}, originalRequestId={}",
-                            sessionId, clarificationCtx.requestId());
-                        traceService.recordEvent(AutonomyTraceEvent.of(
-                            requestId, "clarification_resumed", "ConversationOrchestrator",
-                            "Resuming after clarification, originalRequestId=" + clarificationCtx.requestId(),
-                            Map.of("originalRequestId", clarificationCtx.requestId(),
-                                   "originalDepartment", clarificationCtx.department() != null ? clarificationCtx.department() : "")
-                        ));
-
-                        // 清除映射
-                        pendingClarifications.remove(sessionId);
-                        deleteClarificationFile(sessionId);
-
-                        // P2-3: 使用异步版本避免阻塞
-                        String effectiveDepartment = clarificationCtx.department() != null ? clarificationCtx.department() : department;
-                        return resumeAfterClarificationAsync(requestId, clarificationCtx, message, userId, effectiveDepartment, sessionId).join();
-                    }
-                }
+                OrchestrationResult resumeResult = tryResumeAfterClarification(requestId, sessionId, department, message, userId);
+                if (resumeResult != null) return resumeResult;
 
                 // 清理过期的澄清上下文
                 cleanupExpiredClarifications();
@@ -144,9 +119,10 @@ public class ConversationOrchestrator {
                 IntakeClassification intake = classify(decision);
 
                 // 第11章 M1: 使用 TaskRouteClassifier 判断路由类型
-                TaskRouteResult routeResult = null;
-                if (taskRouteClassifier != null) {
-                    routeResult = taskRouteClassifier.classify(decision, department);
+                TaskRouteResult routeResult = taskRouteClassifier != null
+                    ? taskRouteClassifier.classify(decision, department) : null;
+
+                if (routeResult != null) {
                     traceService.recordEvent(AutonomyTraceEvent.of(
                         requestId, "task_route_classified", "TaskRouteClassifier",
                         "Route: type=" + routeResult.routeType() + ", dept=" + routeResult.departmentCode(),
@@ -159,31 +135,14 @@ public class ConversationOrchestrator {
 
                     // 单部门直达：跳过主脑规划，直接路由到部门大脑
                     if (routeResult.isSingleDepartment()) {
-                        String targetDept = routeResult.departmentCode();
-                        String brainId = mapDepartmentToBrain(targetDept);
-                        Optional<Brain> brainOpt = brainRegistry.getByDepartment(targetDept);
-                        Brain brain = brainOpt.orElse(null);
-
-                        BrainRoutingDecision directRouting = new BrainRoutingDecision(
-                            targetDept, brainId,
-                            decision.supportingDepartments(),
-                            decision.intent(),
-                            false
-                        );
-
-                        log.info("Single-department routing: dept={}, brainId={}, skipping main brain planning for requestId={}",
-                            targetDept, brainId, requestId);
-
-                        return OrchestrationResult.success(requestId, decision, intake, directRouting, null, brain);
+                        return handleSingleDepartmentRoute(requestId, routeResult, decision, intake);
                     }
 
                     // 需要澄清：返回澄清结果
                     if (routeResult.needsClarification()) {
-                        String clarificationMessage = "我需要更多信息来帮您完成任务。";
                         saveClarificationContext(sessionId, requestId, decision, intake, department);
-                        return OrchestrationResult.clarification(requestId, clarificationMessage, null);
+                        return OrchestrationResult.clarification(requestId, "我需要更多信息来帮您完成任务。", null);
                     }
-
                     // CROSS_DEPARTMENT: 继续走主脑规划路径
                 }
 
@@ -200,72 +159,16 @@ public class ConversationOrchestrator {
                 ));
 
                 // P0-2.4: 检查是否需要人工接管（高风险任务）
-                // 风险等级 >= 4 时尝试升级到人工干预
-                // 注意：LlmBasedDialogueAnalyzer 已明确指导 LLM 仅对删除生产数据、财务付款等场景给 4-5 级
-                if (decision.riskLevel() >= 4) {
-                    log.info("High risk detected (riskLevel={}), escalating to human for requestId={}", decision.riskLevel(), requestId);
-                    handleEscalateToHuman(requestId, decision, sessionId);
-                    traceService.recordEvent(AutonomyTraceEvent.of(
-                        requestId, "escalate_to_human", "ConversationOrchestrator",
-                        "High risk task escalated to human intervention",
-                        Map.of("riskLevel", String.valueOf(decision.riskLevel()),
-                               "kind", decision.kind().name(),
-                               "intent", decision.intent() != null ? decision.intent() : "")
-                    ));
-                    // P2-5: 统一降级策略
-                    // InterventionNeuron 未配置时，高风险任务降级到大脑自行判断
-                    // 并推送 risk_warning 事件通知用户
-                    if (interventionNeuron == null) {
-                        log.warn("[P2-5] InterventionNeuron not configured, high risk task (riskLevel={}) degraded to brain auto-judgment for requestId={}",
-                            decision.riskLevel(), requestId);
-                        // 降级但不阻断，继续走正常编排链路
-                    } else {
-                        return OrchestrationResult.escalateToHuman(requestId, "高风险任务需要人工确认: riskLevel=" + decision.riskLevel());
-                    }
-                }
+                OrchestrationResult escalationResult = checkHumanEscalation(requestId, decision, sessionId);
+                if (escalationResult != null) return escalationResult;
 
                 BrainRoutingDecision routingDecision;
                 MainBrainTaskPlan mainBrainTaskPlan = null;
 
                 if (intake.needsMainBrainPlanning()) {
-                    // P0-6 新增：在规划之前检查需求就绪状态
-                    if (readinessEvaluator != null) {
-                        RequirementReadinessEvaluator.RequirementReadinessResult readinessResult =
-                            readinessEvaluator.evaluate(message, department, sessionId);
-
-                        traceService.recordEvent(AutonomyTraceEvent.of(
-                            requestId, "requirement_readiness_evaluated", "RequirementReadinessEvaluator",
-                            "Readiness: level=" + readinessResult.level() + ", confidence=" + readinessResult.confidence(),
-                            Map.of(
-                                "readinessLevel", readinessResult.level().name(),
-                                "confidence", String.valueOf(readinessResult.confidence()),
-                                "missingElements", String.join(",", readinessResult.missingElements()),
-                                "needsClarification", String.valueOf(readinessResult.needsClarification())
-                            )
-                        ));
-
-                        if (readinessResult.level() == RequirementReadinessEvaluator.ReadinessLevel.INSUFFICIENT) {
-                            // 需求不明确，必须先澄清
-                            String clarificationMessage;
-                            if (requirementClarifier != null) {
-                                clarificationMessage = requirementClarifier
-                                    .clarify(message, readinessResult, department, sessionId).join();
-                            } else {
-                                clarificationMessage = "我需要更多信息来帮您完成任务：\n"
-                                    + String.join("\n", readinessResult.clarificationQuestions());
-                            }
-                            log.info("Requirement insufficient, returning clarification for session={}", sessionId);
-                            // P0-2.5: 保存澄清上下文，用户回答后可恢复原编排
-                            saveClarificationContext(sessionId, requestId, decision, intake, department);
-                            return OrchestrationResult.clarification(requestId, clarificationMessage, readinessResult);
-                        }
-
-                        if (readinessResult.level() == RequirementReadinessEvaluator.ReadinessLevel.PARTIALLY_SUFFICIENT) {
-                            // 需求部分明确，记录警告但继续规划
-                            log.info("Requirement partially sufficient (confidence={}), proceeding with planning for session={}",
-                                readinessResult.confidence(), sessionId);
-                        }
-                    }
+                    OrchestrationResult readinessResult = evaluateReadinessAndPlan(
+                        requestId, sessionId, department, message, userId, decision, intake);
+                    if (readinessResult != null) return readinessResult;
 
                     mainBrainTaskPlan = mainBrainTaskDirector
                         .plan(intake, decision, message, userId, sessionId, department)
@@ -273,14 +176,7 @@ public class ConversationOrchestrator {
 
                     // P0-6 增强：检查 LLM 返回的 requirementStatus
                     if (mainBrainTaskPlan.needsClarification()) {
-                        String clarificationMessage = mainBrainTaskPlan.clarificationQuestions() != null && !mainBrainTaskPlan.clarificationQuestions().isEmpty()
-                            ? "我需要更多信息来帮您完成任务：\n" + String.join("\n", mainBrainTaskPlan.clarificationQuestions())
-                            : "请提供更多关于您需求的信息。";
-                        log.info("MainBrain LLM determined requirement needs clarification: status={}, session={}",
-                            mainBrainTaskPlan.requirementStatus(), sessionId);
-                        // P0-2.5: 保存澄清上下文，用户回答后可恢复原编排
-                        saveClarificationContext(sessionId, requestId, decision, intake, department);
-                        return OrchestrationResult.clarification(requestId, clarificationMessage, null);
+                        return handleMainBrainClarification(requestId, sessionId, decision, intake, department, mainBrainTaskPlan);
                     }
 
                     traceService.recordEvent(AutonomyTraceEvent.of(
@@ -306,42 +202,7 @@ public class ConversationOrchestrator {
                     );
                 }
 
-                Optional<Brain> brainOpt = brainRegistry.getByDepartment(routingDecision.primaryDepartment());
-                if (brainOpt.isEmpty()) {
-                    traceService.recordEvent(AutonomyTraceEvent.of(
-                        requestId, "brain_routed", "BrainRouter",
-                        "No brain found for department: " + routingDecision.primaryDepartment()
-                    ));
-                    return OrchestrationResult.error(requestId, "NO_BRAIN", "部门大脑未注册: " + routingDecision.primaryDepartment());
-                }
-
-                Brain brain = brainOpt.get();
-
-                traceService.recordEvent(AutonomyTraceEvent.of(
-                    requestId, "brain_routed", "BrainRouter",
-                    "Routed to brain: " + brain.getId(),
-                    Map.of(
-                        "primaryBrain", brain.getId(),
-                        "primaryDepartment", routingDecision.primaryDepartment(),
-                        "routeReason", routingDecision.routeReason(),
-                        "reroutedFromRequestedDepartment", String.valueOf(routingDecision.reroutedFromRequestedDepartment())
-                    )
-                ));
-
-                if (mainBrainTaskPlan != null) {
-                    traceService.recordEvent(AutonomyTraceEvent.of(
-                        requestId, "department_plan_created", "MainBrainTaskDirector",
-                        "Department plan ready for " + routingDecision.primaryDepartment(),
-                        buildDepartmentPlanMetadata(mainBrainTaskPlan, routingDecision.primaryDepartment())
-                    ));
-                }
-
-                traceService.recordEvent(AutonomyTraceEvent.of(
-                    requestId, "response_composed", "ConversationOrchestrator",
-                    "Ready to process with department brain"
-                ));
-
-                return OrchestrationResult.success(requestId, decision, intake, routingDecision, mainBrainTaskPlan, brain);
+                return resolveBrainAndBuildResult(requestId, routingDecision, mainBrainTaskPlan, decision, intake);
 
             } catch (Exception e) {
                 log.error("Orchestration failed: {}", e.getMessage(), e);
@@ -352,6 +213,171 @@ public class ConversationOrchestrator {
                 return OrchestrationResult.error(requestId, "SYSTEM_ERROR", "编排失败: " + e.getMessage());
             }
         });
+    }
+
+    /** P0-2.5: Try to resume from a pending clarification context. Returns non-null if resumed. */
+    private OrchestrationResult tryResumeAfterClarification(String requestId, String sessionId,
+            String department, String message, String userId) {
+        ClarificationContext clarificationCtx = pendingClarifications.get(sessionId);
+        if (clarificationCtx == null) return null;
+
+        if (System.currentTimeMillis() - clarificationCtx.timestamp() > CLARIFICATION_TIMEOUT_MS) {
+            log.info("Clarification context expired for session={}, removing", sessionId);
+            pendingClarifications.remove(sessionId);
+            deleteClarificationFile(sessionId);
+            return null;
+        }
+
+        log.info("Resuming orchestration after clarification for session={}, originalRequestId={}",
+            sessionId, clarificationCtx.requestId());
+        traceService.recordEvent(AutonomyTraceEvent.of(
+            requestId, "clarification_resumed", "ConversationOrchestrator",
+            "Resuming after clarification, originalRequestId=" + clarificationCtx.requestId(),
+            Map.of("originalRequestId", clarificationCtx.requestId(),
+                   "originalDepartment", clarificationCtx.department() != null ? clarificationCtx.department() : "")
+        ));
+        pendingClarifications.remove(sessionId);
+        deleteClarificationFile(sessionId);
+
+        String effectiveDepartment = clarificationCtx.department() != null ? clarificationCtx.department() : department;
+        return resumeAfterClarificationAsync(requestId, clarificationCtx, message, userId, effectiveDepartment, sessionId).join();
+    }
+
+    /** Handle single-department direct routing, skipping main brain planning. */
+    private OrchestrationResult handleSingleDepartmentRoute(String requestId, TaskRouteResult routeResult,
+            DialogueDecision decision, IntakeClassification intake) {
+        String targetDept = routeResult.departmentCode();
+        String brainId = mapDepartmentToBrain(targetDept);
+        Optional<Brain> brainOpt = brainRegistry.getByDepartment(targetDept);
+        Brain brain = brainOpt.orElse(null);
+
+        BrainRoutingDecision directRouting = new BrainRoutingDecision(
+            targetDept, brainId,
+            decision.supportingDepartments(),
+            decision.intent(),
+            false
+        );
+
+        log.info("Single-department routing: dept={}, brainId={}, skipping main brain planning for requestId={}",
+            targetDept, brainId, requestId);
+
+        return OrchestrationResult.success(requestId, decision, intake, directRouting, null, brain);
+    }
+
+    /** P0-2.4: Check if human escalation is needed. Returns escalation result or null to continue. */
+    private OrchestrationResult checkHumanEscalation(String requestId, DialogueDecision decision, String sessionId) {
+        if (decision.riskLevel() < 4) return null;
+
+        log.info("High risk detected (riskLevel={}), escalating to human for requestId={}", decision.riskLevel(), requestId);
+        handleEscalateToHuman(requestId, decision, sessionId);
+        traceService.recordEvent(AutonomyTraceEvent.of(
+            requestId, "escalate_to_human", "ConversationOrchestrator",
+            "High risk task escalated to human intervention",
+            Map.of("riskLevel", String.valueOf(decision.riskLevel()),
+                   "kind", decision.kind().name(),
+                   "intent", decision.intent() != null ? decision.intent() : "")
+        ));
+
+        if (interventionNeuron == null) {
+            log.warn("[P2-5] InterventionNeuron not configured, high risk task (riskLevel={}) degraded to brain auto-judgment for requestId={}",
+                decision.riskLevel(), requestId);
+            return null;
+        }
+        return OrchestrationResult.escalateToHuman(requestId, "高风险任务需要人工确认: riskLevel=" + decision.riskLevel());
+    }
+
+    /** Evaluate requirement readiness before main brain planning. Returns clarification result or null to continue. */
+    private OrchestrationResult evaluateReadinessAndPlan(String requestId, String sessionId, String department,
+            String message, String userId, DialogueDecision decision, IntakeClassification intake) {
+        if (readinessEvaluator == null) return null;
+
+        RequirementReadinessEvaluator.RequirementReadinessResult readinessResult =
+            readinessEvaluator.evaluate(message, department, sessionId);
+
+        traceService.recordEvent(AutonomyTraceEvent.of(
+            requestId, "requirement_readiness_evaluated", "RequirementReadinessEvaluator",
+            "Readiness: level=" + readinessResult.level() + ", confidence=" + readinessResult.confidence(),
+            Map.of(
+                "readinessLevel", readinessResult.level().name(),
+                "confidence", String.valueOf(readinessResult.confidence()),
+                "missingElements", String.join(",", readinessResult.missingElements()),
+                "needsClarification", String.valueOf(readinessResult.needsClarification())
+            )
+        ));
+
+        if (readinessResult.level() == RequirementReadinessEvaluator.ReadinessLevel.INSUFFICIENT) {
+            String clarificationMessage;
+            if (requirementClarifier != null) {
+                clarificationMessage = requirementClarifier
+                    .clarify(message, readinessResult, department, sessionId).join();
+            } else {
+                clarificationMessage = "我需要更多信息来帮您完成任务：\n"
+                    + String.join("\n", readinessResult.clarificationQuestions());
+            }
+            log.info("Requirement insufficient, returning clarification for session={}", sessionId);
+            saveClarificationContext(sessionId, requestId, decision, intake, department);
+            return OrchestrationResult.clarification(requestId, clarificationMessage, readinessResult);
+        }
+
+        if (readinessResult.level() == RequirementReadinessEvaluator.ReadinessLevel.PARTIALLY_SUFFICIENT) {
+            log.info("Requirement partially sufficient (confidence={}), proceeding with planning for session={}",
+                readinessResult.confidence(), sessionId);
+        }
+        return null;
+    }
+
+    /** Handle main brain plan that needs clarification. */
+    private OrchestrationResult handleMainBrainClarification(String requestId, String sessionId,
+            DialogueDecision decision, IntakeClassification intake, String department,
+            MainBrainTaskPlan mainBrainTaskPlan) {
+        String clarificationMessage = mainBrainTaskPlan.clarificationQuestions() != null && !mainBrainTaskPlan.clarificationQuestions().isEmpty()
+            ? "我需要更多信息来帮您完成任务：\n" + String.join("\n", mainBrainTaskPlan.clarificationQuestions())
+            : "请提供更多关于您需求的信息。";
+        log.info("MainBrain LLM determined requirement needs clarification: status={}, session={}",
+            mainBrainTaskPlan.requirementStatus(), sessionId);
+        saveClarificationContext(sessionId, requestId, decision, intake, department);
+        return OrchestrationResult.clarification(requestId, clarificationMessage, null);
+    }
+
+    /** Resolve brain from routing decision and build final success result. */
+    private OrchestrationResult resolveBrainAndBuildResult(String requestId, BrainRoutingDecision routingDecision,
+            MainBrainTaskPlan mainBrainTaskPlan, DialogueDecision decision, IntakeClassification intake) {
+        Optional<Brain> brainOpt = brainRegistry.getByDepartment(routingDecision.primaryDepartment());
+        if (brainOpt.isEmpty()) {
+            traceService.recordEvent(AutonomyTraceEvent.of(
+                requestId, "brain_routed", "BrainRouter",
+                "No brain found for department: " + routingDecision.primaryDepartment()
+            ));
+            return OrchestrationResult.error(requestId, "NO_BRAIN", "部门大脑未注册: " + routingDecision.primaryDepartment());
+        }
+
+        Brain brain = brainOpt.get();
+
+        traceService.recordEvent(AutonomyTraceEvent.of(
+            requestId, "brain_routed", "BrainRouter",
+            "Routed to brain: " + brain.getId(),
+            Map.of(
+                "primaryBrain", brain.getId(),
+                "primaryDepartment", routingDecision.primaryDepartment(),
+                "routeReason", routingDecision.routeReason(),
+                "reroutedFromRequestedDepartment", String.valueOf(routingDecision.reroutedFromRequestedDepartment())
+            )
+        ));
+
+        if (mainBrainTaskPlan != null) {
+            traceService.recordEvent(AutonomyTraceEvent.of(
+                requestId, "department_plan_created", "MainBrainTaskDirector",
+                "Department plan ready for " + routingDecision.primaryDepartment(),
+                buildDepartmentPlanMetadata(mainBrainTaskPlan, routingDecision.primaryDepartment())
+            ));
+        }
+
+        traceService.recordEvent(AutonomyTraceEvent.of(
+            requestId, "response_composed", "ConversationOrchestrator",
+            "Ready to process with department brain"
+        ));
+
+        return OrchestrationResult.success(requestId, decision, intake, routingDecision, mainBrainTaskPlan, brain);
     }
 
     /**
@@ -477,6 +503,10 @@ public class ConversationOrchestrator {
             log.info("Escalation message sent to InterventionNeuron for requestId={}", requestId);
         } catch (Exception e) {
             log.error("Failed to send escalation to InterventionNeuron for requestId={}: {}", requestId, e.getMessage());
+            traceService.recordEvent(AutonomyTraceEvent.of(
+                requestId, "escalation_notification_failed", "ConversationOrchestrator",
+                "Escalation to InterventionNeuron failed, notification may be lost",
+                Map.of("error", e.getMessage() != null ? e.getMessage() : "")));
         }
     }
 
@@ -734,6 +764,10 @@ public class ConversationOrchestrator {
             log.debug("Persisted clarification context for session={}", sessionId);
         } catch (Exception e) {
             log.warn("Failed to persist clarification context for session={}: {}", sessionId, e.getMessage());
+            traceService.recordEvent(AutonomyTraceEvent.of(
+                sessionId, "clarification_persist_failed", "ConversationOrchestrator",
+                "Clarification context may be lost on restart",
+                Map.of("sessionId", sessionId, "error", e.getMessage() != null ? e.getMessage() : "")));
         }
     }
 

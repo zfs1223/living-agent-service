@@ -1,3 +1,11 @@
+---
+name: recruitment-automation
+description: Recruitment Automation
+risk: low
+source: internal
+date_added: '2026-07-13'
+---
+
 # Recruitment Automation
 
 > 招聘自动化技能，自动执行招聘流程、简历筛选、面试安排

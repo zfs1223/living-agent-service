@@ -5,11 +5,13 @@ import com.livingagent.core.knowledge.KnowledgeType;
 import com.livingagent.core.knowledge.Importance;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
 
 /**
  * 闭环46-P46-B: 对话归档服务
  * 对话归档时自动沉淀经验到知识库
  */
+@Component
 public class ConversationArchiveService {
 
     private static final Logger log = LoggerFactory.getLogger(ConversationArchiveService.class);

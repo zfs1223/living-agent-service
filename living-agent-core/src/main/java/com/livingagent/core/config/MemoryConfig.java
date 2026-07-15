@@ -242,7 +242,12 @@ public class MemoryConfig {
             // 1. 专业知识播种
             if (professionalKnowledgeEnabled) {
                 try {
-                    int count = professionalSeeder.seedFromDirectory(java.nio.file.Paths.get(agencyAgentsPath));
+                    java.nio.file.Path agencyPath = java.nio.file.Paths.get(agencyAgentsPath);
+                    if (!java.nio.file.Files.exists(agencyPath)) {
+                        java.nio.file.Files.createDirectories(agencyPath);
+                        log.info("Created agency-agents directory: {}", agencyPath);
+                    }
+                    int count = professionalSeeder.seedFromDirectory(agencyPath);
                     log.info("专业知识播种完成: {} 条", count);
                 } catch (Exception e) {
                     log.warn("专业知识播种失败（非致命）: {}", e.getMessage());

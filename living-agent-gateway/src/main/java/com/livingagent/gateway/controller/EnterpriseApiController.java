@@ -26,6 +26,9 @@ public class EnterpriseApiController {
 
     private static final Logger log = LoggerFactory.getLogger(EnterpriseApiController.class);
 
+    @org.springframework.beans.factory.annotation.Value("${living-agent.frontend.base-url:http://localhost:5173}")
+    private String frontendBaseUrl;
+
     private final UnifiedAuthService authService;
     private final EmployeeService employeeService;
     private final AccessGateService accessGateService;
@@ -470,10 +473,8 @@ public class EnterpriseApiController {
         entry.put("createdBy", ctxOpt.get().getEmployeeId());
 
         // 生成完整邀请链接
-        // TODO: 从配置中读取 baseUrl
-        String baseUrl = "http://localhost:5173";  // 默认前端地址
         String inviteUrl = String.format("%s/sso/entry?invite_code=%s&company=%s",
-            baseUrl, code, java.net.URLEncoder.encode(companyName, java.nio.charset.StandardCharsets.UTF_8));
+            frontendBaseUrl, code, java.net.URLEncoder.encode(companyName, java.nio.charset.StandardCharsets.UTF_8));
         entry.put("inviteUrl", inviteUrl);
 
         var settings = systemConfigService.getSettings();

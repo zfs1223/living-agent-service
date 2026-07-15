@@ -4,11 +4,15 @@ import com.livingagent.core.evolution.orchestrator.CrossLoopEvent;
 import com.livingagent.core.evolution.orchestrator.CrossLoopEventBus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.LongAdder;
 
+@Component
 public class OfficeStateSyncMonitor {
 
     private static final Logger log = LoggerFactory.getLogger(OfficeStateSyncMonitor.class);
@@ -18,8 +22,9 @@ public class OfficeStateSyncMonitor {
     private final Map<String, OfficeSyncState> officeStateMap = new ConcurrentHashMap<>();
     private final LongAdder totalSnapshots = new LongAdder();
     private final LongAdder inconsistentSnapshots = new LongAdder();
+    private volatile long syncCheckIntervalMs = 30000;
 
-    public OfficeStateSyncMonitor(CrossLoopEventBus eventBus) {
+    public OfficeStateSyncMonitor(@Autowired(required = false) CrossLoopEventBus eventBus) {
         this.eventBus = eventBus;
     }
 
@@ -34,9 +39,36 @@ public class OfficeStateSyncMonitor {
 
         if (syncDelayMs > SYNC_DELAY_WARNING_MS) {
             log.warn("[闭环56] 办公室同步延迟: id={}, delay={}ms", officeId, syncDelayMs);
-            eventBus.publish(56, "performance_issue", CrossLoopEvent.EventPriority.DEGRADATION,
-                Map.of("content", String.format("Office %s sync delay %dms exceeds %dms threshold", officeId, syncDelayMs, SYNC_DELAY_WARNING_MS)));
+            if (eventBus != null) {
+                eventBus.publish(56, "performance_issue", CrossLoopEvent.EventPriority.DEGRADATION,
+                    Map.of("content", String.format("Office %s sync delay %dms exceeds %dms threshold", officeId, syncDelayMs, SYNC_DELAY_WARNING_MS)));
+            }
         }
+    }
+
+    @Scheduled(fixedRate = 30 * 60 * 1000)
+    public void checkAndAdjustSyncFrequency() {
+        if (officeStateMap.isEmpty()) return;
+        long total = totalSnapshots.sum();
+        if (total < 10) return;
+
+        double inconsistencyRate = (double) inconsistentSnapshots.sum() / total;
+        if (inconsistencyRate > 0.20 && syncCheckIntervalMs > 10000) {
+            long old = syncCheckIntervalMs;
+            syncCheckIntervalMs = Math.max(10000, syncCheckIntervalMs - 5000);
+            log.info("[闭环56] 不一致率{}%过高，同步检查间隔从{}ms降至{}ms",
+                String.format("%.0f", inconsistencyRate * 100), old, syncCheckIntervalMs);
+            if (eventBus != null) {
+                eventBus.publish(56, "sync_frequency_adjusted", CrossLoopEvent.EventPriority.DEGRADATION,
+                    Map.of("syncCheckIntervalMs", syncCheckIntervalMs, "inconsistencyRate", inconsistencyRate), 300);
+            }
+        } else if (inconsistencyRate < 0.05 && syncCheckIntervalMs < SYNC_DELAY_WARNING_MS) {
+            syncCheckIntervalMs = Math.min(SYNC_DELAY_WARNING_MS, syncCheckIntervalMs + 2000);
+        }
+    }
+
+    public long getSyncCheckIntervalMs() {
+        return syncCheckIntervalMs;
     }
 
     public OfficeSyncReport getReport(String officeId) {
