@@ -514,14 +514,22 @@ public class GatewayConfig {
             com.livingagent.core.diagnosis.HealthMonitor healthMonitor,
             com.livingagent.gateway.websocket.ConnectionRegistry connectionRegistry,
             org.springframework.context.ApplicationEventPublisher eventPublisher,
-            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
-        return new com.livingagent.core.diagnosis.VitalSignsService(
+            com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus,
+            @org.springframework.beans.factory.annotation.Autowired(required = false)
+            com.livingagent.gateway.meeting.LiveKitWebhookHandler liveKitWebhookHandler) {
+        com.livingagent.core.diagnosis.VitalSignsService service = new com.livingagent.core.diagnosis.VitalSignsService(
             healthMonitor,
             connectionRegistry::getActiveConnectionCount,
             com.livingagent.core.diagnosis.AppModeUtil::isDegraded,
             eventPublisher,
             crossLoopEventBus
         );
+        // P81 闭环32扩展：注入 LiveKit 会议状态供应器
+        if (liveKitWebhookHandler != null) {
+            service.setLivekitMeetingStatesSupplier(liveKitWebhookHandler::getAllMeetingStates);
+            log.info("[P81] LiveKit health monitoring enabled in VitalSignsService (闭环32扩展)");
+        }
+        return service;
     }
 
     // ===== 闭环38: 认证全生命周期闭环 =====
@@ -766,5 +774,39 @@ public class GatewayConfig {
             com.livingagent.core.evolution.orchestrator.CrossLoopEventBus crossLoopEventBus) {
         log.info("[闭环63] Initializing ClaudeProxyMetricsService (P63-A)");
         return new com.livingagent.core.model.proxy.feedback.ClaudeProxyMetricsService(crossLoopEventBus);
+    }
+
+    // ===== P84: 会议日历同步适配器注册 =====
+
+    @Bean
+    public com.livingagent.gateway.meeting.LocalICalSyncAdapter localICalSyncAdapter(
+            org.springframework.core.env.Environment env) {
+        String storagePath = env.resolveRequiredPlaceholders(
+                "${meeting.calendar.local-storage-path:${LIVING_AGENT_DATA_PATH:./data}/calendars/}");
+        log.info("[P84] Initializing LocalICalSyncAdapter (iCal storage: {})", storagePath);
+        return new com.livingagent.gateway.meeting.LocalICalSyncAdapter(storagePath);
+    }
+
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
+            name = "feishu.enabled", havingValue = "true")
+    public com.livingagent.gateway.meeting.FeishuCalendarSyncAdapter feishuCalendarSyncAdapter(
+            org.springframework.core.env.Environment env) {
+        String appId = env.getProperty("feishu.enterprise.app-id", "");
+        String appSecret = env.getProperty("feishu.enterprise.app-secret", "");
+        String calendarId = env.getProperty("meeting.calendar.feishu.calendar-id", "primary");
+        log.info("[P84] Initializing FeishuCalendarSyncAdapter (calendarId: {})", calendarId);
+        return new com.livingagent.gateway.meeting.FeishuCalendarSyncAdapter(appId, appSecret, calendarId);
+    }
+
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
+            name = "meeting.calendar.wechat.enabled", havingValue = "true")
+    public com.livingagent.gateway.meeting.WechatCalendarSyncAdapter wechatCalendarSyncAdapter(
+            org.springframework.core.env.Environment env) {
+        String corpId = env.getProperty("meeting.calendar.wechat.corp-id", "");
+        String calendarSecret = env.getProperty("meeting.calendar.wechat.calendar-secret", "");
+        log.info("[P84] Initializing WechatCalendarSyncAdapter");
+        return new com.livingagent.gateway.meeting.WechatCalendarSyncAdapter(corpId, calendarSecret);
     }
 }

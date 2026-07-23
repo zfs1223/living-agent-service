@@ -12,6 +12,7 @@ import { registerIpcHandlers, unregisterIpcHandlers } from './ipc';
 import { initShortcuts, destroyShortcuts } from './shortcuts';
 import { startConnectionMonitor, stopConnectionMonitor } from './connection';
 import { initFloatingTaskBoard, destroyFloatingTaskBoard } from './floating-task-board';
+import { initQuickView, destroyQuickView } from './quick-view/quick-view-window';
 import { initTaskBoardTray } from './task-board-tray';
 import { initTaskNotification, destroyTaskNotification } from './task-notification';
 import { startLocalSaveSync, stopLocalSaveSync } from './local-save-sync';
@@ -22,6 +23,8 @@ import { loadBackendUrl, isBackendConfigured } from './api-client';
 import { wsClient } from './ws-client';
 import { loadToken } from './auth';
 import { winAutomationService } from './win-automation-service';
+import { operationRecorder } from './recorder-controller';
+import { initScreenshotService, destroyScreenshotService } from './screenshot/screenshot-service';
 
 // 单实例锁：避免多开
 const gotTheLock = app.requestSingleInstanceLock();
@@ -61,8 +64,14 @@ app.whenReady().then(async () => {
   // 1. 注册 IPC handlers
   registerIpcHandlers();
 
+  // 1.1 初始化截图服务（P2）
+  initScreenshotService();
+
   // 2. 创建主窗口
   mainWindow = createMainWindow();
+
+  // 2.1 设置录制控制器的主窗口引用
+  operationRecorder.setMainWindow(mainWindow);
 
   // 3. 创建托盘
   initTray();
@@ -82,6 +91,9 @@ app.whenReady().then(async () => {
 
   // 8. 任务中心悬浮窗
   initFloatingTaskBoard();
+
+  // 8.1 P7: Quick View 悬浮对话（延迟创建，用户触发时创建窗口）
+  initQuickView();
 
   // 9. 本地保存同步
   await startLocalSaveSync();
@@ -140,11 +152,14 @@ appOnBeforeQuit(() => {
   // 清理资源
   destroyTaskNotification();
   destroyFloatingTaskBoard();
+  destroyQuickView(); // P7: 销毁 Quick View
   destroyShortcuts();
   destroyTray();
   stopConnectionMonitor();
   stopLocalSaveSync();
   winAutomationService.stop();
+  operationRecorder.forceStop();
+  destroyScreenshotService(); // P2: 销毁截图服务
   unregisterIpcHandlers();
 });
 

@@ -1,0 +1,157 @@
+import { invoke } from '@tauri-apps/api/core'
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
+import rustWebSocketClient from '@/services/webSocketRust'
+import { TauriCommand } from '../enums'
+import { useLogin } from '../hooks/useLogin'
+import { useWindow } from '../hooks/useWindow'
+import { useLoginHistoriesStore } from '../stores/loginHistory'
+import { useSettingStore } from '../stores/setting'
+import { useUserStore } from '../stores/user'
+import { useUserStatusStore } from '../stores/userStatus'
+import { getAllUserState, getUserDetail } from '../utils/ImRequestUtils'
+import { ErrorType, invokeWithErrorHandler } from '../utils/TauriInvokeHandler'
+import { getEnhancedFingerprint } from './fingerprint'
+import { ensureAppStateReady } from '@/utils/AppStateReady'
+import type { UserInfoType } from './types'
+
+export type Settings = {
+  database: {
+    sqlite_file: string
+  }
+  backend: {
+    base_url: string
+    ws_url: string
+  }
+  youdao?: {
+    app_key: string
+    app_secret: string
+  }
+  tencent?: {
+    api_key: string
+    secret_id: string
+    map_key: string
+  }
+  minio?: {
+    endpoint: string
+    bucket: string
+    access_key: string
+    secret_key: string
+    region: string
+    download_domain: string
+  }
+  ice_server?: {
+    urls: string[]
+    username: string
+    credential: string
+  }
+}
+
+export type UpdateSettingsParams = {
+  baseUrl: string
+  wsUrl: string
+}
+
+export const getSettings = async (): Promise<Settings> => {
+  return await invoke('get_settings')
+}
+
+export const updateSettings = async (settings: UpdateSettingsParams) => {
+  return await invoke('update_settings', { settings })
+}
+
+/**
+ * 切换用户数据库
+ * 根据用户ID切换到对应的数据库文件，如果数据库不存在则创建
+ * @param uid 用户ID
+ */
+export const switchUserDatabase = async (uid: string): Promise<void> => {
+  await ensureAppStateReady()
+  return await invoke('switch_user_database', { uid })
+}
+
+export const loginCommand = async (
+  info: Partial<{
+    account: string
+    password: string
+    avatar: string
+    name: string
+    uid: string
+  }>,
+  auto: boolean = false
+) => {
+  const userStore = useUserStore()
+  const settingStore = useSettingStore()
+
+  const loginInfo = settingStore.login.autoLogin ? (userStore.userInfo as UserInfoType) : info
+  // 存储此次登陆设备指纹
+  const clientId = await getEnhancedFingerprint()
+
+  await ensureAppStateReady()
+
+  await invoke('login_command', {
+    data: {
+      account: loginInfo.account ? loginInfo.account : '',
+      password: loginInfo.password ? loginInfo.password : '',
+      deviceType: 'PC',
+      systemType: '2',
+      clientId: clientId,
+      grantType: 'PASSWORD',
+      isAutoLogin: auto,
+      asyncData: false,
+      uid: info.uid
+    }
+  }).then(async (res: any) => {
+    // 数据库切换已在后端 login_command 中完成
+    // 开启 ws 连接
+    await rustWebSocketClient.initConnect()
+    await loginProcess(res.token, res.refreshToken, res.client)
+  })
+}
+
+const loginProcess = async (token: string, refreshToken: string, client: string) => {
+  const userStatusStore = useUserStatusStore()
+  const userStore = useUserStore()
+  const loginHistoriesStore = useLoginHistoriesStore()
+  const { setLoginState } = useLogin()
+
+  userStatusStore.stateList = await getAllUserState()
+
+  const userDetail: any = await getUserDetail()
+  userStatusStore.stateId = userDetail.userStateId
+
+  const account = {
+    ...userDetail,
+    token,
+    refreshToken,
+    client
+  }
+  userStore.userInfo = account
+
+  loginHistoriesStore.addLoginHistory(account)
+
+  // 在 sqlite 中存储用户信息
+  await invokeWithErrorHandler(
+    TauriCommand.SAVE_USER_INFO,
+    {
+      userInfo: userDetail
+    },
+    {
+      customErrorMessage: '保存用户信息失败',
+      errorType: ErrorType.Client
+    }
+  )
+
+  await setLoginState()
+  await openHomeWindow()
+}
+
+const openHomeWindow = async () => {
+  const { createWebviewWindow } = useWindow()
+  const registerWindow = await WebviewWindow.getByLabel('register')
+  if (registerWindow) {
+    await registerWindow.close().catch((error) => {
+      console.warn('关闭注册窗口失败:', error)
+    })
+  }
+  await createWebviewWindow('HuLa', 'home', 960, 720, 'login', true, 330, 480, undefined, false)
+}

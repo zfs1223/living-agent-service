@@ -1,0 +1,160 @@
+/**
+ * P15: 人类员工周期性汇报入口样式
+ */
+
+.human-report {
+  padding: 24px;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.human-report__empty {
+  padding: 48px 24px;
+  text-align: center;
+  color: #888;
+  font-size: 14px;
+}
+
+.human-report__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.human-report__header h1 {
+  font-size: 24px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.human-report__type-selector {
+  display: flex;
+  gap: 8px;
+}
+
+.human-report__type {
+  padding: 8px 16px;
+  border: 1px solid #444;
+  border-radius: 6px;
+  background: #2a2a3a;
+  color: #aaa;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.human-report__type:hover {
+  border-color: #6366f1;
+  color: #fff;
+}
+
+.human-report__type.active {
+  background: #6366f1;
+  border-color: #6366f1;
+  color: #fff;
+}
+
+.human-report__success {
+  padding: 12px 16px;
+  background: #1a4a2a;
+  border: 1px solid #2a6a3a;
+  border-radius: 6px;
+  color: #6f6;
+  margin-bottom: 16px;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.human-report__editor {
+  background: #2a2a3a;
+  border: 1px solid #444;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 24px;
+}
+
+.human-report__textarea {
+  width: 100%;
+  min-height: 280px;
+  background: #1a1a2a;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 12px;
+  color: #eee;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 14px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.human-report__textarea:focus {
+  outline: none;
+  border-color: #6366f1;
+}
+
+.human-report__textarea::placeholder {
+  color: #666;
+}
+
+.human-report__actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.human-report__char-count {
+  color: #666;
+  font-size: 12px;
+}
+
+.human-report__submit {
+  padding: 10px 24px;
+  background: #6366f1;
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.human-report__submit:hover:not(:disabled) {
+  background: #5555e1;
+}
+
+.human-report__submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.human-report__tips {
+  background: #2a2a3a;
+  border: 1px solid #444;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.human-report__tips h3 {
+  font-size: 14px;
+  margin: 0 0 12px 0;
+  color: #aaa;
+}
+
+.human-report__template {
+  background: #1a1a2a;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 12px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #888;
+  white-space: pre-wrap;
+  overflow-x: auto;
+  margin: 0;
+}

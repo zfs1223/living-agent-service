@@ -97,36 +97,21 @@ public class AuthHandshakeInterceptor implements HandshakeInterceptor {
     @Override
     public void afterHandshake(ServerHttpRequest request, ServerHttpResponse response,
             WebSocketHandler wsHandler, Exception exception) {
-        // 如果握手成功，返回接受的 subprotocol（客户端使用 bearer.<token> 格式）
-        if (exception == null && response instanceof org.springframework.http.server.ServletServerHttpResponse servletResponse) {
-            String protocol = ((ServletServerHttpRequest) request).getServletRequest().getHeader("Sec-WebSocket-Protocol");
-            if (protocol != null && !protocol.isBlank()) {
-                for (String p : protocol.split(",")) {
-                    String trimmed = p.trim();
-                    if (trimmed.startsWith("bearer.")) {
-                        // 返回接受的 subprotocol
-                        servletResponse.getServletResponse().setHeader("Sec-WebSocket-Protocol", trimmed);
-                        break;
-                    }
-                }
-            }
-        }
+        // WebSocket 握手完成后的回调（无需额外处理）
     }
 
     /**
      * 从请求中提取 token
-     * 优先级：Sec-WebSocket-Protocol > Authorization > URL 参数
+     * 优先级：URL 参数（桌面端主要方式） > Authorization 头 > Sec-WebSocket-Protocol 头（兼容旧客户端）
+     *
+     * 注意：桌面端通过 URL 查询参数 ?token=xxx 传递 token，不使用 Sec-WebSocket-Protocol，
+     * 因为 Spring DefaultHandshakeHandler 的子协议匹配是严格相等，bearer.<token> 无法匹配 bearer。
      */
     private String extractToken(HttpServletRequest request) {
-        // 1. 从 Sec-WebSocket-Protocol 头获取（更安全）
-        String protocol = request.getHeader("Sec-WebSocket-Protocol");
-        if (protocol != null && !protocol.isBlank()) {
-            for (String p : protocol.split(",")) {
-                String trimmed = p.trim();
-                if (trimmed.startsWith("bearer.")) {
-                    return trimmed.substring(7);
-                }
-            }
+        // 1. 从 URL 查询参数获取（桌面端主要方式）
+        String token = request.getParameter("token");
+        if (token != null && !token.isBlank()) {
+            return token;
         }
 
         // 2. 从 Authorization 头获取
@@ -135,11 +120,15 @@ public class AuthHandshakeInterceptor implements HandshakeInterceptor {
             return authorization.substring(7);
         }
 
-        // 3. 从 URL 查询参数获取（向后兼容）
-        String token = request.getParameter("token");
-        if (token != null && !token.isBlank()) {
-            log.debug("[WS Handshake] Token passed via URL parameter (deprecated)");
-            return token;
+        // 3. 从 Sec-WebSocket-Protocol 头获取（兼容旧客户端）
+        String protocol = request.getHeader("Sec-WebSocket-Protocol");
+        if (protocol != null && !protocol.isBlank()) {
+            for (String p : protocol.split(",")) {
+                String trimmed = p.trim();
+                if (trimmed.startsWith("bearer.")) {
+                    return trimmed.substring(7);
+                }
+            }
         }
 
         return null;

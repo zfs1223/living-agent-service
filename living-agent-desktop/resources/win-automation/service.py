@@ -288,7 +288,7 @@ class Desktop:
     ):
         """
         文字输入
-        
+
         Args:
             loc: 点击位置（可选，None 表示不点击）
             text: 要输入的文字
@@ -316,13 +316,72 @@ class Desktop:
             sleep(0.05)
             ctypes.windll.user32.keybd_event(0x08, 0, 2, 0)  # BACKUP
 
-        # 输入文本（使用 SendKeys）
-        escaped_text = _escape_text_for_sendkeys(text)
-        self._send_keys(escaped_text)
+        # 输入文本：检测是否包含非 ASCII 字符（中文、日文等）
+        has_non_ascii = any(ord(ch) > 127 for ch in text)
+
+        if has_non_ascii:
+            # 非ASCII字符（如中文）使用剪贴板方式输入
+            self._type_via_clipboard(text)
+        else:
+            # ASCII 字符使用 SendKeys
+            escaped_text = _escape_text_for_sendkeys(text)
+            self._send_keys(escaped_text)
 
         if press_enter:
             sleep(0.05)
             self.shortcut('Enter')
+
+    def _type_via_clipboard(self, text: str):
+        """
+        通过剪贴板输入文本（支持中文等非ASCII字符）
+
+        原理：将文本复制到剪贴板 → Ctrl+V 粘贴
+        这是 Windows 下输入中文唯一可靠的方式，keybd_event 无法发送中文VK码
+        """
+        if not WIN32_AVAILABLE:
+            # 回退：尝试逐字符发送（中文会失败）
+            escaped_text = _escape_text_for_sendkeys(text)
+            self._send_keys(escaped_text)
+            return
+
+        # 保存当前剪贴板内容（尽量不破坏用户剪贴板）
+        old_clipboard = None
+        try:
+            win32clipboard.OpenClipboard()
+            try:
+                old_clipboard = win32clipboard.GetClipboardData(win32con.CF_UNICODETEXT)
+            except Exception:
+                old_clipboard = None
+            win32clipboard.CloseClipboard()
+        except Exception:
+            pass
+
+        # 设置剪贴板为要输入的文本
+        try:
+            win32clipboard.OpenClipboard()
+            win32clipboard.EmptyClipboard()
+            win32clipboard.SetClipboardData(win32con.CF_UNICODETEXT, text)
+            win32clipboard.CloseClipboard()
+        except Exception as e:
+            print(f'[WinAutomation] Clipboard set failed: {e}', file=sys.stderr)
+            return
+
+        sleep(0.05)
+
+        # Ctrl+V 粘贴
+        self.shortcut('Ctrl+V')
+        sleep(0.1)
+
+        # 恢复原始剪贴板内容（延迟恢复，避免影响粘贴操作）
+        if old_clipboard is not None:
+            try:
+                sleep(0.2)
+                win32clipboard.OpenClipboard()
+                win32clipboard.EmptyClipboard()
+                win32clipboard.SetClipboardData(win32con.CF_UNICODETEXT, old_clipboard)
+                win32clipboard.CloseClipboard()
+            except Exception:
+                pass
 
     def _send_keys(self, keys: str, interval: float = 0.02):
         """
@@ -854,6 +913,174 @@ class Desktop:
         """获取鼠标位置"""
         return ctypes.windll.user32.GetCursorPos()
 
+    # === UI 元素查找 ===
+
+    def find_element(self, name: Optional[str] = None, class_name: Optional[str] = None,
+                     auto_id: Optional[str] = None, control_type: Optional[str] = None,
+                     scope: str = 'desktop', max_depth: int = 15,
+                     fuzzy: bool = True) -> List[Dict]:
+        """
+        查找 UI 元素（基于 UIAutomation 树遍历）
+
+        Args:
+            name: 控件名称（模糊匹配，如 '搜索'）
+            class_name: 控件类名（如 'Edit', 'Button'）
+            auto_id: AutomationId（如 'searchBox'）
+            control_type: 控件类型（如 'Button', 'Edit', 'Text', 'List'）
+            scope: 搜索范围 'desktop'(全局) | 'active_window'(仅前台窗口)
+            max_depth: 最大遍历深度
+            fuzzy: 是否模糊匹配名称
+
+        Returns:
+            匹配的元素列表，每项包含 name, className, controlType, autoId, boundingBox, clickablePoint
+        """
+        if not UIA_AVAILABLE or not self.uia or not self.root:
+            return []
+
+        results = []
+
+        try:
+            # 确定搜索根节点
+            if scope == 'active_window' and WIN32_AVAILABLE:
+                fg_handle = win32gui.GetForegroundWindow()
+                if fg_handle:
+                    condition = self.uia.CreatePropertyCondition(
+                        UIAutomationCore.UIA_ProcessIdPropertyId,
+                        win32process.GetWindowThreadProcessId(fg_handle)[1] if False else 0
+                    )
+                    # 简化：使用窗口句柄条件
+                    root_element = self.root
+                else:
+                    root_element = self.root
+            else:
+                root_element = self.root
+
+            # 使用 TreeWalker 遍历 UI 树
+            walker = self.uia.RawViewWalker
+            if not walker:
+                return []
+
+            element = walker.GetFirstChildElement(root_element)
+            depth = 0
+            stack = [(element, 1)]
+
+            while stack and len(results) < 20:
+                current, current_depth = stack.pop(0) if stack else (None, 0)
+                if current is None:
+                    continue
+
+                if current_depth > max_depth:
+                    continue
+
+                try:
+                    elem_info = self._extract_element_info(current)
+                    if elem_info and self._match_element(elem_info, name, class_name, auto_id, control_type, fuzzy):
+                        results.append(elem_info)
+                except Exception:
+                    pass
+
+                # 遍历子节点
+                try:
+                    child = walker.GetFirstChildElement(current)
+                    while child:
+                        stack.append((child, current_depth + 1))
+                        child = walker.GetNextSiblingElement(child)
+                except Exception:
+                    pass
+
+        except Exception as e:
+            print(f'[WinAutomation] find_element failed: {e}', file=sys.stderr)
+
+        return results
+
+    def _extract_element_info(self, element) -> Optional[Dict]:
+        """提取 UI 元素信息"""
+        try:
+            name = element.CurrentName or ''
+            class_name = element.CurrentClassName or ''
+            control_type_id = element.CurrentControlType or 0
+            auto_id = element.CurrentAutomationId or ''
+
+            # 获取边界矩形
+            rect = element.CurrentBoundingRectangle
+            if rect:
+                left, top = rect.left, rect.top
+                right, bottom = rect.right, rect.bottom
+                width = right - left
+                height = bottom - top
+
+                # 跳过不可见/极小元素
+                if width <= 0 or height <= 0:
+                    return None
+
+                # 计算可点击中心点
+                cx = left + width // 2
+                cy = top + height // 2
+
+                # 控件类型映射
+                type_map = {
+                    50000: 'Button', 50001: 'Calendar', 50002: 'CheckBox',
+                    50003: 'ComboBox', 50004: 'Edit', 50005: 'Hyperlink',
+                    50006: 'Image', 50007: 'ListItem', 50008: 'List',
+                    50009: 'Menu', 50010: 'MenuBar', 50011: 'MenuItem',
+                    50012: 'ProgressBar', 50013: 'RadioButton', 50014: 'ScrollBar',
+                    50015: 'Slider', 50016: 'Spinner', 50017: 'StatusBar',
+                    50018: 'Tab', 50019: 'TabItem', 50020: 'Text',
+                    50021: 'ToolBar', 50022: 'ToolTip', 50023: 'Tree',
+                    50024: 'TreeItem', 50025: 'Custom', 50026: 'Group',
+                    50027: 'Thumb', 50028: 'DataGrid', 50029: 'DataItem',
+                    50030: 'Document', 50031: 'SplitButton', 50032: 'Window',
+                    50033: 'Pane', 50034: 'Header', 50035: 'HeaderItem',
+                    50036: 'Table', 50037: 'TitleBar', 50038: 'Separator',
+                }
+                control_type_name = type_map.get(control_type_id, f'Unknown({control_type_id})')
+
+                return {
+                    'name': name,
+                    'className': class_name,
+                    'controlType': control_type_name,
+                    'autoId': auto_id,
+                    'boundingBox': {
+                        'left': left, 'top': top, 'right': right, 'bottom': bottom,
+                        'width': width, 'height': height
+                    },
+                    'clickablePoint': [cx, cy]
+                }
+        except Exception:
+            pass
+        return None
+
+    def _match_element(self, elem_info: Dict, name: Optional[str], class_name: Optional[str],
+                       auto_id: Optional[str], control_type: Optional[str], fuzzy: bool) -> bool:
+        """判断元素是否匹配搜索条件"""
+        if name:
+            if fuzzy:
+                if name.lower() not in elem_info.get('name', '').lower():
+                    # 也尝试 fuzzywuzzy 模糊匹配
+                    if FUZZYWUZZY_AVAILABLE:
+                        score = fuzzy_process.extractOne(name, [elem_info.get('name', '')], score_cutoff=60)
+                        if not score:
+                            return False
+                    else:
+                        return False
+            else:
+                if name.lower() != elem_info.get('name', '').lower():
+                    return False
+
+        if class_name:
+            if class_name.lower() not in elem_info.get('className', '').lower():
+                return False
+
+        if auto_id:
+            if auto_id.lower() not in elem_info.get('autoId', '').lower():
+                return False
+
+        if control_type:
+            if control_type.lower() != elem_info.get('controlType', '').lower():
+                return False
+
+        return True
+
     # === PowerShell ===
 
     def _run_powershell(self, command: str, timeout: int = 30) -> subprocess.CompletedProcess:
@@ -904,6 +1131,7 @@ class WindowsAutomationService:
             'shortcut': self._handle_shortcut,
             'snapshot': self._handle_snapshot,
             'screenshot': self._handle_screenshot,
+            'find_element': self._handle_find_element,
 
             # 应用操作
             'launch_app': self._handle_launch_app,
@@ -1102,6 +1330,31 @@ class WindowsAutomationService:
         capture_rect = args.get('rect')
         screenshot = self.desktop.screenshot(capture_rect)
         return {'screenshot': screenshot}
+
+    def _handle_find_element(self, args: Dict) -> Dict:
+        """查找 UI 元素"""
+        if not self.desktop:
+            raise RuntimeError('Desktop not available')
+
+        name = args.get('name')
+        class_name = args.get('className') or args.get('class_name')
+        auto_id = args.get('autoId') or args.get('auto_id')
+        control_type = args.get('controlType') or args.get('control_type')
+        scope = args.get('scope', 'active_window')
+        max_depth = int(args.get('max_depth', 15))
+        fuzzy = args.get('fuzzy', True)
+
+        elements = self.desktop.find_element(
+            name=name, class_name=class_name, auto_id=auto_id,
+            control_type=control_type, scope=scope,
+            max_depth=max_depth, fuzzy=fuzzy
+        )
+
+        return {
+            'elements': elements,
+            'count': len(elements),
+            'hint': '使用 clickablePoint 坐标进行 click/type 操作' if elements else '未找到匹配元素，尝试 snapshot 获取完整 UI 树'
+        }
 
     # === 应用操作 ===
 

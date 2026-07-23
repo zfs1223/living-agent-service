@@ -1,3 +1,11 @@
+---
+name: code-quality-analyzer
+description: "代码质量分析(fuck-u-code)，七维度质量评估"
+risk: low
+source: internal
+date_added: '2026-07-09'
+---
+
 # Code Quality Analyzer (fuck-u-code)
 
 > 代码质量分析技能，检测"屎山代码"，提供七维度代码质量评估

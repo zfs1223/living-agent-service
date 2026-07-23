@@ -1,0 +1,97 @@
+# Auto detect text files and perform LF normalization
+* text=auto eol=lf
+
+# 行尾符设置
+"*.rs" eol=lf
+"Cargo.toml" eol=lf
+"Cargo.lock" eol=lf
+"*.vue"    eol=lf
+"*.js"     eol=lf
+"*.ts"     eol=lf
+"*.jsx"    eol=lf
+"*.tsx"    eol=lf
+"*.cjs"    eol=lf
+"*.cts"    eol=lf
+"*.mjs"    eol=lf
+"*.mts"    eol=lf
+"*.json"   eol=lf
+"*.html"   eol=lf
+"*.css"    eol=lf
+"*.less"   eol=lf
+"*.scss"   eol=lf
+"*.sass"   eol=lf
+"*.styl"   eol=lf
+"*.md"   eol=lf
+
+# 代码统计设置 - 只统计 Vue、TypeScript 和 Rust 文件
+# 排除 JavaScript 文件
+*.js linguist-vendored
+*.jsx linguist-vendored
+*.cjs linguist-vendored
+*.mjs linguist-vendored
+
+# 排除样式文件
+*.css linguist-vendored
+*.scss linguist-vendored
+*.sass linguist-vendored
+*.less linguist-vendored
+*.styl linguist-vendored
+
+# 排除配置和文档文件
+*.json linguist-vendored
+*.html linguist-vendored
+*.md linguist-documentation
+*.yml linguist-vendored
+*.yaml linguist-vendored
+
+# 排除其他语言文件
+*.kt linguist-vendored
+*.java linguist-vendored
+*.py linguist-vendored
+*.nsh linguist-vendored
+*.nsi linguist-vendored
+
+# 确保构建目录和依赖目录不被统计
+**/target/** linguist-vendored
+**/node_modules/** linguist-vendored
+scripts/** linguist-vendored
+**/build/** linguist-vendored
+**/dist/** linguist-vendored
+
+# 确保主要代码文件被正确识别
+*.vue linguist-detectable
+*.ts linguist-detectable
+*.tsx linguist-language=TypeScript
+*.rs linguist-detectable
+
+## 语言统计控制：排除 Ruby / Shell / Objective-C++
+# Ruby（例如 CocoaPods 的 Podfile 等）
+*.rb linguist-vendored
+**/Podfile linguist-vendored
+**/Podfile.lock linguist-vendored
+*.podspec* linguist-vendored
+
+# Shell（包括 Android 的 gradlew）
+*.sh linguist-vendored
+**/gradlew linguist-vendored
+
+# Objective-C++ / Objective-C（若仓库中存在 .m 可按需启用）
+*.mm linguist-vendored
+# *.m linguist-vendored
+
+# 生成产物与平台工程整体排除，避免引入非 Rust 语言统计
+src-tauri/gen/** linguist-vendored
+src-tauri/gen/android/** linguist-vendored
+src-tauri/gen/apple/** linguist-vendored
+tauri-plugin-hula/ios/** linguist-vendored
+
+# tauri-plugin-hula：仅统计 src 目录，其他子目录全部排除
+tauri-plugin-hula/*/** linguist-vendored
+tauri-plugin-hula/src/** -linguist-vendored
+
+# 如果需要把上面这些都算作 Rust，而不是排除：
+# *.rb linguist-language=Rust
+# *.sh linguist-language=Rust
+# *.mm linguist-language=Rust
+# **/Podfile linguist-language=Rust
+# **/gradlew linguist-language=Rust

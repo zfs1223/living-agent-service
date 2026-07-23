@@ -286,6 +286,7 @@ public class DefaultEvolutionDecisionEngine implements EvolutionDecisionEngine {
             case REPAIR -> EvolutionStrategy.REPAIR;
             case OPTIMIZE -> EvolutionStrategy.OPTIMIZE;
             case INNOVATE -> EvolutionStrategy.INNOVATE;
+            case VOC -> EvolutionStrategy.OPTIMIZE; // DBS VOC 信号映射为优化策略
         };
     }
     

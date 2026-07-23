@@ -25,6 +25,15 @@
     "verify:lockfile": "node scripts/verify-lockfile.js"
   },
   "dependencies": {
+    "@fullcalendar/core": "6.1.21",
+    "@fullcalendar/daygrid": "6.1.21",
+    "@fullcalendar/interaction": "6.1.21",
+    "@fullcalendar/react": "6.1.21",
+    "@fullcalendar/timegrid": "6.1.21",
+    "@livekit/components-react": "2.9.23",
+    "@livekit/components-styles": "1.2.0",
+    "date-fns": "3.6.0",
+    "livekit-client": "2.20.2",
     "ws": "8.21.0"
   },
   "devDependencies": {
@@ -34,7 +43,7 @@
     "@types/ws": "8.18.1",
     "@vitejs/plugin-react": "5.2.0",
     "electron": "42.3.3",
-    "electron-builder": "26.8.1",
+    "electron-builder": "26.14.0",
     "electron-vite": "5.0.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",

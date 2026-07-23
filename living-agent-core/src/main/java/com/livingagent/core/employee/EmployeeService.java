@@ -108,7 +108,8 @@ public interface EmployeeService {
         String permissionScopeType,
         String permissionAccessLevel,
         Long maxTokensPerDay,
-        Long maxTokensPerMonth
+        Long maxTokensPerMonth,
+        String ownerId
     ) {
         public EmployeeOrigin origin() {
             return origin != null ? origin : EmployeeOrigin.PERSONAL;

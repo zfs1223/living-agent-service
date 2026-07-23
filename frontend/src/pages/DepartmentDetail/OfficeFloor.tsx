@@ -18,7 +18,6 @@ export default function OfficeFloor({ agents, onAgentClick, presence }: { agents
     { id: 'workstation', title: t('deptOffice.workstationHall'), hint: t('deptOffice.workstationHint') },
     { id: 'collaboration', title: t('deptOffice.meetingHub'), hint: t('deptOffice.meetingHint') },
     { id: 'lounge', title: t('deptOffice.pantryLounge'), hint: t('deptOffice.pantryHint') },
-    { id: 'alert', title: t('deptOffice.controlDesk'), hint: t('deptOffice.controlDeskHint') },
   ];
 
   const movingCount = useMemo(() => agents.filter((agent) => {

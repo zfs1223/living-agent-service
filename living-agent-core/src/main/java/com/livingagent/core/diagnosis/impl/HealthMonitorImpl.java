@@ -53,14 +53,22 @@ public class HealthMonitorImpl implements HealthMonitor {
 
     @PostConstruct
     public void init() {
+        // 立即执行一次健康检查,避免启动时 lastCheckResults 为空导致健康分数为0
+        try {
+            checkHealth();
+            log.info("P12-C: Initial health check completed");
+        } catch (Exception e) {
+            log.warn("Initial health check failed: {}", e.getMessage());
+        }
+        
         scheduledCheck = scheduler.scheduleAtFixedRate(() -> {
             try {
                 checkHealth();
             } catch (Exception e) {
                 log.warn("Scheduled health check failed: {}", e.getMessage());
             }
-        }, 30, 60, TimeUnit.SECONDS);
-        log.info("P12-C: HealthMonitor periodic check started (60s interval, 30s initial delay)");
+        }, 60, 60, TimeUnit.SECONDS);
+        log.info("P12-C: HealthMonitor periodic check started (60s interval)");
     }
 
     @Override

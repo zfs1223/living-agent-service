@@ -37,6 +37,7 @@ public class VitalSignsService {
     private final BooleanSupplier degradedModeSupplier;
     private final ApplicationEventPublisher eventPublisher; // P32: 主动推送
     private final CrossLoopEventBus crossLoopEventBus; // P32: 驱动改进闭环
+    private java.util.function.Supplier<Map<String, Map<String, Object>>> livekitMeetingStatesSupplier; // P81: LiveKit 健康
 
     private final ConcurrentLinkedDeque<VitalSnapshot> history = new ConcurrentLinkedDeque<>();
     private final ConcurrentLinkedDeque<VitalAlert> recentAlerts = new ConcurrentLinkedDeque<>(); // P32: 预警历史
@@ -53,6 +54,43 @@ public class VitalSignsService {
         this.degradedModeSupplier = degradedModeSupplier;
         this.eventPublisher = eventPublisher;
         this.crossLoopEventBus = crossLoopEventBus;
+    }
+
+    /**
+     * 设置 LiveKit 会议状态供应器（闭环 32 扩展，P81）
+     * 由 GatewayConfig 在应用启动时注入 LiveKitWebhookHandler::getAllMeetingStates
+     */
+    public void setLivekitMeetingStatesSupplier(java.util.function.Supplier<Map<String, Map<String, Object>>> supplier) {
+        this.livekitMeetingStatesSupplier = supplier;
+    }
+
+    /**
+     * 获取 LiveKit 健康状态（闭环 32 扩展，P81）
+     *
+     * @return LiveKit 健康信息：activeMeetings 数量、各房间参会者数等
+     */
+    public Map<String, Object> getLivekitHealth() {
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        if (livekitMeetingStatesSupplier == null) {
+            result.put("available", false);
+            result.put("activeMeetings", 0);
+            return result;
+        }
+
+        try {
+            Map<String, Map<String, Object>> states = livekitMeetingStatesSupplier.get();
+            result.put("available", true);
+            result.put("activeMeetings", states.size());
+            result.put("totalParticipants", states.values().stream()
+                    .mapToInt(s -> s.containsKey("participantCount") ? ((Number) s.get("participantCount")).intValue() : 0)
+                    .sum());
+            result.put("rooms", states.keySet());
+        } catch (Exception e) {
+            result.put("available", false);
+            result.put("error", e.getMessage());
+            result.put("activeMeetings", 0);
+        }
+        return result;
     }
 
     public VitalSnapshot getCurrentVitals() {

@@ -82,6 +82,9 @@ CREATE TABLE IF NOT EXISTS enterprise_employees (
     skills TEXT,
     capabilities TEXT,
     origin VARCHAR(20),
+    -- V25: 个人助理权限范围
+    permission_scope_type VARCHAR(20) DEFAULT 'company',
+    owner_id VARCHAR(100),
     -- V23: 职责字段
     roles TEXT,
     tools TEXT,
@@ -111,6 +114,8 @@ CREATE INDEX IF NOT EXISTS idx_enterprise_employees_employee_type ON enterprise_
 CREATE INDEX IF NOT EXISTS idx_enterprise_employees_status ON enterprise_employees(status);
 CREATE INDEX IF NOT EXISTS idx_enterprise_employees_brain_domain ON enterprise_employees(brain_domain);
 CREATE INDEX IF NOT EXISTS idx_enterprise_employees_origin ON enterprise_employees(origin);
+CREATE INDEX IF NOT EXISTS idx_enterprise_employees_owner ON enterprise_employees(owner_id);
+CREATE INDEX IF NOT EXISTS idx_enterprise_employees_scope ON enterprise_employees(permission_scope_type);
 
 -- Department Brain Mapping Table (schema.sql original, different from V4's department_brain_bindings)
 CREATE TABLE IF NOT EXISTS department_brain_mapping (
@@ -2283,129 +2288,163 @@ LEFT JOIN enterprise_departments d ON e.department_id = d.department_id
 WHERE e.active = TRUE;
 
 -- ============================================
--- 23. All Triggers
+-- 23. All Triggers (PostgreSQL 兼容语法)
 -- ============================================
 
 -- Enterprise tables
+DROP TRIGGER IF EXISTS update_departments_updated_at ON enterprise_departments;
 CREATE TRIGGER update_departments_updated_at BEFORE UPDATE ON enterprise_departments
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_employees_updated_at ON enterprise_employees;
 CREATE TRIGGER update_employees_updated_at BEFORE UPDATE ON enterprise_employees
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_enterprise_departments_updated_at ON enterprise_departments;
 CREATE TRIGGER update_enterprise_departments_updated_at BEFORE UPDATE ON enterprise_departments
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_enterprise_employees_updated_at ON enterprise_employees;
 CREATE TRIGGER update_enterprise_employees_updated_at BEFORE UPDATE ON enterprise_employees
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_dept_brain_bindings_updated_at ON department_brain_bindings;
 CREATE TRIGGER update_dept_brain_bindings_updated_at BEFORE UPDATE ON department_brain_bindings
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Knowledge tables
+DROP TRIGGER IF EXISTS update_knowledge_updated_at ON knowledge_entries;
 CREATE TRIGGER update_knowledge_updated_at BEFORE UPDATE ON knowledge_entries
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Proactive tables
+DROP TRIGGER IF EXISTS update_task_config_updated_at ON proactive_task_config;
 CREATE TRIGGER update_task_config_updated_at BEFORE UPDATE ON proactive_task_config
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Behavior tables
+DROP TRIGGER IF EXISTS update_behavior_pattern_updated_at ON user_behavior_pattern;
 CREATE TRIGGER update_behavior_pattern_updated_at BEFORE UPDATE ON user_behavior_pattern
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Notification tables
+DROP TRIGGER IF EXISTS update_notification_updated_at ON notification_queue;
 CREATE TRIGGER update_notification_updated_at BEFORE UPDATE ON notification_queue
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Cross department
+DROP TRIGGER IF EXISTS update_cross_case_updated_at ON cross_department_cases;
 CREATE TRIGGER update_cross_case_updated_at BEFORE UPDATE ON cross_department_cases
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Capability
+DROP TRIGGER IF EXISTS update_capability_updated_at ON mainbrain_capabilities;
 CREATE TRIGGER update_capability_updated_at BEFORE UPDATE ON mainbrain_capabilities
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Credit accounts
+DROP TRIGGER IF EXISTS update_credit_accounts_updated_at ON credit_accounts;
 CREATE TRIGGER update_credit_accounts_updated_at BEFORE UPDATE ON credit_accounts
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Employee personality
+DROP TRIGGER IF EXISTS update_employee_personalities_updated_at ON employee_personalities;
 CREATE TRIGGER update_employee_personalities_updated_at BEFORE UPDATE ON employee_personalities
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Employee capabilities
+DROP TRIGGER IF EXISTS update_employee_capabilities_updated_at ON employee_capabilities;
 CREATE TRIGGER update_employee_capabilities_updated_at BEFORE UPDATE ON employee_capabilities
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Employee skills
+DROP TRIGGER IF EXISTS update_employee_skills_updated_at ON employee_skills;
 CREATE TRIGGER update_employee_skills_updated_at BEFORE UPDATE ON employee_skills
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Speaker profiles
+DROP TRIGGER IF EXISTS update_speaker_profiles_updated_at ON speaker_profiles;
 CREATE TRIGGER update_speaker_profiles_updated_at BEFORE UPDATE ON speaker_profiles
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- User profiles
+DROP TRIGGER IF EXISTS update_user_profiles_updated_at ON user_profiles;
 CREATE TRIGGER update_user_profiles_updated_at BEFORE UPDATE ON user_profiles
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Payout accounts
+DROP TRIGGER IF EXISTS update_payout_accounts_updated_at ON payout_accounts;
 CREATE TRIGGER update_payout_accounts_updated_at BEFORE UPDATE ON payout_accounts
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Budget allocations
+DROP TRIGGER IF EXISTS update_budget_allocations_updated_at ON budget_allocations;
 CREATE TRIGGER update_budget_allocations_updated_at BEFORE UPDATE ON budget_allocations
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Skills (V17)
+DROP TRIGGER IF EXISTS update_skills_updated_at ON skills;
 CREATE TRIGGER update_skills_updated_at BEFORE UPDATE ON skills
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Fixed employee (V5)
+DROP TRIGGER IF EXISTS update_fixed_employee_definition_updated_at ON fixed_employee_definition;
 CREATE TRIGGER update_fixed_employee_definition_updated_at BEFORE UPDATE ON fixed_employee_definition
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_fixed_employee_profile_updated_at ON fixed_employee_profile;
 CREATE TRIGGER update_fixed_employee_profile_updated_at BEFORE UPDATE ON fixed_employee_profile
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_fixed_employee_persona_updated_at ON fixed_employee_persona;
 CREATE TRIGGER update_fixed_employee_persona_updated_at BEFORE UPDATE ON fixed_employee_persona
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Model pool (V2)
+DROP TRIGGER IF EXISTS update_model_providers_updated_at ON model_providers;
 CREATE TRIGGER update_model_providers_updated_at BEFORE UPDATE ON model_providers
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_brain_model_assignments_updated_at ON brain_model_assignments;
 CREATE TRIGGER update_brain_model_assignments_updated_at BEFORE UPDATE ON brain_model_assignments
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Compensation (V19)
+DROP TRIGGER IF EXISTS update_compensation_plans_updated_at ON compensation_plans;
 CREATE TRIGGER update_compensation_plans_updated_at BEFORE UPDATE ON compensation_plans
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_compensation_accounts_updated_at ON compensation_accounts;
 CREATE TRIGGER update_compensation_accounts_updated_at BEFORE UPDATE ON compensation_accounts
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_compensation_records_updated_at ON compensation_records;
 CREATE TRIGGER update_compensation_records_updated_at BEFORE UPDATE ON compensation_records
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Performance (V19)
+DROP TRIGGER IF EXISTS update_performance_indicators_updated_at ON performance_indicators;
 CREATE TRIGGER update_performance_indicators_updated_at BEFORE UPDATE ON performance_indicators
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_performance_assessments_updated_at ON performance_assessments;
 CREATE TRIGGER update_performance_assessments_updated_at BEFORE UPDATE ON performance_assessments
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_performance_trend_snapshots_updated_at ON performance_trend_snapshots;
 CREATE TRIGGER update_performance_trend_snapshots_updated_at BEFORE UPDATE ON performance_trend_snapshots
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Evolution (V19)
+DROP TRIGGER IF EXISTS update_evolution_results_updated_at ON evolution_results;
 CREATE TRIGGER update_evolution_results_updated_at BEFORE UPDATE ON evolution_results
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_evolution_feedback_updated_at ON evolution_feedback;
 CREATE TRIGGER update_evolution_feedback_updated_at BEFORE UPDATE ON evolution_feedback
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_evolution_audit_logs_updated_at ON evolution_audit_logs;
 CREATE TRIGGER update_evolution_audit_logs_updated_at BEFORE UPDATE ON evolution_audit_logs
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
@@ -2457,7 +2496,7 @@ ON CONFLICT (account_id) DO NOTHING;
 -- Insert default model providers (V2) — 仅保留 ollama（本地部署，无需 API Key）
 INSERT INTO model_providers (id, display_name, protocol, base_url, enabled, default_max_tokens)
 VALUES 
-    ('ollama', 'Ollama', 'OPENAI_COMPATIBLE', 'http://localhost:11434/v1', TRUE, 4096)
+    ('ollama', 'Ollama', 'OPENAI_COMPATIBLE', 'http://host.docker.internal:11434/v1', TRUE, 4096)
 ON CONFLICT (id) DO NOTHING;
 
 -- 默认模型不写入种子数据，由用户通过模型池管理界面自行配置添加
@@ -2673,3 +2712,175 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS idx_msg_recipient ON messages (recipient_id);
 CREATE INDEX IF NOT EXISTS idx_msg_recipient_unread ON messages (recipient_id, read_at);
 CREATE INDEX IF NOT EXISTS idx_msg_created_at ON messages (created_at);
+
+-- ============================================
+-- 26. Meetings - 会议运行时状态 (P81, 闭环 67-C)
+-- ============================================
+CREATE TABLE IF NOT EXISTS meetings (
+    id BIGSERIAL PRIMARY KEY,
+    room_name VARCHAR(100) NOT NULL UNIQUE,
+    room_sid VARCHAR(64),
+    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',  -- ACTIVE/FINISHED
+    department VARCHAR(50),
+    created_by VARCHAR(100),
+    schedule_id VARCHAR(64),
+    max_participants INT DEFAULT 50,
+    participant_count INT DEFAULT 0,
+    participants_json TEXT,            -- 参会者ID列表(JSON数组)
+    recording_active BOOLEAN DEFAULT FALSE,
+    egress_id VARCHAR(100),
+    started_at TIMESTAMP,
+    finished_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_meetings_status ON meetings (status);
+CREATE INDEX IF NOT EXISTS idx_meetings_department ON meetings (department);
+CREATE INDEX IF NOT EXISTS idx_meetings_dept_status ON meetings (department, status);
+CREATE INDEX IF NOT EXISTS idx_meetings_schedule_id ON meetings (schedule_id);
+CREATE INDEX IF NOT EXISTS idx_meetings_started_at ON meetings (started_at);
+
+-- 触发器：自动更新 updated_at（PostgreSQL 兼容语法）
+DROP TRIGGER IF EXISTS trg_meetings_updated_at ON meetings;
+CREATE TRIGGER trg_meetings_updated_at
+    BEFORE UPDATE ON meetings
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================
+-- 27. Meeting Schedules - 会议预约 (P84, 闭环 67-D)
+-- ============================================
+CREATE TABLE IF NOT EXISTS meeting_schedules (
+    id BIGSERIAL PRIMARY KEY,
+    schedule_id VARCHAR(64) NOT NULL UNIQUE,
+    title VARCHAR(200) NOT NULL,
+    description TEXT,
+    creator_id VARCHAR(100) NOT NULL,
+    location VARCHAR(200),               -- 会议地点(可选)
+    meeting_type VARCHAR(50),             -- 会议类型(可选,如 regular/standup/review)
+    department VARCHAR(50) NOT NULL,
+    room_name VARCHAR(100),
+    max_participants INT DEFAULT 50,
+    scheduled_start TIMESTAMP NOT NULL,
+    scheduled_end TIMESTAMP NOT NULL,
+    actual_start TIMESTAMP,
+    actual_end TIMESTAMP,
+    status VARCHAR(20) NOT NULL DEFAULT 'SCHEDULED',  -- SCHEDULED/ACTIVE/COMPLETED/CANCELLED
+    reminder_sent BOOLEAN DEFAULT FALSE,
+    reminder_minutes_before INT DEFAULT 15,
+    enable_recording BOOLEAN DEFAULT FALSE,
+    calendar_event_id VARCHAR(200),      -- 外部日历同步事件ID
+    calendar_sync_adapter VARCHAR(50),   -- 使用的日历适配器(feishu/wechat/dingtalk/outlook/local)
+    metadata_json TEXT,                  -- 扩展元数据(JSON格式，如参会人列表)
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_meeting_schedules_department ON meeting_schedules (department);
+CREATE INDEX IF NOT EXISTS idx_meeting_schedules_status ON meeting_schedules (status);
+CREATE INDEX IF NOT EXISTS idx_meeting_schedules_dept_status ON meeting_schedules (department, status);
+CREATE INDEX IF NOT EXISTS idx_meeting_schedules_scheduled_start ON meeting_schedules (scheduled_start);
+CREATE INDEX IF NOT EXISTS idx_meeting_schedules_dept_time ON meeting_schedules (department, scheduled_start);
+CREATE INDEX IF NOT EXISTS idx_meeting_schedules_status_time ON meeting_schedules (status, scheduled_start);
+CREATE INDEX IF NOT EXISTS idx_meeting_schedules_creator ON meeting_schedules (creator_id);
+
+-- ============================================
+-- 28. Meeting Participants - 会议参会人员 (P84, 闭环 67-D)
+-- ============================================
+CREATE TABLE IF NOT EXISTS meeting_participants (
+    id BIGSERIAL PRIMARY KEY,
+    schedule_id VARCHAR(64) NOT NULL,
+    participant_id VARCHAR(100) NOT NULL,
+    participant_name VARCHAR(200),
+    department VARCHAR(50),
+    role VARCHAR(20) DEFAULT 'ATTENDEE',  -- ORGANIZER/PRESENTER/ATTENDEE
+    status VARCHAR(20) DEFAULT 'INVITED',  -- INVITED/ACCEPTED/DECLINED/TENTATIVE
+    token VARCHAR(500),                    -- 个人参会 token(加密存储)
+    joined_at TIMESTAMP,
+    left_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT uq_meeting_participant UNIQUE (schedule_id, participant_id),
+    CONSTRAINT fk_meeting_participant_schedule FOREIGN KEY (schedule_id)
+        REFERENCES meeting_schedules(schedule_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_meeting_participants_schedule ON meeting_participants (schedule_id);
+CREATE INDEX IF NOT EXISTS idx_meeting_participants_participant ON meeting_participants (participant_id);
+CREATE INDEX IF NOT EXISTS idx_meeting_participants_dept ON meeting_participants (department);
+
+-- 触发器：自动更新 updated_at（PostgreSQL 兼容语法）
+DROP TRIGGER IF EXISTS trg_meeting_schedules_updated_at ON meeting_schedules;
+CREATE TRIGGER trg_meeting_schedules_updated_at
+    BEFORE UPDATE ON meeting_schedules
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS trg_meeting_participants_updated_at ON meeting_participants;
+CREATE TRIGGER trg_meeting_participants_updated_at
+    BEFORE UPDATE ON meeting_participants
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================
+-- 29. Meeting Minutes - 会议纪要 (P82, 闭环 68)
+-- ============================================
+CREATE TABLE IF NOT EXISTS meeting_minutes (
+    id BIGSERIAL PRIMARY KEY,
+    minutes_id VARCHAR(64) NOT NULL UNIQUE,
+    room_name VARCHAR(100) NOT NULL,
+    schedule_id VARCHAR(64),
+    title VARCHAR(200) NOT NULL,
+    full_text TEXT,
+    summary TEXT,
+    resolutions TEXT,           -- JSON数组，决议事项
+    action_items TEXT,          -- JSON数组，待办任务（含责任人）
+    key_data TEXT,              -- JSON数组，关键数据/金额
+    recording_url VARCHAR(500),
+    minutes_file_path VARCHAR(500),
+    status VARCHAR(20) NOT NULL DEFAULT 'GENERATING',  -- GENERATING/COMPLETED/FAILED
+    generated_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_meeting_minutes_room ON meeting_minutes (room_name);
+CREATE INDEX IF NOT EXISTS idx_meeting_minutes_status ON meeting_minutes (status);
+CREATE INDEX IF NOT EXISTS idx_meeting_minutes_schedule ON meeting_minutes (schedule_id);
+CREATE INDEX IF NOT EXISTS idx_meeting_minutes_created_at ON meeting_minutes (created_at);
+
+-- ============================================
+-- 30. Meeting Recordings - 会议录制记录 (P82, 闭环 68-A)
+-- ============================================
+CREATE TABLE IF NOT EXISTS meeting_recordings (
+    id BIGSERIAL PRIMARY KEY,
+    recording_id VARCHAR(64) NOT NULL UNIQUE,
+    room_name VARCHAR(100) NOT NULL,
+    egress_id VARCHAR(100),            -- LiveKit Egress 任务ID
+    schedule_id VARCHAR(64),            -- 关联预约ID
+    file_path VARCHAR(500),             -- 录制文件存储路径
+    file_url VARCHAR(500),              -- 录制文件访问URL
+    file_size BIGINT DEFAULT 0,         -- 文件大小（字节）
+    duration_seconds INT DEFAULT 0,     -- 录制时长（秒）
+    format VARCHAR(20) DEFAULT 'mp4',   -- 文件格式
+    status VARCHAR(20) NOT NULL DEFAULT 'RECORDING',  -- RECORDING/COMPLETED/FAILED
+    started_at TIMESTAMP,               -- 录制开始时间
+    stopped_at TIMESTAMP,               -- 录制停止时间
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_meeting_recordings_room ON meeting_recordings (room_name);
+CREATE INDEX IF NOT EXISTS idx_meeting_recordings_status ON meeting_recordings (status);
+CREATE INDEX IF NOT EXISTS idx_meeting_recordings_schedule ON meeting_recordings (schedule_id);
+CREATE INDEX IF NOT EXISTS idx_meeting_recordings_egress ON meeting_recordings (egress_id);
+
+-- 触发器：自动更新 updated_at（PostgreSQL 兼容语法）
+DROP TRIGGER IF EXISTS trg_meeting_minutes_updated_at ON meeting_minutes;
+CREATE TRIGGER trg_meeting_minutes_updated_at
+    BEFORE UPDATE ON meeting_minutes
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS trg_meeting_recordings_updated_at ON meeting_recordings;
+CREATE TRIGGER trg_meeting_recordings_updated_at
+    BEFORE UPDATE ON meeting_recordings
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();

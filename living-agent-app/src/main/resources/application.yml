@@ -2,7 +2,7 @@ server:
   port: 8382
   # HTTP 请求头大小限制（解决 "Request header is too large" 问题）
   # Spring Boot 3.x 支持带单位配置，增大到 128KB 以适应大型 Cookie/Authorization header
-  max-http-header-size: 128KB
+  max-http-request-header-size: 128KB
 
 spring:
   application:
@@ -55,7 +55,6 @@ spring:
           min-idle: 5
   
   kafka:
-    enabled: ${KAFKA_ENABLED:true}
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     consumer:
       group-id: living-agent-group
@@ -505,6 +504,47 @@ feishu:
   employee:
     app-id: ${FEISHU_EMPLOYEE_APP_ID:}
     app-secret: ${FEISHU_EMPLOYEE_APP_SECRET:}
+
+# ===========================================
+# LiveKit 实时音视频会议配置
+# 闭环: 67 会议管理 / 68 会议纪要自动化
+# 改进项: P81 LiveKit 部署与会议基础
+#
+# 配置优先级: SystemConfigService(企业设置) > 环境变量 > 硬编码默认值
+# 可通过 API 动态覆盖: PUT /api/system/config/livekit
+# ===========================================
+livekit:
+  # LiveKit Server 地址（可通过企业设置 livekit.api-url 覆盖）
+  api-url: ${LIVEKIT_URL:http://livekit:7880}
+  # API Key（可通过企业设置 livekit.api-key 覆盖）
+  api-key: ${LIVEKIT_API_KEY:las-livekit-api-key}
+  # API Secret（可通过企业设置 livekit.api-secret 覆盖，生产环境务必修改）
+  api-secret: ${LIVEKIT_API_SECRET:las-livekit-api-secret-change-me}
+  webhook-secret: ${LIVEKIT_WEBHOOK_SECRET:${livekit.api-secret}}
+  connect-timeout: 5000
+  read-timeout: 10000
+
+# ===========================================
+# 会议日历同步配置 (P84, 闭环 67-D/44)
+# ===========================================
+meeting:
+  calendar:
+    # 主日历服务（只能选择一个主服务）
+    primary: ${MEETING_CALENDAR_PRIMARY:local}  # local | feishu | wechat | dingtalk | outlook | none
+    # 本地 iCal 导出路径（始终启用，作为兜底方案）
+    local-storage-path: ${MEETING_CALENDAR_LOCAL_PATH:${LIVING_AGENT_DATA_PATH:./data}/calendars/}
+    # 回退策略
+    fallback:
+      enabled: true
+      order: local,feishu,wechat  # 回退优先级（逗号分隔）
+    # 飞书日历同步（需要 feishu.enabled=true + app-id/secret 配置）
+    feishu:
+      calendar-id: ${MEETING_CALENDAR_FEISHU_CALENDAR_ID:primary}  # 飞书日历 ID，primary 为主日历
+    # 企业微信日历同步（需要 meeting.calendar.wechat.enabled=true）
+    wechat:
+      enabled: ${MEETING_CALENDAR_WECHAT_ENABLED:false}
+      corp-id: ${MEETING_CALENDAR_WECHAT_CORP_ID:}
+      calendar-secret: ${MEETING_CALENDAR_WECHAT_CALENDAR_SECRET:}
 
 # ===========================================
 # RuView WiFi 感知服务配置

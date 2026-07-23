@@ -78,8 +78,10 @@ living-agent-service/
 
 **登录状态先于身份，身份先于页面，页面先于通道，通道先于流程**
 
-1. 未登录 → 只能 `/ws/public` 闲聊，不可使用语音
-2. 登录后 → 统一通过部门大脑对话，不暴露闲聊入口
+1. 未登录 → 只能 `/ws/public` 闲聊，**可以使用语音**（ASR/TTS 在 model_daemon.py 内部加载，无需认证）
+2. 登录后 → 统一通过部门大脑对话，不暴露闲聊入口，可根据前端开关使用语音
+
+> **设计说明**：`model_daemon.py` 是独立的"智能前台"服务，包含 Qwen3/Qwen3.5/Sherpa-ONNX(ASR)/MeloTTS(TTS)/CAM++(声纹) 所有模型，对所有用户（含未登录）开放。未登录用户通过 `/ws/public` 直接使用这些能力，无需 Java 侧认证。
 
 ### 5.2 AccessLevel 分级
 
@@ -92,9 +94,12 @@ living-agent-service/
 
 ### 5.3 固定员工直连禁令
 
-- `origin=fixed` → **禁止 `/ws/agent` 直连**，前端自动降级到 `/ws/public`
+- `origin=fixed` → **禁止 `/ws/agent` 直连**
 - 前端判定字段：`agent.origin`（小写），非 `employee_origin`
-- 后端 `AgentWebSocketHandler` 连接时强制拦截
+- 前端处理：
+  - **桌面端**：点击 PixelEmployee 固定员工 → 弹 toast 提示"固定员工请通过部门大脑对话" → 自动跳转到对应部门 `/ws/dept/{department}`
+  - **Web 前端**：`Chat.tsx:L136,L196` 检测到 `origin=fixed` 时自动降级到 `/ws/public`（历史实现）
+- 后端 `AgentWebSocketHandler` 连接时强制拦截，返回 CloseStatus(4030)
 - 正确入口：部门大脑 / 项目互动群 / 部门协调群
 
 ### 5.4 WebSocket 端点映射
@@ -113,6 +118,61 @@ living-agent-service/
 - `/api/windows-automation/**`
 - `/api/v1/proxy/**`
 - `/api/evolution/**`
+
+### 5.6 部门大脑入口分层（Web 前端）
+
+> 详情见 [权限与入口矩阵.md](docs/权限与入口矩阵.md) §4.2 和 [对话入口逻辑梳理.md](docs/对话入口逻辑梳理.md) §0.4
+
+部门详情页 (`DepartmentDetail.tsx`) 有两个对话入口，面向不同用户：
+
+| 入口 | 组件 | 权限 | 说明 |
+|------|------|------|------|
+| **DepartmentBrainPanel** | "对话"按钮 | `isEnterprise \|\| isDepartmentHead` | 董事长/FULL + 部门负责人可见，跳转到 `/chat?brain={code}&dept={name}` |
+| **DepartmentChatInline** | 内嵌快捷聊天 | `isEnterprise` | 仅董事长/FULL 可用，管理级快捷入口，直连 `/ws/dept/{code}` |
+
+**所有部门人类员工的实际对话入口**：
+- 部门页"对话"按钮（DepartmentBrainPanel）→ 跳转到 Chat.tsx 完整对话页
+- 通用聊天页 `/chat` → `/ws/dept/{department_code}`
+
+### 5.7 语音对话完整链路
+
+> 详情见 [CODE_STRUCTURE_AND_FILE_GUIDE.md](docs/CODE_STRUCTURE_AND_FILE_GUIDE.md) §14.5 和 [权限与入口矩阵.md](docs/权限与入口矩阵.md) §1.5
+
+**未登录用户语音闭环**：
+```
+前端语音录制 → Opus 编码 → Base64
+    ↓
+/ws/public "audio_full" 消息 → DepartmentWebSocketHandler
+    ↓
+AgentService.processAudioFullChain()
+    ├─ Base64 解码
+    ├─ AudioNative.Processor.decodeOpus()  ← Rust JNI (opus_codec.rs)
+    ├─ modelManager.recognizeSpeech()      ← Sherpa-ONNX ASR
+    ├─ modelManager.processChatWithIntent() ← Qwen3 意图分类 + LLM
+    ├─ modelManager.synthesizeSpeechRaw()  ← MeloTTS TTS
+    ├─ AudioNative.Processor.encodePcm()   ← Rust JNI
+    └─ Base64 编码 → WebSocket 返回 → 前端播放
+```
+
+**关键文件**：
+- Rust Opus 编解码：`living-agent-native/src/audio/opus_codec.rs`
+- JNI 绑定：`living-agent-native/src/jni/audio_jni.rs`
+- Java 调用：`AudioNative.Processor` 类
+- ASR 模型：Sherpa-ONNX（通过 `modelManager.recognizeSpeech()`）
+- TTS 模型：MeloTTS（通过 `modelManager.synthesizeSpeechRaw()`）
+
+### 5.8 桌面端权限差异
+
+> 详情见 [权限与入口矩阵.md](docs/权限与入口矩阵.md) §4.5 和 [CODE_STRUCTURE_AND_FILE_GUIDE.md](docs/CODE_STRUCTURE_AND_FILE_GUIDE.md) §17
+
+| 项目 | Web 前端 | 桌面端 | 说明 |
+|------|---------|--------|------|
+| 闲聊入口 | `/ws/public` | ❌ 不存在 | 桌面端无 `/ws/public` 支持 |
+| 董事长频道 | `/ws/enterprise` | ❌ 不存在 | 桌面端无 `/ws/enterprise` 支持 |
+| 部门选择 | 按权限过滤 | 显示所有部门 | 桌面端无前端权限过滤，依赖后端拦截 |
+| 固定员工防护 | `Chat.tsx:L136,L196` 降级 | PixelEmployee onClick toast + 部门跳转 | 桌面端已实现 P28 |
+| 语音功能 | 前端开关控制 | ⚠️ 待实现 | 后端链路已就绪 |
+| WebSocket 连接 | `ws-client.ts` | `OfficeChatPage.tsx` 自建 | 桌面端绕过 `ws-client.ts`，缺少自动重连 |
 
 ## 6. 闭环体系与架构约束
 
@@ -214,3 +274,53 @@ data/
 | 员工模型 | `docs/core/03-employee-model.md` |
 | 安全权限 | `docs/core/06-security-permission.md` |
 | 固定员工SOP | `docs/FIXED_EMPLOYEE_ACTION_SOP_IMPROVEMENT_PLAN.md` |
+
+## 11. 实现文件索引
+
+> 权限与入口规则的实现文件，便于快速定位代码。
+
+### 11.1 Web 前端（React + TypeScript）
+
+| 文件 | 说明 | 关键行号 |
+|------|------|---------|
+| `frontend/src/pages/Chat.tsx` | 通道选择逻辑、固定员工降级 | L190-211, L136, L196 |
+| `frontend/src/pages/AgentDetail.tsx` | origin 判定、chat tab 隐藏 | L187-199 |
+| `frontend/src/pages/DepartmentDetail/DepartmentDetail.tsx` | 部门大脑权限判断 | L56-58 |
+| `frontend/src/pages/DepartmentDetail/DepartmentChatInline.tsx` | 内嵌聊天权限 | L69-70 |
+| `frontend/src/pages/DepartmentDetail/DepartmentBrainPanel.tsx` | "对话"按钮入口 | L35-39 |
+| `frontend/src/pages/Layout.tsx` | 侧边栏导航 |
+
+### 11.2 桌面端（Electron）
+
+| 文件 | 说明 | 关键行号 |
+|------|------|---------|
+| `living-agent-desktop/src/renderer/App.tsx` | 根组件、部门锁定、P10 语音登录态校验 | L470-483 |
+| `living-agent-desktop/src/renderer/pages/OfficeChat/OfficeChatPage.tsx` | 部门聊天、WebSocket 自建 | L322-328, L861-877 |
+| `living-agent-desktop/src/renderer/pages/OfficeChat/PixelEmployee.tsx` | 像素员工、origin 区分、P28 toast | L2197 |
+| `living-agent-desktop/src/main/ws-client.ts` | WebSocket 客户端、通道切换 | L35-50 |
+| `living-agent-desktop/src/main/shortcuts.ts` | 任务快捷键 | - |
+
+### 11.3 后端（Java）
+
+| 文件 | 说明 |
+|------|------|
+| `living-agent-gateway/src/main/java/com/livingagent/gateway/config/WebSocketConfig.java` | WebSocket 端点注册 |
+| `living-agent-gateway/src/main/java/com/livingagent/gateway/websocket/AgentWebSocketHandler.java` | 数字员工 WebSocket 处理、固定员工拦截 |
+| `living-agent-gateway/src/main/java/com/livingagent/gateway/websocket/DepartmentWebSocketHandler.java` | 部门大脑/董事长/公共闲聊 WebSocket 处理 |
+| `living-agent-gateway/src/main/java/com/livingagent/gateway/service/AgentService.java` | Agent 会话服务、语音处理链路 |
+| `living-agent-gateway/src/main/java/com/livingagent/gateway/controller/AgentApiController.java` | Agent REST API |
+| `living-agent-core/src/main/java/com/livingagent/core/security/DepartmentAccessService.java` | 部门访问权限判断 |
+
+### 11.4 Rust 原生模块
+
+| 文件 | 说明 |
+|------|------|
+| `living-agent-native/src/audio/opus_codec.rs` | Opus 音频编解码 |
+| `living-agent-native/src/jni/audio_jni.rs` | 音频 JNI 绑定 |
+
+### 11.5 Python Daemon
+
+| 文件 | 说明 |
+|------|------|
+| `scripts/python/model_daemon.py` | 智能前台核心服务（Qwen3/Qwen3.5/ASR/TTS/声纹） |
+| `scripts/python/tts/run_melotts.py` | MeloTTS TTS 服务 |

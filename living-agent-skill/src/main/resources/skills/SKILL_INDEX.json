@@ -1,9 +1,10 @@
 {
-  "version": "1.8.2",
-  "updated": "2026-07-09",
+  "version": "1.11.0",
+  "updated": "2026-07-17",
   "statistics": {
-    "total_skills": 77,
+    "total_skills": 89,
     "core_skills": 10,
+    "mainbrain_skills": 12,
     "by_brain": {
       "TechBrain": 27,
       "AdminBrain": 16,
@@ -12,7 +13,8 @@
       "FinanceBrain": 4,
       "CsBrain": 3,
       "LegalBrain": 3,
-      "OpsBrain": 12
+      "OpsBrain": 12,
+      "MainBrain": 12
     }
   },
   "core_skills": {
@@ -140,6 +142,23 @@
         {"name": "workflow-orchestrator", "path": "ops/workflow-orchestrator/SKILL.md", "description": "工作流编排，多阶段业务流程自动化", "triggers": ["工作流", "流程编排", "workflow"], "source": "2026-07-09新增(闭环43)"},
         {"name": "distributed-deployment", "path": "ops/distributed-deployment/SKILL.md", "description": "分布式部署，多节点集群管理", "triggers": ["分布式", "集群", "部署"], "source": "2026-07-09新增(闭环58)"},
         {"name": "data-migration", "path": "ops/data-migration/SKILL.md", "description": "数据迁移，数据库迁移和验证", "triggers": ["数据迁移", "migration", "迁移"], "source": "2026-07-09新增(闭环62)"}
+      ]
+    },
+    "MainBrain": {
+      "description": "主脑专属技能 - DBS方法论内化为主脑能力的执行细则，不对部门大脑开放",
+      "skills": [
+        {"name": "dbs-strategic-deployment", "path": "mainbrain/dbs-strategic-deployment/SKILL.md", "description": "DBS战略部署 - 3-5年目标→年度目标→优先项目→指标的四级联动（Hoshin Kanri）", "triggers": ["战略部署", "hoshin", "优先级", "目标分解"], "source": "2026-07-17新增(DBS P0)"},
+        {"name": "dbs-problem-solving", "path": "mainbrain/dbs-problem-solving/SKILL.md", "description": "DBS问题解决 - 5-Why根因分析 + A3报告 + PDCA循环 + 分级熔断", "triggers": ["5-Why", "根因", "A3报告", "PDCA"], "source": "2026-07-17新增(DBS P0)"},
+        {"name": "dbs-voice-of-customer", "path": "mainbrain/dbs-voice-of-customer/SKILL.md", "description": "DBS客户之声 - USER_NEED/USER_PAIN/USER_PRAISE信号提取与进化分发", "triggers": ["VOC", "客户之声", "用户需求", "用户痛点"], "source": "2026-07-17新增(DBS P0)"},
+        {"name": "dbs-standard-work", "path": "mainbrain/dbs-standard-work/SKILL.md", "description": "DBS标准作业 - 标准作业书+节拍时间+质量检查点+基准线指标", "triggers": ["标准作业", "SOP", "节拍时间", "基准线"], "source": "2026-07-17新增(DBS P0)"},
+        {"name": "dbs-value-stream-mapping", "path": "mainbrain/dbs-value-stream-mapping/SKILL.md", "description": "DBS价值流图 - 端到端流程浪费识别+AI七大浪费映射+瓶颈分析", "triggers": ["价值流", "VSM", "浪费识别", "瓶颈分析"], "source": "2026-07-17新增(DBS P1)"},
+        {"name": "dbs-kaizen", "path": "mainbrain/dbs-kaizen/SKILL.md", "description": "DBS改善 - 双驱动进化模式(被动异常+主动改善周)+KAIZEN_EVENT信号+改善文化指标", "triggers": ["改善", "kaizen", "持续改进", "改善周"], "source": "2026-07-17新增(DBS P1)"},
+        {"name": "dbs-employee-type-dispatch", "path": "mainbrain/dbs-employee-type-dispatch/SKILL.md", "description": "DBS员工类型分派 - fixed/human/personal三类员工区分+DBS工具应用差异", "triggers": ["员工类型", "origin", "分派策略", "类型区分"], "source": "2026-07-17新增(DBS P1)"},
+        {"name": "dbs-talent-development", "path": "mainbrain/dbs-talent-development/SKILL.md", "description": "DBS人才发展 - NOVICE→BLACK_BELT四级能力等级+分派权重+职业发展路径", "triggers": ["人才发展", "能力等级", "黑带", "职业发展"], "source": "2026-07-17新增(DBS P1)"},
+        {"name": "dbs-visual-management", "path": "mainbrain/dbs-visual-management/SKILL.md", "description": "DBS可视化管理 - 异常标红+健康状态看板+数字站会机制", "triggers": ["可视化管理", "看板", "站会", "异常标红"], "source": "2026-07-17新增(DBS P2)"},
+        {"name": "dbs-transaction-process-improvement", "path": "mainbrain/dbs-transaction-process-improvement/SKILL.md", "description": "DBS事务流程改进 - 流程效率度量+瓶颈识别告警+端到端优化", "triggers": ["事务流程", "TPI", "效率度量", "瓶颈"], "source": "2026-07-17新增(DBS P2)"},
+        {"name": "dbs-5s-audit", "path": "mainbrain/dbs-5s-audit/SKILL.md", "description": "DBS 5S审计 - 知识库/技能库定期审计+7天观察期+卫生指标", "triggers": ["5S审计", "整理整顿", "知识卫生", "技能审计"], "source": "2026-07-17新增(DBS P2)"},
+        {"name": "dbs-pdca-cycle", "path": "mainbrain/dbs-pdca-cycle/SKILL.md", "description": "DBS PDCA循环 - Plan-Do-Check-Act验证+标准化+回滚机制", "triggers": ["PDCA", "戴明循环", "改进验证", "标准化"], "source": "2026-07-17新增(DBS P2)"}
       ]
     }
   },

@@ -9,7 +9,18 @@
  * - 右侧：聊天功能，包括新建对话、历史记录
  */
 import { useEffect, useState, useRef, useCallback } from 'react';
-import PixelEmployee from './PixelEmployee';
+import PixelEmployee, { type EmployeeOrigin } from './PixelEmployee';
+import MessageRenderer from './MessageRenderer';
+import FileUploader, { FilePreview } from './FileUploader';
+import TraceVisualizer, { type TraceStepData } from '../../components/TraceVisualizer/TraceVisualizer';
+import AgentProgressCards, { type AgentCardData } from '../../components/AgentProgressCards/AgentProgressCards';
+import DeptRecommendBanner, { type DeptRecommendation, recommendByFileType, recommendByKeywords } from '../../components/DeptRecommend/DeptRecommendBanner';
+import RememberButton from '../../components/MemoryControls/RememberButton';
+import MemoryPanel from '../../components/MemoryControls/MemoryPanel';
+import DeptQuickActions from '../../components/DeptQuickActions/DeptQuickActions';
+import VoiceInputButton from '../../components/VoiceInput/VoiceInputButton';
+import '../../components/DeptQuickActions/DeptQuickActions.css';
+import '../../components/VoiceInput/VoiceInputButton.css';
 
 // 员工数据类型
 interface Employee {
@@ -21,6 +32,30 @@ interface Employee {
   lastActiveAt?: string;
   department?: string;
   instanceNum?: number;
+  /**
+   * P28: 员工来源（AGENTS.md §5.3 / §7.3）
+   * - fixed: 固定数字员工（来自 /fixed-employees/definitions）→ 禁止 /ws/agent 直连
+   * - personal: 个人助理（agent.origin=personal）→ 允许 /ws/agent 直连
+   * - human: 真实人类（agent.origin=human）→ 允许 /ws/agent 直连
+   */
+  origin?: EmployeeOrigin;
+}
+
+// P5: 消息附件类型（WebSocket 协议扩展）
+export interface ChatAttachment {
+  fileId: string;              // 附件 ID（由后端 /api/files/upload 返回）
+  type: 'image' | 'file' | 'audio' | 'screenshot';
+  name: string;                // 原始文件名
+  size?: number;               // 字节数
+  url?: string;                // 可选：已上传后的可访问 URL
+  thumbnailUrl?: string;       // 可选：缩略图 URL（图片类型）
+}
+
+// P5: 消息元数据类型（WebSocket 协议扩展）
+interface ChatMetadata {
+  source?: 'manual' | 'screenshot' | 'paste' | 'drag' | 'voice' | 'quickview';
+  clientTimestamp?: number;    // 客户端发送时间戳
+  [key: string]: unknown;      // 允许扩展字段
 }
 
 // 聊天消息类型
@@ -32,6 +67,10 @@ interface ChatMessage {
   timestamp?: string;
   isSelf: boolean;
   role?: 'user' | 'assistant';
+  /** P5: 附件列表（图片/文件/截图等） */
+  attachments?: ChatAttachment[];
+  /** P5: 消息元数据（来源/客户端时间戳等） */
+  metadata?: ChatMetadata;
 }
 
 // 对话类型
@@ -90,7 +129,8 @@ export function OfficeChatPage({
   currentUser,
   onLogin,
   department = 'tech',
-  forceChannel
+  forceChannel,
+  lockedDepartment
 }: {
   backendUrl: string;
   hasToken: boolean;
@@ -98,6 +138,15 @@ export function OfficeChatPage({
   onLogin: () => void;
   department?: string;
   forceChannel?: string;
+  /**
+   * P14: 部门身份绑定与自动锁定
+   * 当传入部门编码（如 'hr'/'cs'）时：
+   *   1. currentDept 初始化为该值
+   *   2. forceChannel 变化时同步（重新登录切换部门）
+   *   3. 部门选择器禁用并添加 dept-locked 视觉提示
+   * 与 forceChannel（WS 路径，如 '/ws/public'）分离职责，避免冲突。
+   */
+  lockedDepartment?: string;
 }) {
   // 员工数据
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -111,18 +160,80 @@ export function OfficeChatPage({
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [showSidebar, setShowSidebar] = useState(false);
+  // P1: 待发送附件列表
+  const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+
+  // P8: Trace 可视化
+  const [traceSteps, setTraceSteps] = useState<TraceStepData[]>([]);
+  const [showTrace, setShowTrace] = useState(false);
+
+  // P9: 多 Agent 并行卡片
+  const [agentCards, setAgentCards] = useState<AgentCardData[]>([]);
+
+  // P11: 部门路由推荐
+  const [deptRecommendation, setDeptRecommendation] = useState<DeptRecommendation | null>(null);
+
+  // P12: Memory 显式指令
+  const [showMemoryPanel, setShowMemoryPanel] = useState(false);
+
+  // P12: 记忆消息
+  const handleRemember = useCallback(async (content: string) => {
+    if (!backendUrl || !hasToken) return;
+    const token = await window.livingAgentAPI.auth.getToken();
+    const res = await fetch(`${backendUrl}/api/memory/entries`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({ content, source: 'chat' })
+    });
+    if (!res.ok) throw new Error('记忆保存失败');
+  }, [backendUrl, hasToken]);
+
+  // P12: 删除记忆
+  const handleDeleteMemory = useCallback(async (id: string) => {
+    if (!backendUrl || !hasToken) return;
+    const token = await window.livingAgentAPI.auth.getToken();
+    const res = await fetch(`${backendUrl}/api/memory/entries/${id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!res.ok) throw new Error('删除失败');
+  }, [backendUrl, hasToken]);
 
   // WebSocket 引用
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null); // P6: 输入框引用（用于快捷键聚焦）
 
   // P2-5: 区域导航
   const floorRef = useRef<HTMLDivElement>(null);
   const [activeZone, setActiveZone] = useState<ZoneId>('workstation');
 
-  // 当前部门
-  const [currentDept, setCurrentDept] = useState(department);
+  // P14: 当前部门初始化——优先 lockedDepartment，其次 props.department
+  const [currentDept, setCurrentDept] = useState(lockedDepartment || department);
+
+  // P14: lockedDepartment 变化时（重新登录切换身份）同步 currentDept
+  useEffect(() => {
+    if (lockedDepartment && lockedDepartment !== currentDept) {
+      setCurrentDept(lockedDepartment);
+    }
+  }, [lockedDepartment]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // P28: 像素员工点击提示（固定员工直连禁令）
+  // 提示类型：info=蓝色（personal/human 可直连提示），warn=橙色（fixed 禁止直连提示）
+  const [employeeToast, setEmployeeToast] = useState<{ msg: string; type: 'info' | 'warn' } | null>(null);
+  const employeeToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!employeeToast) return;
+    if (employeeToastTimerRef.current) clearTimeout(employeeToastTimerRef.current);
+    employeeToastTimerRef.current = setTimeout(() => setEmployeeToast(null), 3000);
+    return () => {
+      if (employeeToastTimerRef.current) clearTimeout(employeeToastTimerRef.current);
+    };
+  }, [employeeToast]);
 
   // 部门列表
   const DEPARTMENTS = [
@@ -160,10 +271,10 @@ export function OfficeChatPage({
       const token = await window.livingAgentAPI.auth.getToken();
       const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
 
-      // 并行获取：部门固定员工定义 + 所有 agent + 办公室状态快照
+      // 并行获取：部门固定员工定义 + 部门 agents + 办公室状态快照
       const [defsRes, agentsRes, officeRes] = await Promise.allSettled([
         fetch(`${backendUrl}/api/fixed-employees/definitions/by-department/${currentDept}`, { headers }),
-        fetch(`${backendUrl}/api/agents`, { headers }),
+        fetch(`${backendUrl}/api/agents?department=${currentDept}`, { headers }),
         fetch(`${backendUrl}/api/office/department/${currentDept}`, { headers }),
       ]);
 
@@ -188,6 +299,7 @@ export function OfficeChatPage({
 
       // 合并固定员工定义和 agent 状态
       // 参考 DepartmentDetail.tsx 的 fixedEmployees 逻辑
+      // P28: 固定员工定义一律视为 origin=fixed（AGENTS.md §5.3 禁止 /ws/agent 直连）
       const list: Employee[] = fixedDefs.map((def: any, i: number) => {
         // 从 baseAgents 中匹配对应的 agent（兼容多种字段名）
         const matched = baseAgents.find((agent: any) => {
@@ -213,12 +325,25 @@ export function OfficeChatPage({
                         matched?.last_active_at || matched?.lastActiveAt || '',
           department: currentDept,
           instanceNum: i,
+          // P28: 来自 /fixed-employees/definitions 一律 fixed
+          origin: 'fixed' as EmployeeOrigin,
         };
       });
 
-      // 如果固定员工为空，直接使用 agents
+      // 如果固定员工为空，直接使用 agents（按当前部门过滤）
       if (list.length === 0 && baseAgents.length > 0) {
         baseAgents.forEach((agent: any, i: number) => {
+          // 按部门过滤：只显示当前部门的 agent
+          const agentDept = agent.department || agent.dept || '';
+          if (currentDept && agentDept && agentDept !== currentDept) {
+            return; // 跳过非当前部门的 agent
+          }
+          // P28: 从 agent.origin 字段读取来源；后端 AgentSummary 已暴露 origin（fixed/personal/human）
+          const rawOrigin = (agent.origin || '').toLowerCase();
+          const empOrigin: EmployeeOrigin =
+            rawOrigin === 'personal' ? 'personal' :
+            rawOrigin === 'human' ? 'human' :
+            'fixed'; // 兜底按 fixed 处理（最严格）
           list.push({
             id: agent.id || agent.agent_id || agent.code || `emp-${i}`,
             name: agent.name || agent.display_name || agent.title || '未知员工',
@@ -226,8 +351,9 @@ export function OfficeChatPage({
             status: (agent.status || 'idle').toLowerCase(),
             currentTask: agent.current_task || agent.currentTask || '',
             lastActiveAt: agent.last_active_at || agent.lastActiveAt || '',
-            department: agent.department || currentDept,
+            department: agentDept || currentDept,
             instanceNum: i,
+            origin: empOrigin,
           });
         });
       }
@@ -368,12 +494,14 @@ export function OfficeChatPage({
       const clientId = await window.livingAgentAPI.app.getClientId().catch(() => '');
 
       const wsUrl = backendUrl.replace(/^http/, 'ws');
-      // 传递 conversationId 和 clientId（conversationId 用于断线重连，clientId 用于 Windows 自动化）
+      // 传递 token + conversationId + clientId
+      // token 通过 URL 查询参数传递（不使用 Sec-WebSocket-Protocol，因为 Spring 的子协议
+      // 匹配是严格相等，bearer.<token> 无法匹配注册的 bearer，导致 400 错误）
       const params = new URLSearchParams();
+      params.set('token', token);
       if (conversationId) params.set('conversationId', conversationId);
       if (clientId) params.set('clientId', clientId);
-      const queryString = params.toString();
-      const ws = new WebSocket(`${wsUrl}/ws/dept/${currentDept}${queryString ? `?${queryString}` : ''}`, [`bearer.${token}`]);
+      const ws = new WebSocket(`${wsUrl}/ws/dept/${currentDept}?${params.toString()}`);
 
       ws.onopen = () => {
         setConnected(true);
@@ -403,13 +531,38 @@ export function OfficeChatPage({
               timestamp: data.timestamp || new Date().toISOString(),
               isSelf: false,
               role: 'assistant',
+              // P5: 解析后端返回的 attachments（AI 回复的附件，如生成的文件）
+              attachments: Array.isArray(data.attachments) && data.attachments.length > 0
+                ? data.attachments as ChatAttachment[]
+                : undefined,
             }]);
             setIsWaiting(false);
+            // P7: AI 响应由主进程 ws-client.ts 自动转发到 Quick View，此处无需额外处理
           } else if (data.type === 'thinking') {
             // AI 思考中提示
             setIsWaiting(true);
           } else if (data.type === 'execution_progress') {
-            // 执行进度更新
+            // P8: Trace 可视化 - 更新执行步骤
+            if (data.stage && data.status) {
+              setTraceSteps(prev => {
+                const existing = prev.findIndex(s => s.stage === data.stage);
+                const newStep: TraceStepData = {
+                  stage: data.stage,
+                  status: data.status,
+                  timestamp: data.timestamp || new Date().toISOString(),
+                  message: data.message,
+                  details: data.details
+                };
+                if (existing >= 0) {
+                  const updated = [...prev];
+                  updated[existing] = newStep;
+                  return updated;
+                }
+                return [...prev, newStep];
+              });
+              setShowTrace(true);
+            }
+            // 执行进度更新 - 员工状态
             if (data.employeeCode) {
               setEmployees(prev => prev.map(emp => {
                 if (emp.id === data.employeeCode) {
@@ -441,6 +594,44 @@ export function OfficeChatPage({
                 }
                 return emp;
               }));
+            }
+          } else if (data.type === 'agent_dispatch') {
+            // P9: 多 Agent 并行分派 - 初始化卡片列表
+            if (Array.isArray(data.agents)) {
+              const newCards: AgentCardData[] = data.agents.map((a: any) => ({
+                agentId: a.agentId || a.id,
+                agentName: a.agentName || a.name,
+                department: a.department,
+                task: a.task,
+                status: 'pending',
+                progress: 0,
+                message: '等待执行'
+              }));
+              setAgentCards(newCards);
+            }
+          } else if (data.type === 'agent_progress') {
+            // P9: Agent 进度更新
+            if (data.agentId) {
+              setAgentCards(prev => {
+                const existing = prev.findIndex(c => c.agentId === data.agentId);
+                const update: AgentCardData = {
+                  agentId: data.agentId,
+                  agentName: data.agentName || data.agentId,
+                  department: data.department,
+                  task: data.task,
+                  status: data.status || 'running',
+                  progress: data.progress || 0,
+                  message: data.message,
+                  startedAt: data.startedAt,
+                  completedAt: data.completedAt
+                };
+                if (existing >= 0) {
+                  const updated = [...prev];
+                  updated[existing] = { ...updated[existing], ...update };
+                  return updated;
+                }
+                return [...prev, update];
+              });
             }
           } else if (data.type === 'reconnected') {
             // 断线重连成功，恢复 conversationId
@@ -568,6 +759,10 @@ export function OfficeChatPage({
             timestamp: msg.timestamp || new Date().toISOString(),
             isSelf: false,
             role: 'assistant',
+            // P5: 解析后端返回的 attachments（AI 回复的附件）
+            attachments: Array.isArray(msg.attachments) && msg.attachments.length > 0
+              ? msg.attachments as ChatAttachment[]
+              : undefined,
           }]);
           setIsWaiting(false);
         } else if (msg.type === 'thinking') {
@@ -580,6 +775,53 @@ export function OfficeChatPage({
     return () => off();
   }, [forceChannel]);
 
+  // P6: AI 唤起快捷键 — 聚焦输入框
+  useEffect(() => {
+    const off = window.livingAgentAPI.onFocusChatInput(() => {
+      inputRef.current?.focus();
+    });
+    return () => off();
+  }, []);
+
+  // P6: 选中文本并提问 — 读取剪贴板并插入输入框
+  useEffect(() => {
+    const off = window.livingAgentAPI.onQuickAskWithSelection(async () => {
+      try {
+        // 尝试读取剪贴板文本
+        const text = await navigator.clipboard.readText();
+        if (text) {
+          setInput(prev => prev ? `${prev}\n${text}` : text);
+          inputRef.current?.focus();
+        }
+      } catch (e) {
+        console.warn('[OfficeChat] Failed to read clipboard:', e);
+      }
+    });
+    return () => off();
+  }, []);
+
+  // P7: Quick View 消息转发 — 接收 Quick View 发来的消息，通过现有 handleSend 发送
+  useEffect(() => {
+    const off = window.livingAgentAPI.on('quickview:forward-message', (data: { content: string; attachments?: any[]; metadata?: any }) => {
+      // 使用 Quick View 传来的内容直接通过 handleSend 发送
+      const qvMetadata: ChatMetadata = {
+        source: 'quickview',
+        clientTimestamp: Date.now(),
+        ...data.metadata,
+      };
+      setInput(data.content);
+      // 延迟一帧执行 handleSend，确保 setInput 已生效
+      setTimeout(() => {
+        handleSend(
+          data.attachments && data.attachments.length > 0 ? data.attachments as ChatAttachment[] : undefined,
+          qvMetadata
+        );
+        setInput('');
+      }, 0);
+    });
+    return () => off();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // 初始加载
   useEffect(() => {
     loadEmployees();
@@ -587,34 +829,117 @@ export function OfficeChatPage({
   }, [loadEmployees, loadConversations]);
 
   // 发送消息
-  function handleSend() {
-    if (!input.trim() || !connected) return;
+  // P5: 支持 attachments 和 metadata 字段（WebSocket 协议扩展）
+  //   - attachments: 附件列表（P1 文件上传/P2 截图/P3 剪贴板会填充）
+  //   - metadata: 元数据（source 标记消息来源，便于后端 Trace 和统计）
+  function handleSend(attachments?: ChatAttachment[], metadata?: ChatMetadata) {
+    const trimmedInput = input.trim();
+    if (!trimmedInput && (!attachments || attachments.length === 0)) return;
+    if (!connected) return;
+
+    // P5: 合并元数据，默认 source='manual'，记录客户端时间戳
+    const finalMetadata: ChatMetadata = {
+      source: 'manual',
+      clientTimestamp: Date.now(),
+      ...metadata,
+    };
 
     setMessages(prev => [...prev, {
-      content: input,
+      content: trimmedInput,
       userId: currentUser?.id,
       userName: currentUser?.name || '我',
       timestamp: new Date().toISOString(),
       isSelf: true,
       role: 'user',
+      attachments: attachments && attachments.length > 0 ? attachments : undefined,
+      metadata: finalMetadata,
     }]);
     setIsWaiting(true);
 
     if (forceChannel) {
       // forceChannel 模式：通过主进程 ws-client 发送
       window.livingAgentAPI.ws.send('CHAT', {
-        content: input,
+        content: trimmedInput,
         conversationId: conversationId,
+        // P5: 协议扩展字段（后端兼容忽略未知字段）
+        attachments: attachments && attachments.length > 0 ? attachments : undefined,
+        metadata: finalMetadata,
       });
     } else if (wsRef.current) {
       wsRef.current.send(JSON.stringify({
         type: 'CHAT',
-        content: input,
+        content: trimmedInput,
         conversationId: conversationId,
+        // P5: 协议扩展字段（后端兼容忽略未知字段）
+        attachments: attachments && attachments.length > 0 ? attachments : undefined,
+        metadata: finalMetadata,
       }));
     }
     setInput('');
+    // P1: 清空待发送附件
+    setPendingAttachments([]);
   }
+
+  // P3: 剪贴板智能识别（图片/文件/URL）
+  // P11: 粘贴内容时触发部门推荐
+  const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
+    const clipboardData = e.clipboardData;
+    if (!clipboardData) return;
+
+    const items = clipboardData.items;
+    const files: File[] = [];
+    const texts: string[] = [];
+
+    // 遍历剪贴板项
+    for (const item of items) {
+      if (item.kind === 'file') {
+        const file = item.getAsFile();
+        if (file) files.push(file);
+      } else if (item.kind === 'string') {
+        const text = clipboardData.getData('text');
+        if (text) texts.push(text);
+      }
+    }
+
+    // 处理图片/文件粘贴
+    if (files.length > 0) {
+      e.preventDefault();
+      // 使用 FileUploader 的上传逻辑
+      for (const file of files) {
+        const attachment: ChatAttachment = {
+          fileId: `paste-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          type: file.type.startsWith('image/') ? 'image' : 'file',
+          name: file.name || `粘贴文件.${file.type.split('/')[1] || 'bin'}`,
+          size: file.size,
+          url: URL.createObjectURL(file),
+          thumbnailUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined,
+        };
+        setPendingAttachments(prev => [...prev, attachment]);
+
+        // P11: 根据文件类型推荐部门
+        const rec = recommendByFileType(file.name);
+        if (rec) setDeptRecommendation(rec);
+      }
+      setEmployeeToast({ msg: `📎 已粘贴 ${files.length} 个文件`, type: 'info' });
+      return;
+    }
+
+    // 处理文本粘贴（URL 识别）
+    if (texts.length > 0) {
+      const text = texts.join('\n');
+      // 检查是否是 URL（简单判断）
+      const urlPattern = /^https?:\/\/.+/i;
+      if (urlPattern.test(text.trim())) {
+        // 允许默认粘贴行为，但显示提示
+        setEmployeeToast({ msg: `🔗 粘贴了链接`, type: 'info' });
+      } else {
+        // P11: 根据文本关键词推荐部门
+        const rec = recommendByKeywords(text);
+        if (rec) setDeptRecommendation(rec);
+      }
+      // 默认粘贴行为继续
+    }
+  }, [setEmployeeToast]);
 
   // 未登录提示
   if (!hasToken) {
@@ -663,6 +988,17 @@ export function OfficeChatPage({
 
   return (
     <div className="office-chat-page">
+      {/* P28: 像素员工点击提示 Toast（固定员工直连禁令） */}
+      {employeeToast && (
+        <div
+          className={`employee-toast employee-toast--${employeeToast.type}`}
+          role="status"
+          aria-live="polite"
+        >
+          {employeeToast.msg}
+        </div>
+      )}
+
       {/* ========== 左侧：办公室房间 ========== */}
       <section className="office-room">
         <header className="office-room__header">
@@ -670,11 +1006,15 @@ export function OfficeChatPage({
           <select
             value={currentDept}
             onChange={(e) => setCurrentDept(e.target.value)}
-            className="dept-selector"
+            className={`dept-selector${lockedDepartment ? ' dept-locked' : ''}`}
+            disabled={!!lockedDepartment}
+            title={lockedDepartment ? '已锁定到本部门（权限受限）' : '切换部门'}
           >
             {DEPARTMENTS
               .filter(d => {
                 // P1-8: 董事长/FULL可访问所有部门，其他仅限本部门
+                // P14: lockedDepartment 设置时强制只显示锁定部门（虽然 disabled，但仍需正确渲染）
+                if (lockedDepartment) return d.code === lockedDepartment;
                 const isEnterpriseUser = currentUser?.accessLevel === 'FULL' || currentUser?.identity === 'INTERNAL_ENTERPRISE';
                 return isEnterpriseUser || d.code === currentUser?.department;
               })
@@ -727,6 +1067,28 @@ export function OfficeChatPage({
                         currentTask={emp.currentTask}
                         department={emp.department || currentDept}
                         instanceNum={emp.instanceNum}
+                        origin={emp.origin}
+                        onClick={(_id, origin) => {
+                          // P28: 固定员工直连禁令（AGENTS.md §5.3）
+                          // - origin=fixed → 禁止 /ws/agent 直连，提示走部门大脑（当前页面已连接 /ws/dept/{dept}）
+                          // - origin=personal/human → 允许 /ws/agent 直连（本轮先做提示，独立 /ws/agent 通道待后续 P5/P6 实施）
+                          if (origin === 'fixed') {
+                            setEmployeeToast({
+                              msg: `🔒 固定员工「${emp.name}」请通过部门大脑对话（当前已连接 /ws/dept/${currentDept}）`,
+                              type: 'warn',
+                            });
+                          } else if (origin === 'personal') {
+                            setEmployeeToast({
+                              msg: `⭐ 个人助理「${emp.name}」支持 /ws/agent 直连（独立通道开发中）`,
+                              type: 'info',
+                            });
+                          } else if (origin === 'human') {
+                            setEmployeeToast({
+                              msg: `👤 人类员工「${emp.name}」支持 /ws/agent 直连（独立通道开发中）`,
+                              type: 'info',
+                            });
+                          }
+                        }}
                       />
                     ))
                   )}
@@ -833,13 +1195,29 @@ export function OfficeChatPage({
                 {!msg.isSelf && msg.userName && (
                   <span className="chat-message__author">{msg.userName}</span>
                 )}
+                {/* P4: 富文本消息渲染（Markdown + 代码块 + 表格 + 附件） */}
                 <div className="chat-message__content">
-                  {msg.content}
+                  <MessageRenderer
+                    content={msg.content}
+                    attachments={msg.attachments}
+                    isSelf={msg.isSelf}
+                    maskSensitive={['finance', 'legal', 'hr'].includes(currentDept)}
+                  />
                 </div>
                 {msg.timestamp && (
                   <span className="chat-message__time">
                     {new Date(msg.timestamp).toLocaleTimeString()}
                   </span>
+                )}
+                {/* P12: AI 回复消息上显示"记住这个"按钮 */}
+                {!msg.isSelf && (
+                  <div className="chat-message__actions">
+                    <RememberButton
+                      messageContent={msg.content}
+                      messageId={msg.messageId}
+                      onRemember={handleRemember}
+                    />
+                  </div>
                 )}
               </div>
             ))
@@ -856,24 +1234,143 @@ export function OfficeChatPage({
           <div ref={messagesEndRef} />
         </div>
 
+        {/* P8: Trace 可视化 */}
+        {showTrace && traceSteps.length > 0 && (
+          <div style={{ padding: '0 16px 12px' }}>
+            <TraceVisualizer
+              steps={traceSteps}
+              onClose={() => setShowTrace(false)}
+            />
+          </div>
+        )}
+
+        {/* P9: 多 Agent 并行卡片 */}
+        {agentCards.length > 0 && (
+          <div style={{ padding: '0 16px 12px' }}>
+            <AgentProgressCards
+              agents={agentCards}
+              onClose={() => setAgentCards([])}
+            />
+          </div>
+        )}
+
+        {/* P11: 部门路由推荐 */}
+        {deptRecommendation && (
+          <div style={{ padding: '0 16px 12px' }}>
+            <DeptRecommendBanner
+              recommendation={deptRecommendation}
+              currentDept={currentDept}
+              onAccept={() => {
+                setCurrentDept(deptRecommendation.department);
+                setDeptRecommendation(null);
+              }}
+              onDismiss={() => setDeptRecommendation(null)}
+            />
+          </div>
+        )}
+
+        {/* P12: Memory 面板 */}
+        {showMemoryPanel && hasToken && (
+          <div style={{ position: 'absolute', right: 16, bottom: 80, zIndex: 1000 }}>
+            <MemoryPanel
+              onClose={() => setShowMemoryPanel(false)}
+              onDelete={handleDeleteMemory}
+              backendUrl={backendUrl}
+              token={currentUser?.token}
+            />
+          </div>
+        )}
+
+        {/* P30: 部门特色快捷功能入口栏 */}
+        <DeptQuickActions
+          department={currentDept}
+          onAction={({ prompt }) => {
+            setInput(prompt);
+            inputRef.current?.focus();
+          }}
+        />
+
         {/* 输入区域 */}
         <footer className="chat-input">
+          {/* P10: 语音输入按钮（预留，登录态校验） */}
+          <button
+            className="btn btn-icon chat-input__voice"
+            onClick={() => {
+              // P10: 登录态校验（CHAT_ONLY 身份禁用语音）
+              if (!hasToken) {
+                setEmployeeToast({ msg: '🎤 语音输入需要先登录', type: 'warn' });
+              } else if (currentUser?.accessLevel === 'CHAT_ONLY') {
+                setEmployeeToast({ msg: '🎤 当前身份（CHAT_ONLY）无语音权限', type: 'warn' });
+              } else {
+                setEmployeeToast({ msg: '🎤 语音输入功能开发中（P10）', type: 'info' });
+              }
+            }}
+            disabled={!connected || isWaiting}
+            title={
+              !hasToken ? '语音输入需要先登录' :
+              currentUser?.accessLevel === 'CHAT_ONLY' ? '当前身份无语音权限' :
+              '语音输入（开发中）'
+            }
+            aria-label="语音输入"
+          >
+            🎤
+          </button>
+          {/* P12: 记忆库按钮 */}
+          <button
+            className="btn btn-icon chat-input__memory"
+            onClick={() => setShowMemoryPanel(!showMemoryPanel)}
+            disabled={!hasToken}
+            title={hasToken ? '打开记忆库' : '记忆库需要先登录'}
+            aria-label="记忆库"
+          >
+            🧠
+          </button>
+          {/* P1: 文件上传组件 */}
+          <FileUploader
+            backendUrl={backendUrl}
+            onFilesSelected={(attachments) => {
+              setPendingAttachments(prev => [...prev, ...attachments]);
+            }}
+            onUploadError={(fileName, error) => {
+              setEmployeeToast({ msg: `📎 ${fileName}: ${error}`, type: 'warn' });
+            }}
+            disabled={!connected || isWaiting}
+          />
+          {/* P1: 待发送附件预览 */}
+          <FilePreview
+            attachments={pendingAttachments}
+            onRemove={(index) => {
+              setPendingAttachments(prev => prev.filter((_, idx) => idx !== index));
+            }}
+          />
           <input
+            ref={inputRef}
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-            placeholder="输入消息...（Enter 发送）"
+            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend(pendingAttachments.length > 0 ? pendingAttachments : undefined)}
+            onPaste={handlePaste}
+            placeholder="输入消息...（Enter 发送，Ctrl+V 粘贴图片/文件）"
             disabled={!connected || isWaiting}
             className="chat-input__field"
           />
           <button
             className="btn btn-primary chat-input__send"
-            onClick={handleSend}
-            disabled={!connected || !input.trim() || isWaiting}
+            onClick={() => handleSend(pendingAttachments.length > 0 ? pendingAttachments : undefined)}
+            disabled={!connected || (!input.trim() && pendingAttachments.length === 0) || isWaiting}
           >
             发送
           </button>
+          {/* P10: 语音输入按钮 */}
+          <VoiceInputButton
+            onTranscript={(text) => {
+              setInput(prev => prev ? `${prev} ${text}` : text);
+              inputRef.current?.focus();
+            }}
+            hasToken={hasToken}
+            accessLevel={currentUser?.accessLevel}
+            disabled={!connected}
+          />
         </footer>
       </section>
     </div>

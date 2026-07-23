@@ -1,3 +1,11 @@
+---
+name: workflow-orchestrator
+description: "工作流编排，多阶段业务流程自动化"
+risk: medium
+source: internal
+date_added: '2026-07-09'
+---
+
 # Workflow Orchestrator
 
 > 工作流编排技能，实现复杂业务流程的自动化编排与监控（闭环43）

@@ -13,8 +13,10 @@ import com.livingagent.core.knowledge.KnowledgeConsumptionFeedback;
 import com.livingagent.core.autonomous.bounty.LedgerService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -55,6 +57,7 @@ public class SelfGovernanceOrchestratorImpl implements SelfGovernanceOrchestrato
     private final ConcurrentLinkedDeque<GovernanceReport> auditTrail = new ConcurrentLinkedDeque<>();
     private volatile int totalProcessedEvents = 0;
     private volatile Instant lastOrchestrationTime = null;
+    private final ApplicationEventPublisher eventPublisher;
 
     public SelfGovernanceOrchestratorImpl(
             SelfGovernanceProperties properties,
@@ -65,7 +68,8 @@ public class SelfGovernanceOrchestratorImpl implements SelfGovernanceOrchestrato
             BrainBoundaryEnforcer brainBoundaryEnforcer,
             PerformanceStatsService performanceStatsService,
             KnowledgeConsumptionFeedback knowledgeConsumptionFeedback,
-            LedgerService ledgerService) {
+            LedgerService ledgerService,
+            ApplicationEventPublisher eventPublisher) {
         this.properties = properties;
         this.arbiter = arbiter;
         this.selfHealingOrchestrator = selfHealingOrchestrator;
@@ -75,6 +79,7 @@ public class SelfGovernanceOrchestratorImpl implements SelfGovernanceOrchestrato
         this.performanceStatsService = performanceStatsService;
         this.knowledgeConsumptionFeedback = knowledgeConsumptionFeedback;
         this.ledgerService = ledgerService;
+        this.eventPublisher = eventPublisher;
     }
 
     @Override
@@ -142,6 +147,9 @@ public class SelfGovernanceOrchestratorImpl implements SelfGovernanceOrchestrato
         if (signal.isRepairSignal()) return 24;
         if (signal.isOptimizeSignal()) return 27;
         if (signal.isInnovateSignal()) return 26;
+        // P5-1: DBS VOC/KAIZEN 信号映射
+        if (signal.getCategory() == EvolutionSignal.SignalCategory.VOC) return 4;
+        if (signal.getType() == EvolutionSignal.SignalType.KAIZEN_EVENT) return 31;
         return 24;
     }
 
@@ -150,6 +158,7 @@ public class SelfGovernanceOrchestratorImpl implements SelfGovernanceOrchestrato
             case REPAIR -> CrossLoopEvent.EventPriority.SELF_HEALING;
             case OPTIMIZE -> CrossLoopEvent.EventPriority.DEGRADATION;
             case INNOVATE -> CrossLoopEvent.EventPriority.KNOWLEDGE;
+            case VOC -> CrossLoopEvent.EventPriority.KNOWLEDGE;
         };
     }
 
@@ -239,6 +248,12 @@ public class SelfGovernanceOrchestratorImpl implements SelfGovernanceOrchestrato
     private String dispatch(CrossLoopEvent event) {
         int loopId = event.getSourceLoop();
 
+        // P7-1: DBS 技能关联映射 — 各 dispatch 执行前记录关联的 DBS 技能
+        String dbsSkill = mapLoopToDbsSkill(loopId);
+        if (dbsSkill != null) {
+            log.debug("[P31-DBS] 闭环{}关联DBS技能: {}", loopId, dbsSkill);
+        }
+
         try {
             return switch (loopId) {
                 case 1 -> dispatchWebSocketRecovery(event);
@@ -258,6 +273,34 @@ public class SelfGovernanceOrchestratorImpl implements SelfGovernanceOrchestrato
             log.error("[P31-A] Dispatch failed for loop {}: {}", loopId, e.getMessage());
             return "error:" + e.getMessage();
         }
+    }
+
+    /**
+     * P7-1: 闭环到 DBS 技能的映射。
+     * 各 dispatch 方法关联的 DBS 技能提供方法论指导，不替代执行逻辑。
+     *
+     * 映射关系：
+     * - 闭环24（自愈）→ dbs-problem-solving（5-Why+A3+PDCA）
+     * - 闭环1（WS恢复）→ dbs-value-stream-mapping（价值流分析）
+     * - 闭环27（降级）→ dbs-problem-solving（问题解决）
+     * - 闭环30（安全）→ dbs-standard-work（标准作业）
+     * - 闭环28（回执）→ dbs-visual-management（可视化管理）
+     * - 闭环25（经济）→ dbs-value-stream-mapping（价值流分析）
+     * - 闭环26（知识）→ dbs-5s-audit + dbs-standard-work
+     * - 闭环29（个性）→ dbs-talent-development（人才发展）
+     */
+    private String mapLoopToDbsSkill(int loopId) {
+        return switch (loopId) {
+            case 24 -> "dbs-problem-solving";
+            case 1 -> "dbs-value-stream-mapping";
+            case 27 -> "dbs-problem-solving";
+            case 30 -> "dbs-standard-work";
+            case 28 -> "dbs-visual-management";
+            case 25 -> "dbs-value-stream-mapping";
+            case 26 -> "dbs-standard-work";
+            case 29 -> "dbs-talent-development";
+            default -> null;
+        };
     }
 
     private String dispatchSelfHealing(CrossLoopEvent event) {
@@ -436,5 +479,76 @@ public class SelfGovernanceOrchestratorImpl implements SelfGovernanceOrchestrato
             return GovernanceStatus.active(pending, totalProcessedEvents);
         }
         return GovernanceStatus.idle(totalProcessedEvents);
+    }
+
+    // ========== P5-1: DBS 改善周机制 ==========
+
+    private static final List<String> KAIZEN_DEPARTMENTS = List.of(
+        "tech", "hr", "finance", "sales", "admin", "cs", "legal", "ops", "core"
+    );
+
+    /**
+     * DBS 改善周：每7天自动审视9个部门大脑运营数据，识别改善机会，生成 KAIZEN_EVENT 信号。
+     * 实现进化双驱动模式：被动（异常信号）+ 主动（改善周）。
+     */
+    @Scheduled(fixedRate = 7 * 24 * 60 * 60 * 1000, initialDelay = 24 * 60 * 60 * 1000)
+    public void kaizenWeeklyReview() {
+        if (!properties.isEnabled()) return;
+
+        log.info("[P5-1/DBS Kaizen] 改善周开始：审视9个部门大脑运营数据");
+
+        for (String dept : KAIZEN_DEPARTMENTS) {
+            try {
+                String kaizenContent = generateKaizenInsight(dept);
+                if (kaizenContent != null && !kaizenContent.isBlank()) {
+                    EvolutionSignal kaizenSignal = new EvolutionSignal(
+                        EvolutionSignal.SignalType.KAIZEN_EVENT, kaizenContent);
+                    kaizenSignal.setSource("KaizenWeeklyReview:" + dept);
+                    kaizenSignal.setBrainDomain(dept);
+                    kaizenSignal.setConfidence(0.6);
+                    kaizenSignal.addTag("KAIZEN_WEEKLY");
+                    kaizenSignal.addMetadata("department", dept);
+                    kaizenSignal.addMetadata("reviewType", "weekly");
+
+                    eventPublisher.publishEvent(kaizenSignal);
+                    log.info("[P5-1/DBS Kaizen] 改善信号发布: dept={}, insight={}",
+                        dept, kaizenContent.length() > 80 ? kaizenContent.substring(0, 80) + "..." : kaizenContent);
+                }
+            } catch (Exception e) {
+                log.warn("[P5-1/DBS Kaizen] 改善周审视失败: dept={}, error={}", dept, e.getMessage());
+            }
+        }
+
+        log.info("[P5-1/DBS Kaizen] 改善周完成");
+    }
+
+    /**
+     * 基于部门运营数据生成改善洞察。
+     * 当前实现为规则驱动，后续可由 LLM 增强。
+     */
+    private String generateKaizenInsight(String department) {
+        List<String> insights = new ArrayList<>();
+
+        // 检查绩效数据中的低权重员工
+        if (performanceStatsService != null) {
+            try {
+                // 使用 getStatsBatch 获取部门员工绩效
+                var stats = performanceStatsService.getStatsBatch(List.of(department));
+                long lowPerformerCount = stats.values().stream()
+                    .filter(s -> s.normalizedScore() < 0.5)
+                    .count();
+                if (lowPerformerCount > 0) {
+                    insights.add(String.format("%s部门有%d名低绩效员工需关注", department, lowPerformerCount));
+                }
+            } catch (Exception e) {
+                log.debug("Kaizen: failed to get performance stats for {}: {}", department, e.getMessage());
+            }
+        }
+
+        if (insights.isEmpty()) {
+            insights.add(String.format("%s部门运营正常，建议持续优化标准作业流程", department));
+        }
+
+        return String.join("；", insights);
     }
 }

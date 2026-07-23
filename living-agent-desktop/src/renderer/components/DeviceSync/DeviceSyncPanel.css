@@ -1,0 +1,249 @@
+/**
+ * P27: 多设备会话同步样式
+ */
+
+.device-sync-panel {
+  padding: 20px;
+  background: #2a2a3a;
+  border: 1px solid #444;
+  border-radius: 8px;
+}
+
+.device-sync-panel__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.device-sync-panel__header h2 {
+  font-size: 18px;
+  margin: 0;
+}
+
+.sync-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sync-time {
+  font-size: 12px;
+  color: #888;
+}
+
+.sync-btn {
+  padding: 8px 16px;
+  background: #6366f1;
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.sync-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 设备列表 */
+.device-sync-panel__devices {
+  margin-bottom: 20px;
+}
+
+.device-sync-panel__devices h3 {
+  font-size: 14px;
+  margin: 0 0 12px 0;
+  color: #aaa;
+}
+
+.device-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.device-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: #1a1a2a;
+  border: 1px solid #333;
+  border-radius: 6px;
+}
+
+.device-item--current {
+  border-color: #6366f1;
+  background: #1a1a3a;
+}
+
+.device-icon {
+  font-size: 24px;
+}
+
+.device-info {
+  flex: 1;
+}
+
+.device-name {
+  font-weight: 600;
+  color: #eee;
+  margin-bottom: 4px;
+}
+
+.current-badge {
+  margin-left: 8px;
+  padding: 2px 6px;
+  background: #52c41a;
+  border-radius: 4px;
+  font-size: 10px;
+  color: #fff;
+}
+
+.device-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+}
+
+.device-status {
+  color: #888;
+}
+
+.device-status.online {
+  color: #52c41a;
+}
+
+.device-last-active {
+  color: #666;
+}
+
+.device-logout {
+  background: transparent;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  padding: 4px;
+}
+
+.device-logout:hover {
+  color: #ff4d4f;
+}
+
+/* 会话列表 */
+.device-sync-panel__conversations {
+  margin-bottom: 20px;
+}
+
+.device-sync-panel__conversations h3 {
+  font-size: 14px;
+  margin: 0 0 12px 0;
+  color: #aaa;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.unread-badge {
+  padding: 2px 8px;
+  background: #ff4d4f;
+  border-radius: 10px;
+  font-size: 11px;
+  color: #fff;
+}
+
+.sync-loading {
+  padding: 24px;
+  text-align: center;
+  color: #888;
+}
+
+.conversation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.conversation-item {
+  display: flex;
+  align-items: center;
+  padding: 12px;
+  background: #1a1a2a;
+  border: 1px solid #333;
+  border-radius: 6px;
+}
+
+.conversation-item--unread {
+  border-left: 3px solid #ff4d4f;
+}
+
+.conversation-info {
+  flex: 1;
+}
+
+.conversation-title {
+  font-weight: 600;
+  color: #eee;
+  margin-bottom: 4px;
+}
+
+.conversation-last-message {
+  font-size: 12px;
+  color: #888;
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  color: #666;
+}
+
+.conversation-unread {
+  padding: 4px 8px;
+  background: #ff4d4f;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+}
+
+/* 同步设置 */
+.device-sync-panel__settings {
+  border-top: 1px solid #333;
+  padding-top: 16px;
+}
+
+.device-sync-panel__settings h3 {
+  font-size: 14px;
+  margin: 0 0 12px 0;
+  color: #aaa;
+}
+
+.sync-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sync-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.sync-option input {
+  accent-color: #6366f1;
+}
+
+.sync-option span {
+  font-size: 13px;
+  color: #ccc;
+}

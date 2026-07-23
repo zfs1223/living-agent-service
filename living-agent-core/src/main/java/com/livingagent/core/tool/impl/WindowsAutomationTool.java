@@ -31,9 +31,26 @@ public class WindowsAutomationTool implements Tool {
     private static final Logger auditLog = LoggerFactory.getLogger("WINDOWS_AUTOMATION_AUDIT");
 
     private static final String NAME = "win_automation";
-    private static final String DESCRIPTION = "控制用户本地Windows电脑的工具。当用户要求打开应用、输入文字、点击按钮、截图、执行命令等本地操作时，必须使用此工具（而非file_edit）。支持操作: shell(执行命令如notepad.exe), click/type/scroll/move(UIA控件), shortcut(快捷键), screenshot(截图), process_list/kill(进程), registry(注册表), filesystem(文件系统), clipboard(剪贴板)等。operation=shell,args={command:'notepad.exe'}可启动程序。";
+    private static final String DESCRIPTION = "控制用户本地Windows电脑的工具。当用户要求打开应用、输入文字、点击按钮、截图、执行命令等本地操作时，必须使用此工具（而非file_edit）。" +
+        "支持操作:" +
+        " launch_app(启动应用,如launch_app+name:'微信'), switch_app(切换窗口,如switch_app+name:'微信'), get_windows(获取窗口列表), get_active_window(获取前台窗口)," +
+        " find_element(查找UI控件,返回坐标+控件信息,支持name/className/autoId搜索), snapshot(UI树+截图,用于了解当前屏幕状态)," +
+        " click(type/click坐标), type(输入文字,自动支持中文), scroll(滚动), move(移动鼠标), shortcut(快捷键如Ctrl+F)," +
+        " screenshot(截图), wait/wait_for(等待), shell(PowerShell命令,高风险), process_list/kill(进程), registry(注册表), filesystem(文件系统), clipboard(剪贴板)" +
+        "。典型流程: launch_app打开应用 → snapshot/screenshot了解界面 → find_element定位控件 → click/type操作 → screenshot验证结果。";
     private static final String VERSION = "1.0.0";
     private static final String DEPARTMENT = "core";
+
+    /** 操作后需要自动截图的操作集合（视觉反馈闭环） */
+    private static final Set<String> VISUAL_FEEDBACK_OPERATIONS = Set.of(
+        "click", "double_click", "right_click", "type", "shortcut",
+        "launch_app", "switch_app", "scroll", "drag", "find_element"
+    );
+
+    /** 操作本身就包含截图，不需要额外截图 */
+    private static final Set<String> SCREENSHOT_OPERATIONS = Set.of(
+        "screenshot", "snapshot"
+    );
 
     /** 高风险操作集合（需要审批） */
     private static final Set<String> HIGH_RISK_OPERATIONS = Set.of(
@@ -57,6 +74,8 @@ public class WindowsAutomationTool implements Tool {
         Map.entry("filesystem_info", AccessLevel.CHAT_ONLY),
         Map.entry("notification", AccessLevel.CHAT_ONLY),
         Map.entry("scrape", AccessLevel.CHAT_ONLY),
+        Map.entry("get_windows", AccessLevel.CHAT_ONLY),
+        Map.entry("get_active_window", AccessLevel.CHAT_ONLY),
 
         // LIMITED (1) - 基础操作
         Map.entry("click", AccessLevel.LIMITED),
@@ -79,6 +98,10 @@ public class WindowsAutomationTool implements Tool {
         Map.entry("vdm_switch", AccessLevel.LIMITED),
         Map.entry("vdm_create", AccessLevel.LIMITED),
         Map.entry("vdm_move_window", AccessLevel.LIMITED),
+        Map.entry("launch_app", AccessLevel.LIMITED),
+        Map.entry("switch_app", AccessLevel.LIMITED),
+        Map.entry("resize_app", AccessLevel.LIMITED),
+        Map.entry("find_element", AccessLevel.LIMITED),
 
         // FULL (3) - 高风险操作（需审批）
         Map.entry("shell", AccessLevel.FULL),
@@ -114,11 +137,19 @@ public class WindowsAutomationTool implements Tool {
             .name(NAME)
             .description(DESCRIPTION)
             .parameter("operation", "string",
-                "操作类型: click, type, scroll, move, shortcut, snapshot, screenshot, " +
-                "wait, wait_for, shell, process_list, process_kill, " +
+                "操作类型: launch_app(启动应用), switch_app(切换窗口), get_windows(窗口列表), get_active_window(前台窗口), " +
+                "find_element(查找UI控件,需指定name/className/autoId), snapshot(UI树+截图), " +
+                "click, type(输入文字,自动支持中文), scroll, move, shortcut, screenshot, " +
+                "wait, wait_for, shell(高风险), process_list, process_kill, " +
                 "registry_get/set/delete/list, filesystem_read/write/copy/move/delete/list/search/info, " +
                 "clipboard_get/set, notification, scrape, vdm_switch/create/move_window", true)
-            .parameter("args", "object", "操作参数（各操作不同，如 click 需要 x/y，shell 需要 command）", false)
+            .parameter("args", "object",
+                "操作参数。各操作不同: " +
+                "launch_app={name:'微信'}, switch_app={name:'微信'}, " +
+                "find_element={name:'搜索'}, find_element={className:'Edit'}, find_element={autoId:'searchBox'}, " +
+                "click={x:100,y:200}, type={text:'你好'}, shortcut={keys:'Ctrl+F'}, " +
+                "shell={command:'notepad.exe'}, screenshot={}, snapshot={}, " +
+                "wait={seconds:2}, wait_for={condition:'window_appear',window_name:'微信'}", false)
             .parameter("clientId", "string", "目标客户端ID（可选，默认使用 context 中的 clientId）", false)
             .build();
     }
@@ -206,7 +237,32 @@ public class WindowsAutomationTool implements Tool {
                 auditLog.info("[WinAutomation] 操作成功: employee={}, clientId={}, operation={}, duration={}ms",
                     employeeCode, clientId, operation, duration);
                 stats = stats.recordCall(true, duration);
-                return ToolResult.success(response.result());
+
+                // 视觉反馈闭环：对关键操作自动截图，让 Brain 能看到操作后的屏幕状态
+                Object result = response.result();
+                if (VISUAL_FEEDBACK_OPERATIONS.contains(operation) && clientId != null
+                    && clientGateway.isClientOnline(clientId)) {
+                    try {
+                        CompletableFuture<WinAutomationResponse> screenshotFuture =
+                            clientGateway.sendOperation(clientId, "screenshot", Map.of());
+                        WinAutomationResponse screenshotResp = screenshotFuture.get(10, TimeUnit.SECONDS);
+                        if (screenshotResp.success() && screenshotResp.result() instanceof Map) {
+                            @SuppressWarnings("unchecked")
+                            Map<String, Object> resultMap = new HashMap<>();
+                            if (result instanceof Map) {
+                                resultMap.putAll((Map<String, Object>) result);
+                            } else {
+                                resultMap.put("result", result);
+                            }
+                            resultMap.put("screenshot_after", ((Map<String, Object>) screenshotResp.result()).get("screenshot"));
+                            result = resultMap;
+                        }
+                    } catch (Exception e) {
+                        log.debug("[WindowsAutomationTool] Auto-screenshot failed (non-critical): {}", e.getMessage());
+                    }
+                }
+
+                return ToolResult.success(result);
             } else {
                 auditLog.warn("[WinAutomation] 操作失败: employee={}, clientId={}, operation={}, error={}, duration={}ms",
                     employeeCode, clientId, operation, response.error(), duration);

@@ -17,13 +17,60 @@ import { LocalSaveSettings } from './pages/Settings/LocalSave';
 import { Settings } from './pages/Settings/Settings';
 import { PublicTaskBoardPage } from './pages/TaskBoard/PublicTaskBoardPage';
 import { OfficeChatPage } from './pages/OfficeChat';
+import SkillMarketPage from './pages/SkillMarket/SkillMarketPage';
+import VitalsDashboard from './pages/Vitals/VitalsDashboard';
+import ReceiptReview from './pages/ReceiptReview/ReceiptReview';
+import HumanReportPage from './pages/HumanReport/HumanReportPage';
+import DeveloperToolsPage from './pages/DeveloperTools/DeveloperToolsPage';
+import CustomerValueDashboard from './pages/CustomerValue/CustomerValueDashboard';
+import { MeetingPage } from './pages/Meeting/MeetingPage';
+import { MeetingRoom } from './pages/Meeting/MeetingRoom';
+import { CalendarPage } from './pages/Calendar/CalendarPage';
 import type { ClientInfo, DesktopUser } from '@shared/api-types';
 
-type View = 'home' | 'chat' | 'chat-public' | 'chat-enterprise' | 'frontdesk' | 'tasks' | 'artifacts' | 'projects' | 'approvals' | 'messages' | 'agents' | 'interventions' | 'skills' | 'proactive' | 'plaza' | 'local-save' | 'settings' | 'admin';
+// P83/P84: 新增 'meeting' | 'meeting-room' | 'calendar' 视图，闭环 67 入口
+type View = 'home' | 'chat' | 'chat-public' | 'chat-enterprise' | 'frontdesk' | 'tasks' | 'artifacts' | 'projects' | 'approvals' | 'agents' | 'interventions' | 'skills' | 'proactive' | 'plaza' | 'vitals' | 'receipts' | 'human-reports' | 'developer-tools' | 'customer-value' | 'meeting' | 'meeting-room' | 'calendar' | 'local-save' | 'settings' | 'admin';
 
 interface BackendStatus {
   status: 'online' | 'offline' | 'unknown';
   url: string;
+}
+
+/**
+ * P14: 按用户身份（identity）计算需锁定的部门。
+ * 判定优先级：先看 identity，再看 accessLevel，最后看 currentUser.department。
+ *
+ * 权限-部门锁定矩阵（按 UserIdentity.java 8 种身份完整梳理）：
+ *   INTERNAL_ENTERPRISE(董事长)         → undefined（不锁定，可自由切换所有部门大脑 + MainBrain + 企业频道）
+ *   INTERNAL_ACTIVE(在职员工)           → currentUser.department（锁定到本部门大脑）
+ *   INTERNAL_PROBATION(试用期员工)      → currentUser.department（按分配部门锁定，功能权限按 LIMITED 限制）
+ *   INTERNAL_DEPARTED(离职员工)         → undefined（无部门入口，仅 /ws/public 闲聊）
+ *   EXTERNAL_VISITOR(外来访客)          → undefined（无部门入口，仅 /ws/public 闲聊）
+ *   EXTERNAL_CUSTOMER(客户)             → 'cs'（仅客服部）
+ *   EXTERNAL_PARTNER(合作伙伴)          → currentUser.department（合作部门）
+ *   EXTERNAL_CONTRACTOR(外包人员)       → currentUser.department（外包所在部门）
+ *
+ * 绑定策略：仅做用户身份绑定，不做设备级部门绑定。
+ * 退出登录清空所有锁定状态（仅存在于 React state，不持久化到磁盘）。
+ */
+function computeForcedDepartment(user: DesktopUser | null): string | undefined {
+  if (!user) return undefined;
+  switch (user.identity) {
+    case 'INTERNAL_ENTERPRISE':
+      return undefined;  // 董事长不锁定
+    case 'INTERNAL_ACTIVE':
+    case 'INTERNAL_PROBATION':
+      return user.department || undefined;  // 在职/试用期：锁定到分配部门
+    case 'EXTERNAL_CUSTOMER':
+      return 'cs';  // 客户：客服部
+    case 'EXTERNAL_PARTNER':
+    case 'EXTERNAL_CONTRACTOR':
+      return user.department || undefined;  // 锁定到合作/外包部门
+    case 'INTERNAL_DEPARTED':
+    case 'EXTERNAL_VISITOR':
+    default:
+      return undefined;  // CHAT_ONLY 用户不应进入部门页
+  }
 }
 
 export function App() {
@@ -35,6 +82,9 @@ export function App() {
   const [forceSettings, setForceSettings] = useState<boolean>(false);
   const [showLoginDialog, setShowLoginDialog] = useState<boolean>(false);
   const [currentUser, setCurrentUser] = useState<DesktopUser | null>(null);
+
+  // P83: 会议页面状态 — 当前正在加入的会议室 roomName
+  const [meetingRoomName, setMeetingRoomName] = useState<string>('');
 
   // 登录表单状态（与 frontend 对齐：手机号 + 短信验证码）
   const [loginPhone, setLoginPhone] = useState('');
@@ -178,7 +228,8 @@ export function App() {
   async function handleLogout() {
     await window.livingAgentAPI.auth.clearToken();
     setHasToken(false);
-    setCurrentUser(null);
+    setCurrentUser(null);  // ← currentUser=null → forcedDepartment=undefined → lockedDepartment=undefined
+    setView('home');        // ← P14: 回到首页，避免停留在已锁定的部门页面
   }
 
   /** 声纹登录 - 按住录音 */
@@ -325,12 +376,33 @@ export function App() {
           {hasToken && (
           <div className="nav-section">
             <div className="nav-section-title">内部功能</div>
+            {/* P14: CHAT_ONLY 身份（INTERNAL_DEPARTED/EXTERNAL_VISITOR）不显示部门聊天入口 */}
+            {currentUser?.accessLevel !== 'CHAT_ONLY' && currentUser?.identity !== 'INTERNAL_DEPARTED' && currentUser?.identity !== 'EXTERNAL_VISITOR' && (
             <button
               className={view === 'chat' ? 'nav-item active' : 'nav-item'}
               onClick={() => handleNav('chat')}
             >
               💬 部门聊天
             </button>
+            )}
+            {/* P83 新增：会议入口（闭环 67 入口，对齐 P14 权限） */}
+            {currentUser?.accessLevel !== 'CHAT_ONLY' && currentUser?.identity !== 'INTERNAL_DEPARTED' && currentUser?.identity !== 'EXTERNAL_VISITOR' && (
+            <button
+              className={view === 'meeting' ? 'nav-item active' : 'nav-item'}
+              onClick={() => handleNav('meeting')}
+            >
+              📡 会议
+            </button>
+            )}
+            {/* P84 新增：日历入口（闭环 67-D 预约管理） */}
+            {currentUser?.accessLevel !== 'CHAT_ONLY' && currentUser?.identity !== 'INTERNAL_DEPARTED' && currentUser?.identity !== 'EXTERNAL_VISITOR' && (
+            <button
+              className={view === 'calendar' ? 'nav-item active' : 'nav-item'}
+              onClick={() => handleNav('calendar')}
+            >
+              📅 日历
+            </button>
+            )}
             {(currentUser?.accessLevel === 'FULL' || currentUser?.identity === 'INTERNAL_ENTERPRISE') && (
             <button
               className={view === 'chat-enterprise' ? 'nav-item active' : 'nav-item'}
@@ -364,16 +436,10 @@ export function App() {
               ✅ 审批
             </button>
             <button
-              className={view === 'messages' ? 'nav-item active' : 'nav-item'}
-              onClick={() => handleNav('messages')}
-            >
-              📨 消息
-            </button>
-            <button
               className={view === 'agents' ? 'nav-item active' : 'nav-item'}
               onClick={() => handleNav('agents')}
             >
-              🤖 智能体
+              🤖 个人助手
             </button>
             <button
               className={view === 'interventions' ? 'nav-item active' : 'nav-item'}
@@ -394,11 +460,35 @@ export function App() {
               💡 主动服务
             </button>
             <button
-              className={view === 'plaza' ? 'nav-item active' : 'nav-item'}
-              onClick={() => handleNav('plaza')}
+              className={view === 'receipts' ? 'nav-item active' : 'nav-item'}
+              onClick={() => handleNav('receipts')}
             >
-              🏛️ 广场
+              📋 回执审核
             </button>
+            <button
+              className={view === 'human-reports' ? 'nav-item active' : 'nav-item'}
+              onClick={() => handleNav('human-reports')}
+            >
+              📝 我的汇报
+            </button>
+            {/* P20: 开发者工具（仅技术部显示） */}
+            {(currentUser?.department === 'tech' || currentUser?.accessLevel === 'FULL' || currentUser?.identity === 'INTERNAL_ENTERPRISE') && (
+              <button
+                className={view === 'developer-tools' ? 'nav-item active' : 'nav-item'}
+                onClick={() => handleNav('developer-tools')}
+              >
+                🛠️ 开发者工具
+              </button>
+            )}
+            {/* P19: 客户价值指标（仅 cs/sales/core 显示） */}
+            {(['cs', 'sales', 'core'].includes(currentUser?.department ?? '') || currentUser?.accessLevel === 'FULL' || currentUser?.identity === 'INTERNAL_ENTERPRISE') && (
+              <button
+              className={view === 'customer-value' ? 'nav-item active' : 'nav-item'}
+              onClick={() => handleNav('customer-value')}
+            >
+              📊 客户价值
+            </button>
+            )}
             <button
               className={view === 'local-save' ? 'nav-item active' : 'nav-item'}
               onClick={() => handleNav('local-save')}
@@ -478,6 +568,8 @@ export function App() {
             hasToken={hasToken}
             currentUser={currentUser}
             onLogin={handleLogin}
+            department={computeForcedDepartment(currentUser) || currentUser?.department || 'tech'}
+            lockedDepartment={computeForcedDepartment(currentUser)}
           />
         )}
         {view === 'chat-public' && (
@@ -490,23 +582,59 @@ export function App() {
           />
         )}
         {view === 'chat-enterprise' && (
-          <OfficeChatPage
+          <EnterpriseChannelPage
             backendUrl={backend.url}
             hasToken={hasToken}
             currentUser={currentUser}
             onLogin={handleLogin}
-            forceChannel="/ws/enterprise"
           />
         )}
         {view === 'tasks' && <PublicTaskBoardPage />}
         {view === 'artifacts' && <ArtifactsPage />}
         {view === 'projects' && <ProjectsPage backendUrl={backend.url} hasToken={hasToken} />}
         {view === 'approvals' && <ApprovalsPage hasToken={hasToken} />}
-        {view === 'messages' && <MessagesPage hasToken={hasToken} />}
-        {view === 'agents' && <AgentListPage hasToken={hasToken} />}
+        {view === 'agents' && <PersonalAssistantPage hasToken={hasToken} backendUrl={backend.url} currentUser={currentUser} />}
         {view === 'interventions' && <InterventionsPage hasToken={hasToken} />}
-        {view === 'skills' && <SkillsPage hasToken={hasToken} />}
+        {view === 'skills' && <SkillMarketPage hasToken={hasToken} backendUrl={backend.url} />}
         {view === 'proactive' && <ProactivePage hasToken={hasToken} />}
+        {view === 'vitals' && <VitalsDashboard backendUrl={backend.url} hasToken={hasToken} />}
+        {view === 'receipts' && <ReceiptReview backendUrl={backend.url} hasToken={hasToken} />}
+        {view === 'human-reports' && <HumanReportPage backendUrl={backend.url} hasToken={hasToken} currentUser={currentUser} />}
+        {view === 'developer-tools' && <DeveloperToolsPage backendUrl={backend.url} hasToken={hasToken} currentUser={currentUser} />}
+        {view === 'customer-value' && <CustomerValueDashboard backendUrl={backend.url} hasToken={hasToken} currentUser={currentUser} />}
+        {/* P83: 会议管理页面（闭环 67 入口） */}
+        {view === 'meeting' && (
+          <MeetingPage
+            backendUrl={backend.url}
+            hasToken={hasToken}
+            currentUser={currentUser}
+            onNavigateToRoom={(roomName) => {
+              setMeetingRoomName(roomName);
+              setView('meeting-room');
+            }}
+            onLogin={handleLogin}
+          />
+        )}
+        {/* P83: 会议室页面（闭环 67-B 会议执行） */}
+        {view === 'meeting-room' && meetingRoomName && (
+          <MeetingRoom
+            backendUrl={backend.url}
+            roomName={meetingRoomName}
+            hasToken={hasToken}
+            onLeave={() => {
+              setMeetingRoomName('');
+              setView('meeting');
+            }}
+          />
+        )}
+        {/* P84: 日历页面（闭环 67-D 预约管理 + 日历同步） */}
+        {view === 'calendar' && (
+          <CalendarPage
+            backendUrl={backend.url}
+            hasToken={hasToken}
+            currentUser={currentUser}
+          />
+        )}
         {view === 'plaza' && <PlazaPage hasToken={hasToken} />}
         {view === 'admin' && <AdminPage backendUrl={backend.url} currentUser={currentUser} />}
         {view === 'local-save' && <LocalSaveSettings />}
@@ -879,6 +1007,7 @@ function FrontDeskView({ backendUrl, onLogin }: { backendUrl: string; onLogin: (
       )}
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 9, color: '#555' }}>
         <span>Qwen3 闲聊神经元 · 无需登录</span>
+        {/* AGENTS.md §5.1：未登录用户可以使用语音（ASR/TTS 在 model_daemon.py 内部加载，无需认证） */}
         <button onClick={() => setVoiceMode(!voiceMode)} style={{ background: 'none', border: 'none', color: voiceMode ? '#6366f1' : '#555', fontSize: 9, cursor: 'pointer' }}>
           {voiceMode ? '⌨️ 文字模式' : '🎤 语音模式'}
         </button>
@@ -1417,135 +1546,199 @@ function ApprovalsPage({ hasToken }: { backendUrl?: string; hasToken: boolean })
 }
 
 /**
- * 消息页面 - 展示消息通知
+ * 企业频道页面 - 董事长频道，跨部门协调
+ * 与部门聊天不同：不显示办公室布局和部门选择器，专注跨部门沟通
  */
-function MessagesPage({ hasToken }: { backendUrl?: string; hasToken: boolean }) {
-  const [messages, setMessages] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [unreadCount, setUnreadCount] = useState(0);
+function EnterpriseChannelPage({ backendUrl, hasToken, currentUser, onLogin }: { backendUrl: string; hasToken: boolean; currentUser: any; onLogin: () => void }) {
+  const [messages, setMessages] = useState<{ role: 'user' | 'assistant' | 'system'; content: string; }[]>([]);
+  const [input, setInput] = useState('');
+  const [connected, setConnected] = useState(false);
+  const [isWaiting, setIsWaiting] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
   useEffect(() => {
-    if (!hasToken) return;
-    void loadMessages();
-    void loadUnread();
-  }, [hasToken]);
+    if (!backendUrl || !hasToken) return;
+    void (async () => {
+      const token = await window.livingAgentAPI.auth.getToken();
+      const protocol = backendUrl.startsWith('https') ? 'wss' : 'ws';
+      const urlBase = backendUrl.replace(/^https?:\/\//, '');
+      const ws = new WebSocket(`${protocol}://${urlBase}/ws/enterprise?token=${token || ''}`);
+      wsRef.current = ws;
 
-  async function loadMessages() {
-    setLoading(true);
-    try {
-      const data = await window.livingAgentAPI.message.list(50);
-      setMessages(Array.isArray(data) ? data : []);
-    } catch (e) {
-      console.warn('[desktop] 加载消息列表失败:', e);
-    } finally {
-      setLoading(false);
-    }
-  }
+      ws.onopen = () => setConnected(true);
+      ws.onclose = () => setConnected(false);
+      ws.onerror = () => setConnected(false);
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'connected' || data.type === 'pong') return;
+          if (data.type === 'thinking') { setIsWaiting(true); return; }
+          if (data.type === 'done' || data.type === 'chunk' || data.type === 'response') {
+            setIsWaiting(false);
+            setMessages(prev => [...prev.filter(m => m.content !== '...'), { role: 'assistant', content: data.content || '' }]);
+          }
+          if (data.type === 'error') { setIsWaiting(false); setMessages(prev => [...prev, { role: 'system', content: data.message || 'Error' }]); }
+        } catch { /* ignore */ }
+      };
+    })();
+    return () => { wsRef.current?.close(); };
+  }, [backendUrl, hasToken]);
 
-  async function loadUnread() {
-    try {
-      const count = await window.livingAgentAPI.message.unreadCount();
-      setUnreadCount(count);
-    } catch { /* ignore */ }
-  }
-
-  async function handleMarkRead(id: string) {
-    try {
-      await window.livingAgentAPI.message.markRead(id);
-      setMessages(prev => prev.map(m => m.id === id ? { ...m, read: true } : m));
-      await loadUnread();
-    } catch (e) {
-      console.warn('[desktop] 标记已读失败:', e);
-    }
-  }
-
-  async function handleMarkAllRead() {
-    try {
-      await window.livingAgentAPI.message.markAllRead();
-      setMessages(prev => prev.map(m => ({ ...m, read: true })));
-      setUnreadCount(0);
-    } catch (e) {
-      console.warn('[desktop] 全部已读失败:', e);
-    }
+  function handleSend() {
+    if (!input.trim() || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    setMessages(prev => [...prev, { role: 'user', content: input.trim() }]);
+    wsRef.current.send(JSON.stringify({ type: 'chat', content: input.trim() }));
+    setInput('');
+    setIsWaiting(true);
   }
 
   if (!hasToken) {
-    return <div style={{ padding: 48, textAlign: 'center', color: '#999' }}>请先登录</div>;
-  }
-
-  if (loading) {
-    return <div style={{ padding: 48, textAlign: 'center', color: '#999' }}>加载消息...</div>;
+    return <div style={{ padding: 32, textAlign: 'center', color: '#999' }}><h2>请先登录</h2><button className="btn btn-primary" onClick={onLogin}>登录</button></div>;
   }
 
   return (
-    <div style={{ padding: 24, maxWidth: 1000, margin: '0 auto' }}>
-      <header style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <div>
-          <h1>📨 消息 {unreadCount > 0 && <span style={{ fontSize: 14, background: '#e74c3c', color: '#fff', borderRadius: 10, padding: '2px 8px' }}>{unreadCount}</span>}</h1>
-          <p style={{ color: '#666' }}>查看系统消息和通知</p>
+          <h2 style={{ margin: 0, fontSize: 16 }}>🌐 企业频道</h2>
+          <span style={{ fontSize: 11, color: connected ? '#0a0' : '#a00' }}>{connected ? '在线 · 董事长频道' : '离线'}</span>
         </div>
-        {unreadCount > 0 && (
-          <button className="btn" style={{ fontSize: 12, background: '#eee', border: 'none', borderRadius: 6, padding: '6px 12px' }} onClick={handleMarkAllRead}>全部已读</button>
+      </div>
+      <div style={{ flex: 1, overflowY: 'auto', padding: 8, background: 'var(--bg-secondary, #1a1a2e)', borderRadius: 8, marginBottom: 8 }}>
+        {messages.length === 0 && (
+          <div style={{ textAlign: 'center', color: '#888', marginTop: 60 }}>
+            <div style={{ fontSize: 36, marginBottom: 8 }}>🌐</div>
+            <p>企业频道 — 跨部门协调与战略沟通</p>
+          </div>
         )}
-      </header>
-      {messages.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: 48, color: '#999' }}>暂无消息</div>
-      ) : (
-        <div>
-          {messages.map((m) => (
-            <div key={m.id} style={{ padding: 16, border: '1px solid #e8e8e8', borderRadius: 8, marginBottom: 12, background: m.read ? 'transparent' : '#f0f7ff' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div style={{ flex: 1 }}>
-                  <h4 style={{ margin: '0 0 4px' }}>{m.title || m.subject}</h4>
-                  <p style={{ fontSize: 13, color: '#666', margin: '4px 0' }}>{m.content || m.body}</p>
-                  <span style={{ fontSize: 12, color: '#999' }}>{m.created_at ? new Date(m.created_at).toLocaleString() : ''}</span>
-                </div>
-                {!m.read && (
-                  <button className="btn" style={{ fontSize: 11, background: '#eee', border: 'none', borderRadius: 6, padding: '4px 8px', marginLeft: 8, whiteSpace: 'nowrap' }} onClick={() => handleMarkRead(m.id)}>已读</button>
-                )}
-              </div>
+        {messages.map((msg, i) => (
+          <div key={i} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start', marginBottom: 8 }}>
+            <div style={{
+              maxWidth: '70%', padding: '8px 12px', borderRadius: msg.role === 'user' ? '10px 10px 2px 10px' : '10px 10px 10px 2px',
+              background: msg.role === 'user' ? '#6366f1' : msg.role === 'system' ? '#4a1515' : '#2a2a3e',
+              color: msg.role === 'user' ? '#fff' : msg.role === 'system' ? '#f88' : '#ddd', fontSize: 13, lineHeight: 1.5,
+            }}>
+              {msg.content}
             </div>
-          ))}
-        </div>
-      )}
+          </div>
+        ))}
+        {isWaiting && <div style={{ textAlign: 'center', color: '#888', fontSize: 12 }}>思考中...</div>}
+        <div ref={messagesEndRef} />
+      </div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleSend(); }} placeholder="输入消息..." disabled={isWaiting || !connected} style={{ flex: 1, padding: '8px 12px', borderRadius: 6, border: '1px solid #333', background: '#1a1a2e', color: '#ddd', fontSize: 13, outline: 'none' }} />
+        <button onClick={handleSend} disabled={!input.trim() || isWaiting || !connected} style={{ padding: '8px 16px', borderRadius: 6, border: 'none', background: input.trim() && !isWaiting && connected ? '#6366f1' : '#333', color: input.trim() && !isWaiting && connected ? '#fff' : '#666', cursor: 'pointer', fontSize: 13 }}>发送</button>
+      </div>
     </div>
   );
 }
 
 /**
- * 管理页面 - 企业设置/平台设置（权限控制）
+ * 管理页面 - 企业设置/邀请码（权限控制）
  */
 function AdminPage({ backendUrl, currentUser }: { backendUrl: string; currentUser: DesktopUser | null }) {
   const [tab, setTab] = useState<'enterprise' | 'invitations' | 'platform'>('enterprise');
   const [settings, setSettings] = useState<any>(null);
+  const [invitations, setInvitations] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [newCode, setNewCode] = useState('');
+  const [newCodeRole, setNewCodeRole] = useState('DEPARTMENT');
+  const [newCodeDept, setNewCodeDept] = useState('tech');
 
   useEffect(() => {
     if (!backendUrl) return;
-    // 先检查权限，有权限才加载
     const isAdmin = currentUser?.role === 'org_admin' || currentUser?.role === 'platform_admin' || currentUser?.accessLevel === 'FULL';
     if (!isAdmin) return;
-    void loadSettings();
+    void loadData();
   }, [backendUrl, tab, currentUser]);
 
-  async function loadSettings() {
+  async function getAuthHeaders() {
+    const token = await window.livingAgentAPI.auth.getToken();
+    return { Authorization: `Bearer ${token || ''}`, 'Content-Type': 'application/json' };
+  }
+
+  async function loadData() {
     setLoading(true);
+    setMsg('');
     try {
+      const headers = await getAuthHeaders();
       if (tab === 'enterprise') {
-        const res = await fetch(`${backendUrl}/api/enterprise/settings`, {
-          headers: { Authorization: `Bearer ${await window.livingAgentAPI.auth.getToken() || ''}` }
-        });
-        if (res.ok) setSettings(await res.json());
+        const res = await fetch(`${backendUrl}/api/enterprise/settings`, { headers });
+        if (res.ok) {
+          const data = await res.json();
+          setSettings(data.data || data);
+        }
       } else if (tab === 'invitations') {
-        const res = await fetch(`${backendUrl}/api/enterprise/invitation-codes`, {
-          headers: { Authorization: `Bearer ${await window.livingAgentAPI.auth.getToken() || ''}` }
-        });
-        if (res.ok) setSettings(await res.json());
+        const res = await fetch(`${backendUrl}/api/enterprise/invitation-codes`, { headers });
+        if (res.ok) {
+          const data = await res.json();
+          setInvitations(Array.isArray(data.data || data) ? (data.data || data) : []);
+        }
       }
     } catch (e) {
       console.warn('[desktop] 加载设置失败:', e);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleSaveEnterprise() {
+    if (!settings) return;
+    setSaving(true);
+    try {
+      const headers = await getAuthHeaders();
+      const res = await fetch(`${backendUrl}/api/enterprise/settings`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify(settings),
+      });
+      if (res.ok) {
+        setMsg('保存成功');
+      } else {
+        setMsg('保存失败: ' + res.statusText);
+      }
+    } catch (e: any) {
+      setMsg('保存失败: ' + e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleCreateInvitation() {
+    setSaving(true);
+    try {
+      const headers = await getAuthHeaders();
+      const res = await fetch(`${backendUrl}/api/enterprise/invitation-codes`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ role: newCodeRole, department: newCodeDept }),
+      });
+      if (res.ok) {
+        setNewCode('');
+        void loadData();
+      }
+    } catch (e: any) {
+      setMsg('创建邀请码失败: ' + e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDeleteInvitation(code: string) {
+    try {
+      const headers = await getAuthHeaders();
+      await fetch(`${backendUrl}/api/enterprise/invitation-codes/${code}`, {
+        method: 'DELETE',
+        headers,
+      });
+      void loadData();
+    } catch (e: any) {
+      setMsg('删除失败: ' + e.message);
     }
   }
 
@@ -1568,6 +1761,12 @@ function AdminPage({ backendUrl, currentUser }: { backendUrl: string; currentUse
         <p style={{ color: '#666' }}>企业配置和系统管理</p>
       </header>
 
+      {msg && (
+        <div style={{ padding: '8px 12px', borderRadius: 6, marginBottom: 12, background: msg.includes('成功') ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)', color: msg.includes('成功') ? '#38a169' : '#e53e3e', fontSize: 13 }}>
+          {msg}
+        </div>
+      )}
+
       {/* Tab 切换 */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
         <button className={`btn ${tab === 'enterprise' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setTab('enterprise')}>企业设置</button>
@@ -1579,28 +1778,146 @@ function AdminPage({ backendUrl, currentUser }: { backendUrl: string; currentUse
 
       {loading ? (
         <div style={{ textAlign: 'center', padding: 48, color: '#999' }}>加载中...</div>
+      ) : tab === 'enterprise' ? (
+        /* 企业设置 - 表单编辑 */
+        <div style={{ padding: 16, border: '1px solid #e8e8e8', borderRadius: 8 }}>
+          {settings ? (
+            <div style={{ display: 'grid', gap: 12 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 4, color: '#333' }}>企业名称</label>
+                <input
+                  value={settings.name || settings.enterprise_name || ''}
+                  onChange={e => setSettings({ ...settings, name: e.target.value, enterprise_name: e.target.value })}
+                  style={{ width: '100%', padding: 8, border: '1px solid #ddd', borderRadius: 6, fontSize: 13, boxSizing: 'border-box' }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 4, color: '#333' }}>企业描述</label>
+                <textarea
+                  value={settings.description || ''}
+                  onChange={e => setSettings({ ...settings, description: e.target.value })}
+                  style={{ width: '100%', minHeight: 60, padding: 8, border: '1px solid #ddd', borderRadius: 6, fontSize: 13, boxSizing: 'border-box' }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 4, color: '#333' }}>默认语言</label>
+                <select
+                  value={settings.default_language || settings.language || 'zh'}
+                  onChange={e => setSettings({ ...settings, default_language: e.target.value, language: e.target.value })}
+                  style={{ padding: 8, border: '1px solid #ddd', borderRadius: 6, fontSize: 13 }}
+                >
+                  <option value="zh">中文</option>
+                  <option value="en">English</option>
+                </select>
+              </div>
+              <button className="btn btn-primary" onClick={handleSaveEnterprise} disabled={saving} style={{ marginTop: 8 }}>
+                {saving ? '保存中...' : '保存设置'}
+              </button>
+            </div>
+          ) : (
+            <div style={{ color: '#999', textAlign: 'center', padding: 32 }}>暂无企业设置数据</div>
+          )}
+        </div>
+      ) : tab === 'invitations' ? (
+        /* 邀请码管理 */
+        <div>
+          <div style={{ padding: 16, border: '1px solid #6366f1', borderRadius: 8, marginBottom: 16, background: 'rgba(99,102,241,0.04)' }}>
+            <h3 style={{ margin: '0 0 12px' }}>创建邀请码</h3>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <select value={newCodeRole} onChange={e => setNewCodeRole(e.target.value)} style={{ padding: 8, border: '1px solid #ddd', borderRadius: 6, fontSize: 13 }}>
+                <option value="DEPARTMENT">部门员工</option>
+                <option value="FULL">完全访问</option>
+                <option value="LIMITED">受限访问</option>
+              </select>
+              <select value={newCodeDept} onChange={e => setNewCodeDept(e.target.value)} style={{ padding: 8, border: '1px solid #ddd', borderRadius: 6, fontSize: 13 }}>
+                <option value="tech">技术部</option>
+                <option value="hr">人力资源</option>
+                <option value="finance">财务部</option>
+                <option value="sales">销售部</option>
+                <option value="cs">客服部</option>
+                <option value="admin">行政部</option>
+                <option value="legal">法务部</option>
+                <option value="ops">运营部</option>
+              </select>
+              <button className="btn btn-primary" onClick={handleCreateInvitation} disabled={saving}>
+                {saving ? '创建中...' : '创建邀请码'}
+              </button>
+            </div>
+          </div>
+          <div style={{ display: 'grid', gap: 8 }}>
+            {invitations.length === 0 && <div style={{ color: '#999', textAlign: 'center', padding: 32 }}>暂无邀请码</div>}
+            {invitations.map((inv: any) => (
+              <div key={inv.code || inv.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 12, border: '1px solid #e8e8e8', borderRadius: 8, background: '#fafafa' }}>
+                <div>
+                  <code style={{ fontSize: 15, fontWeight: 600, color: '#6366f1' }}>{inv.code || inv.id}</code>
+                  <span style={{ marginLeft: 8, fontSize: 12, color: '#666' }}>
+                    {inv.role || inv.access_level || ''} · {inv.department || ''}
+                  </span>
+                  {inv.used && <span style={{ marginLeft: 8, fontSize: 11, color: '#999' }}>已使用</span>}
+                </div>
+                <button className="btn" style={{ fontSize: 12, color: '#e53e3e' }} onClick={() => handleDeleteInvitation(inv.code || inv.id)}>删除</button>
+              </div>
+            ))}
+          </div>
+        </div>
       ) : (
-        <div style={{ padding: 16, border: '1px solid #e8e8e8', borderRadius: 8, background: '#fafafa' }}>
-          <pre style={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>{JSON.stringify(settings, null, 2)}</pre>
+        <div style={{ padding: 16, border: '1px solid #e8e8e8', borderRadius: 8, color: '#999', textAlign: 'center' }}>
+          平台设置（开发中）
         </div>
       )}
     </div>
   );
 }
 
-/** Agent 管理页 (P1-1) */
-function AgentListPage({ hasToken }: { hasToken: boolean }) {
+/** 个人助手创建页 - 仅显示个人助手(origin=personal)，支持新建 */
+function PersonalAssistantPage({ hasToken, backendUrl, currentUser }: { hasToken: boolean; backendUrl: string; currentUser: DesktopUser | null }) {
   const [agents, setAgents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [showCreate, setShowCreate] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newDesc, setNewDesc] = useState('');
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     if (!hasToken) { setLoading(false); return; }
     window.livingAgentAPI.agent.list()
-      .then(setAgents)
+      .then(list => {
+        // 只显示个人助手 (origin=personal)，不显示固定员工和内部员工
+        const personal = (list || []).filter((a: any) =>
+          a.origin === 'personal' || a.agent_type === 'personal' || a.type === 'personal'
+        );
+        setAgents(personal);
+      })
       .catch(e => setError(e.message || '加载失败'))
       .finally(() => setLoading(false));
   }, [hasToken]);
+
+  async function handleCreate() {
+    if (!newName.trim()) return;
+    setCreating(true);
+    try {
+      await window.livingAgentAPI.agent.create({
+        name: newName.trim(),
+        role_description: newDesc.trim(),
+        agent_type: 'personal',
+        department: currentUser?.department || 'default',
+      });
+      setNewName('');
+      setNewDesc('');
+      setShowCreate(false);
+      // 重新加载列表
+      const list = await window.livingAgentAPI.agent.list();
+      const personal = (list || []).filter((a: any) =>
+        a.origin === 'personal' || a.agent_type === 'personal' || a.type === 'personal'
+      );
+      setAgents(personal);
+    } catch (e: any) {
+      alert(e.message || '创建失败');
+    } finally {
+      setCreating(false);
+    }
+  }
 
   async function handleStart(id: string) {
     try { await window.livingAgentAPI.agent.start(id); setAgents(prev => prev.map(a => a.id === id ? { ...a, status: 'running' } : a)); } catch (e: any) { alert(e.message); }
@@ -1618,9 +1935,45 @@ function AgentListPage({ hasToken }: { hasToken: boolean }) {
 
   return (
     <div style={{ padding: 24, maxWidth: 900, margin: '0 auto' }}>
-      <h1>🤖 智能体管理</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <h1>🤖 个人助手</h1>
+          <p style={{ color: '#666', fontSize: 13 }}>创建和管理您的个人助手</p>
+        </div>
+        <button className="btn btn-primary" onClick={() => setShowCreate(!showCreate)}>
+          {showCreate ? '取消' : '➕ 新建助手'}
+        </button>
+      </div>
+
+      {showCreate && (
+        <div style={{ padding: 16, border: '1px solid #6366f1', borderRadius: 8, marginBottom: 16, marginTop: 16, background: 'rgba(99,102,241,0.04)' }}>
+          <h3 style={{ margin: '0 0 12px' }}>新建个人助手</h3>
+          <input
+            placeholder="助手名称"
+            value={newName}
+            onChange={e => setNewName(e.target.value)}
+            style={{ width: '100%', padding: 8, border: '1px solid #ddd', borderRadius: 6, marginBottom: 8, boxSizing: 'border-box', fontSize: 13 }}
+          />
+          <textarea
+            placeholder="助手描述（可选）"
+            value={newDesc}
+            onChange={e => setNewDesc(e.target.value)}
+            style={{ width: '100%', minHeight: 60, padding: 8, border: '1px solid #ddd', borderRadius: 6, marginBottom: 8, boxSizing: 'border-box', fontSize: 13 }}
+          />
+          <button className="btn btn-primary" onClick={handleCreate} disabled={!newName.trim() || creating}>
+            {creating ? '创建中...' : '创建'}
+          </button>
+        </div>
+      )}
+
       <div style={{ display: 'grid', gap: 8, marginTop: 16 }}>
-        {agents.length === 0 && <div style={{ color: '#999', textAlign: 'center', padding: 32 }}>暂无智能体</div>}
+        {agents.length === 0 && !showCreate && (
+          <div style={{ color: '#999', textAlign: 'center', padding: 32 }}>
+            <div style={{ fontSize: 36, marginBottom: 8 }}>🤖</div>
+            <p>暂无个人助手</p>
+            <p style={{ fontSize: 11 }}>点击"新建助手"创建您的专属AI助手</p>
+          </div>
+        )}
         {agents.map(agent => (
           <div key={agent.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 12, border: '1px solid #e8e8e8', borderRadius: 8, background: '#fafafa' }}>
             <div>
@@ -1628,7 +1981,7 @@ function AgentListPage({ hasToken }: { hasToken: boolean }) {
               <span style={{ marginLeft: 8, fontSize: 12, color: agent.status === 'running' ? '#38a169' : '#999' }}>
                 {agent.status === 'running' ? '● 运行中' : agent.status === 'idle' ? '● 空闲' : '○ 已停止'}
               </span>
-              {agent.role_description && <div style={{ fontSize: 12, color: '#666', marginTop: 2 }}>{agent.role_description}</div>}
+              {agent.description && <div style={{ fontSize: 12, color: '#666', marginTop: 2 }}>{agent.description}</div>}
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               {agent.status !== 'running' && <button className="btn" onClick={() => handleStart(agent.id)}>▶ 启动</button>}
@@ -1708,48 +2061,6 @@ function InterventionsPage({ hasToken }: { hasToken: boolean }) {
                 <button className="btn" onClick={() => handleEscalate(iv.id)}>⬆ 升级</button>
               </div>
             )}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/** 技能管理页 (P1-3) */
-function SkillsPage({ hasToken }: { hasToken: boolean }) {
-  const [skills, setSkills] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    if (!hasToken) { setLoading(false); return; }
-    window.livingAgentAPI.skill.list()
-      .then(setSkills)
-      .catch(e => setError(e.message || '加载失败'))
-      .finally(() => setLoading(false));
-  }, [hasToken]);
-
-  if (!hasToken) return <div style={{ padding: 32, textAlign: 'center', color: '#999' }}>请先登录</div>;
-  if (loading) return <div style={{ padding: 32, textAlign: 'center', color: '#999' }}>加载中...</div>;
-  if (error) return <div style={{ padding: 32, textAlign: 'center', color: '#e53e3e' }}>{error}</div>;
-
-  return (
-    <div style={{ padding: 24, maxWidth: 900, margin: '0 auto' }}>
-      <h1>🛠️ 技能</h1>
-      <div style={{ display: 'grid', gap: 8, marginTop: 16 }}>
-        {skills.length === 0 && <div style={{ color: '#999', textAlign: 'center', padding: 32 }}>暂无技能</div>}
-        {skills.map(skill => (
-          <div key={skill.id || skill.name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 12, border: '1px solid #e8e8e8', borderRadius: 8, background: '#fafafa' }}>
-            <div>
-              <strong>{skill.name || skill.id}</strong>
-              {skill.description && <div style={{ fontSize: 12, color: '#666', marginTop: 2 }}>{skill.description}</div>}
-              {skill.category && <span style={{ fontSize: 11, color: '#999', marginLeft: 8 }}>📁 {skill.category}</span>}
-            </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <span style={{ fontSize: 12, color: skill.enabled !== false ? '#38a169' : '#999' }}>
-                {skill.enabled !== false ? '● 已启用' : '○ 未启用'}
-              </span>
-            </div>
           </div>
         ))}
       </div>

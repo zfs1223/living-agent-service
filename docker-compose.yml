@@ -183,6 +183,10 @@ services:
       # RuView WiFi 感知服务配置 (使用容器内部端口 3000)
       - RUVIEW_API_BASE_URL=http://ruview-sensing:3000
       - RUVIEW_POLLING_INTERVAL_SECONDS=${RUVIEW_POLLING_INTERVAL_SECONDS:-10}
+      # LiveKit 配置
+      - LIVEKIT_URL=http://livekit:7880
+      - LIVEKIT_API_KEY=las-livekit-api-key
+      - LIVEKIT_API_SECRET=las-livekit-api-secret-change-me
     volumes:
       # 数据持久化（知识库/运行数据）
       - ./data:/app/data
@@ -227,6 +231,8 @@ services:
         condition: service_started
       kafka:
         condition: service_healthy
+      livekit:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8382/api/system/status > /dev/null 2>&1 && echo 'healthy' || exit 1"]
       interval: 30s
@@ -237,7 +243,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 8G
+          memory: 6G
         reservations:
           memory: 2G
 
@@ -319,42 +325,53 @@ services:
     deploy:
       resources:
         limits:
-          memory: 4G
+          memory: 2G
         reservations:
           memory: 1G
 
   # ===========================================
   # Crawl4AI - 网页爬取辅助服务
+  # 本地构建（crawl4ai-0.9.0），LLM 后端使用 model_daemon 的 Qwen3.5-2B（端口8392）
+  # 关联工具: WebCrawlerTool (Java) → crawl4ai REST API
   # ===========================================
-  #crawl4ai:
-    #image: unclecode/crawl4ai:latest
-    #container_name: crawl4ai
-  #  hostname: crawl4ai
-  #  ports:
-  #    - "11235:11235"
-  #  environment:
-      # 使用本地 Ollama 模型
-  #    - LLM_PROVIDER=ollama/qwen2.5:latest
-  #    - LLM_BASE_URL=http://192.168.0.249:2025/v1
-  #    - LLM_TEMPERATURE=0.7
-  #  volumes:
-  #    - /dev/shm:/dev/shm
-  #    - crawl4ai-cache:/home/appuser/.cache
-  #  networks:
-  #    - living-agent-network
-  #  healthcheck:
-  #    test: ["CMD", "curl", "-f", "http://localhost:11235/health"]
-  #    interval: 30s
-  #    timeout: 10s
-  #    retries: 3
-  #    start_period: 60s
-  #  restart: unless-stopped
-  #  deploy:
-  #    resources:
-  #      limits:
-  #        memory: 4G
-  #      reservations:
-  #        memory: 1G
+  crawl4ai:
+    build:
+      context: ../crawl4ai-0.9.0
+      dockerfile: Dockerfile
+    image: living-agent-crawl4ai:0.9.0
+    container_name: living-agent-crawl4ai
+    hostname: crawl4ai
+    ports:
+      - "11235:11235"
+    environment:
+      # LLM 配置 — 使用模型守护进程的 OpenAI 兼容端点（端口8392）
+      - LLM_PROVIDER=openai/qwen3.5-2b
+      - LLM_BASE_URL=http://living-agent-service:8392/v1
+      - OPENAI_API_KEY=sk-placeholder
+      - LLM_TEMPERATURE=0.7
+      # 认证 token（必须设置，否则 crawl4ai 只绑定 loopback，容器间无法访问）
+      - CRAWL4AI_API_TOKEN=${CRAWL4AI_API_TOKEN:-crawl4ai-internal-token}
+    shm_size: "1gb"
+    volumes:
+      - crawl4ai-cache:/home/appuser/.cache
+    networks:
+      - backend
+    depends_on:
+      living-agent-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11235/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
 
   # ===========================================
   # Jenkins - CI/CD 持续集成服务
@@ -530,9 +547,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 4G
-        reservations:
           memory: 2G
+        reservations:
+          memory: 1G
 
 
   # ===========================================
@@ -588,7 +605,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2G
+          memory: 1G
         reservations:
           memory: 512M
     restart: unless-stopped
@@ -623,6 +640,91 @@ services:
         reservations:
           memory: 512M
     restart: unless-stopped
+
+  # ===========================================
+  # LiveKit Server - 实时音视频会议
+  # 局域网闭环部署,零外网依赖
+  # 改进项: P81(会议基础) / 闭环: 67 会议管理
+  # 端口: 7880(API) 7881(ICE/TCP) 7883(RTC) 50000-60000/udp(媒体流)
+  # ===========================================
+  livekit:
+    image: livekit/livekit-server:v1.13.4
+    container_name: living-agent-livekit
+    hostname: livekit
+    # 官方镜像的 Entrypoint 为 /livekit-server 且默认 Cmd 为空，
+    # 必须在 compose 中显式传入 --config，否则 livekit 以空配置启动：
+    # 缺少 API key 会打印 "one of key-file or keys must be provided" 并退出(0)，
+    # 被 restart: unless-stopped 不断拉起，表现为“不断重启/连接中断”。
+    command: --config /etc/livekit.yaml
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "7883:7883"
+      - "50000-50300:50000-50300/udp"   # 媒体流 (101 个端口,够单会议使用)
+    volumes:
+      - ./config/livekit.yaml:/etc/livekit.yaml:ro
+      - livekit-data:/data
+    networks:
+      - frontend
+      - backend
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # 用 nc 探测 TCP 7880 端口是否监听，比依赖 HTTP 状态码更稳健
+      test: ["CMD-SHELL", "nc -z -w 3 localhost 7880 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+
+  # ===========================================
+  # LiveKit Egress - 会议录制服务
+  # 改进项: P82 / 闭环: 68-A 录制→转写
+  # 录制完成 → WebHook → LAS ASR 管线 → 会议纪要(闭环 68)
+  # ===========================================
+  # === 暂时禁用录制服务 (节省 4GB 内存) ===
+  # 不录制时仍可实时转文字(通过 LiveKit 音频轨道订阅 + ASR)
+  # 如需录制生成纪要,取消下方注释并启动 livekit-egress 容器
+  # ===========================================
+  # livekit-egress:
+  #   image: livekit/livekit-egress:v1.13.0
+  #   container_name: living-agent-livekit-egress
+  #   hostname: livekit-egress
+  #   cap_add:
+  #     - SYS_ADMIN    # Chrome 沙箱要求 (v1.7.6+)
+  #   environment:
+  #     - EGRESS_CONFIG_FILE=/etc/egress.yaml
+  #   volumes:
+  #     - ./config/egress.yaml:/etc/egress.yaml:ro
+  #     - ./data/recordings:/data/recordings
+  #   networks:
+  #     - backend
+  #   depends_on:
+  #     livekit:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "wget -qO- http://localhost:9898 > /dev/null 2>&1 && echo 'healthy' || exit 1"]
+  #     interval: 15s
+  #     timeout: 5s
+  #     retries: 5
+  #     start_period: 30s
+  #   restart: unless-stopped
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 4G       # Egress 官方推荐至少 4GB
+  #       reservations:
+  #         memory: 1G
 
   # ===========================================
   # Redis - 分布式缓存
@@ -780,3 +882,6 @@ volumes:
   # fuck-u-code volume
   fuck-u-code-cache:
     name: living-agent-fuck-u-code-cache
+  # LiveKit volume
+  livekit-data:
+    name: living-agent-livekit-data

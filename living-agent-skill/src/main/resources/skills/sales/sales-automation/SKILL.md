@@ -1,3 +1,11 @@
+---
+name: sales-automation
+description: "销售自动化，自动跟进提醒和数据同步"
+risk: low
+source: ClawHub转换
+date_added: '2026-07-09'
+---
+
 # Sales Automation
 
 > 销售自动化技能，自动执行销售流程、跟进提醒、数据同步

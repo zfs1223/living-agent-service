@@ -38,6 +38,12 @@ public class LlmBasedFixedEmployeeDispatcher implements FixedEmployeeDispatcher 
         2. 考虑员工负载和历史表现
         3. 如果没有合适员工，返回 {"assignments": []}
 
+        ## DBS 员工类型分派规则（P4-2）
+
+        - **固定数字员工(origin=fixed)**: 可自动完成问题发现和规范补充，优先用于需要自治执行的任务
+        - **人类员工(origin=human)**: 需周期性汇报个人表现和改进建议，适合需要人类判断力的任务
+        - **个人助手(origin=personal)**: 允许直连，适合轻量级交互任务
+
         ## 示例输出
 
         {"assignments": [{"employeeCode": "T09", "role": "前端实现", "reason": "前端开发能力匹配", "confidence": 0.85}]}
@@ -278,7 +284,8 @@ public class LlmBasedFixedEmployeeDispatcher implements FixedEmployeeDispatcher 
         for (FixedEmployeeRegistry.FixedEmployeeDefinition def : candidates) {
             sb.append("- ").append(def.code()).append(": ").append(def.name())
               .append("（").append(def.title()).append("）")
-              .append(" 能力: ").append(String.join("、", def.capabilities()))
+              .append(" [origin=fixed]"); // P4-2: 标注员工类型
+            sb.append(" 能力: ").append(String.join("、", def.capabilities()))
               .append(" 技能: ").append(def.requiredSkills() != null ? String.join("、", def.requiredSkills()) : "无")
               .append(" 工具: ").append(String.join("、", def.tools()));
 
@@ -294,6 +301,9 @@ public class LlmBasedFixedEmployeeDispatcher implements FixedEmployeeDispatcher 
             }
             sb.append("\n");
         }
+
+        // P4-2: DBS 员工类型分派提示
+        sb.append("\n**员工类型提示**: 以上员工均为固定数字员工(origin=fixed)，可自动完成问题发现和规范补充，适合自治执行。\n");
 
         sb.append("\n请从以上员工中选择最合适的执行团队。");
         return sb.toString();
@@ -344,6 +354,7 @@ public class LlmBasedFixedEmployeeDispatcher implements FixedEmployeeDispatcher 
                 context.put("department", departmentTaskPlan.department());
                 context.put("selectionReason", reason);
                 context.put("dispatcher_type", "llm_based");
+                context.put("origin", "fixed"); // P4-2: 标注员工 origin 类型
 
                 assignments.add(new EmployeeWorkAssignment(
                     UUID.randomUUID().toString(),
@@ -380,7 +391,8 @@ public class LlmBasedFixedEmployeeDispatcher implements FixedEmployeeDispatcher 
             + "\n期望产物：" + String.join("、", departmentTaskPlan.expectedDeliverables())
             + "\n验收标准：" + String.join("；", departmentTaskPlan.acceptanceCriteria())
             + "\n你的能力：" + String.join("、", definition.capabilities())
-            + "\n可用工具：" + String.join("、", definition.tools());
+            + "\n可用工具：" + String.join("、", definition.tools())
+            + "\n\n**DBS执行规则(origin=fixed)**: 你是固定数字员工，可自动完成问题发现和规范补充，无需等待周期性汇报。遇到问题可直接触发自愈流程。";
     }
 
     private List<EmployeeWorkAssignment> fallbackWithTrace(

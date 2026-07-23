@@ -1,0 +1,173 @@
+/**
+ * P21: 生命体征仪表盘样式
+ */
+
+.vitals-dashboard {
+  padding: 24px;
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.vitals-dashboard__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.vitals-dashboard__header h1 {
+  font-size: 22px;
+  font-weight: 600;
+  color: #333;
+  margin: 0;
+}
+
+.vitals-dashboard__controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.vitals-dashboard__auto-refresh {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #666;
+  cursor: pointer;
+}
+
+.vitals-dashboard__history-range {
+  padding: 6px 12px;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.vitals__empty {
+  padding: 48px;
+  text-align: center;
+  color: #999;
+}
+
+.vitals__error {
+  padding: 48px;
+  text-align: center;
+  color: #ff4d4f;
+}
+
+/* ========== 总览卡片 ========== */
+.vitals-overview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.vitals-card {
+  background: #fff;
+  border: 1px solid #e8e8e8;
+  border-radius: 10px;
+  padding: 20px;
+  transition: box-shadow 0.2s;
+}
+
+.vitals-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.vitals-card--health {
+  border-left: 4px solid #52c41a;
+}
+
+.vitals-card--health.degraded {
+  border-left-color: #faad14;
+}
+
+.vitals-card--health.unhealthy {
+  border-left-color: #ff4d4f;
+}
+
+.vitals-card__label {
+  font-size: 12px;
+  color: #999;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.vitals-card__status {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.vitals-card__score {
+  font-size: 13px;
+  color: #666;
+}
+
+.vitals-card__score strong {
+  font-size: 18px;
+}
+
+.vitals-card__value {
+  font-size: 28px;
+  font-weight: 700;
+  color: #333;
+}
+
+.vitals-card__detail {
+  font-size: 12px;
+  color: #999;
+  margin-top: 4px;
+}
+
+/* ========== 进度条 ========== */
+.vitals-progress {
+  height: 6px;
+  background: #f0f0f0;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.vitals-progress__bar {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.5s ease, background 0.5s ease;
+}
+
+/* ========== 趋势图 ========== */
+.vitals-section {
+  background: #fff;
+  border: 1px solid #e8e8e8;
+  border-radius: 10px;
+  padding: 20px;
+  margin-bottom: 16px;
+}
+
+.vitals-section h2 {
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+  margin: 0 0 16px;
+}
+
+.vitals-chart {
+  overflow-x: auto;
+}
+
+.vitals-chart__svg {
+  width: 100%;
+  min-width: 400px;
+  height: auto;
+}
+
+/* ========== 底部 ========== */
+.vitals-dashboard__footer {
+  text-align: center;
+  font-size: 12px;
+  color: #999;
+  padding: 16px 0;
+}

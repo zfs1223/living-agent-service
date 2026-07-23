@@ -1,0 +1,171 @@
+/**
+ * P24: 通道健康监控可视化样式
+ */
+
+.channel-health {
+  position: relative;
+}
+
+.channel-health__overall {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.channel-health__overall:hover {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.channel-health__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  box-shadow: 0 0 4px currentColor;
+}
+
+.channel-health__label {
+  font-size: 12px;
+  color: #aaa;
+}
+
+.channel-health__panel {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 8px;
+  background: #1a1a2a;
+  border: 1px solid #444;
+  border-radius: 8px;
+  width: 280px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  animation: slideDown 0.2s ease;
+  z-index: 100;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.channel-health__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid #333;
+}
+
+.channel-health__title {
+  font-weight: 600;
+  color: #eee;
+}
+
+.channel-health__close {
+  background: transparent;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  padding: 4px;
+}
+
+.channel-health__close:hover {
+  color: #fff;
+}
+
+.channel-health__channels {
+  padding: 8px;
+}
+
+.channel-health__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.channel-health__item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.channel-health__item-icon {
+  font-size: 16px;
+}
+
+.channel-health__item-label {
+  flex: 1;
+  color: #ccc;
+  font-size: 13px;
+}
+
+.channel-health__item-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.channel-health__detail {
+  margin: 8px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+}
+
+.channel-detail__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  color: #ddd;
+  font-weight: 500;
+}
+
+.channel-detail__status {
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.channel-detail__stats {
+  display: flex;
+  gap: 12px;
+}
+
+.channel-stat {
+  flex: 1;
+  text-align: center;
+}
+
+.channel-stat__label {
+  display: block;
+  font-size: 11px;
+  color: #888;
+  margin-bottom: 4px;
+}
+
+.channel-stat__value {
+  display: block;
+  font-size: 14px;
+  color: #eee;
+  font-weight: 600;
+}
+
+.channel-detail__event {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #333;
+  font-size: 12px;
+  color: #888;
+}

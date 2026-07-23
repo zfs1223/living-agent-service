@@ -28,13 +28,20 @@ public class EvolutionSignal {
         CAPABILITY_GAP,
         PERFORMANCE,
         USER_REQUEST,
-        SYSTEM_EVENT
+        SYSTEM_EVENT,
+        // DBS 扩展信号类型
+        ROOT_CAUSE_IDENTIFIED,  // DBS PSP: 5-Why根因识别完成
+        USER_NEED,              // DBS VOC: 用户需求信号
+        USER_PAIN,              // DBS VOC: 用户痛点信号
+        USER_PRAISE,            // DBS VOC: 用户赞赏信号
+        KAIZEN_EVENT            // DBS Kaizen: 改善事件信号（定期改善周触发）
     }
     
     public enum SignalCategory {
         REPAIR,
         OPTIMIZE,
-        INNOVATE
+        INNOVATE,
+        VOC  // DBS 客户之声信号分类
     }
     
     public EvolutionSignal() {
@@ -56,6 +63,7 @@ public class EvolutionSignal {
         switch (type) {
             case ERROR:
             case CAPABILITY_GAP:
+            case ROOT_CAUSE_IDENTIFIED:
                 return SignalCategory.REPAIR;
             case PERFORMANCE:
             case DRIFT:
@@ -63,7 +71,12 @@ public class EvolutionSignal {
             case OPPORTUNITY:
             case USER_REQUEST:
             case STABILITY:
+            case KAIZEN_EVENT:
                 return SignalCategory.INNOVATE;
+            case USER_NEED:
+            case USER_PAIN:
+            case USER_PRAISE:
+                return SignalCategory.VOC;
             default:
                 return SignalCategory.OPTIMIZE;
         }

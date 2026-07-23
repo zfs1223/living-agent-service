@@ -1,0 +1,600 @@
+/**
+ * 日历页面样式
+ * P84 / 闭环 67-D
+ */
+
+/* ============ 页面容器 ============ */
+
+.calendar-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background-color: #f8fafc;
+  overflow: hidden;
+}
+
+/* ============ 顶部工具栏 ============ */
+
+.calendar-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background-color: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
+  flex-shrink: 0;
+}
+
+.calendar-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.calendar-current-date {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0;
+}
+
+.calendar-loading-indicator {
+  font-size: 13px;
+  color: #64748b;
+  animation: calendar-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes calendar-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.calendar-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ============ 通用按钮 ============ */
+
+.calendar-btn {
+  padding: 7px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.15s ease;
+  outline: none;
+  line-height: 1.5;
+}
+
+.calendar-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.calendar-btn-primary {
+  background-color: #3b82f6;
+  color: #ffffff;
+  border-color: #3b82f6;
+}
+
+.calendar-btn-primary:hover:not(:disabled) {
+  background-color: #2563eb;
+  border-color: #2563eb;
+}
+
+.calendar-btn-primary:active:not(:disabled) {
+  background-color: #1d4ed8;
+}
+
+.calendar-btn-default {
+  background-color: #ffffff;
+  color: #475569;
+  border-color: #d1d5db;
+}
+
+.calendar-btn-default:hover:not(:disabled) {
+  background-color: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+.calendar-btn-default:active:not(:disabled) {
+  background-color: #e2e8f0;
+}
+
+/* ============ 日历主体 ============ */
+
+.calendar-body {
+  flex: 1;
+  padding: 0 12px 12px;
+  overflow: hidden;
+}
+
+/* ============ FullCalendar 自定义主题 ============ */
+
+.calendar-body .fc {
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-size: 13px;
+}
+
+/* 头部工具栏 */
+.calendar-body .fc .fc-toolbar {
+  margin-bottom: 8px;
+}
+
+.calendar-body .fc .fc-button {
+  border-radius: 4px;
+  font-size: 12px;
+  padding: 5px 12px;
+  font-weight: 500;
+  text-transform: none;
+}
+
+.calendar-body .fc .fc-button-primary {
+  background-color: #ffffff;
+  border-color: #d1d5db;
+  color: #475569;
+}
+
+.calendar-body .fc .fc-button-primary:hover {
+  background-color: #f1f5f9;
+  border-color: #94a3b8;
+  color: #334155;
+}
+
+.calendar-body .fc .fc-button-primary:not(:disabled).fc-button-active {
+  background-color: #3b82f6;
+  border-color: #3b82f6;
+  color: #ffffff;
+}
+
+.calendar-body .fc .fc-button-primary:not(:disabled).fc-button-active:hover {
+  background-color: #2563eb;
+}
+
+.calendar-body .fc .fc-button-primary:disabled {
+  background-color: #f1f5f9;
+  border-color: #e2e8f0;
+  color: #94a3b8;
+}
+
+/* 今天按钮 */
+.calendar-body .fc .fc-today-button {
+  background-color: #eff6ff;
+  border-color: #bfdbfe;
+  color: #2563eb;
+}
+
+.calendar-body .fc .fc-today-button:hover {
+  background-color: #dbeafe;
+  border-color: #93c5fd;
+}
+
+/* 导航按钮 */
+.calendar-body .fc .fc-prev-button,
+.calendar-body .fc .fc-next-button {
+  background-color: #ffffff;
+  border-color: #d1d5db;
+  color: #475569;
+}
+
+.calendar-body .fc .fc-prev-button:hover,
+.calendar-body .fc .fc-next-button:hover {
+  background-color: #f1f5f9;
+}
+
+/* 表头 */
+.calendar-body .fc th {
+  background-color: #f8fafc;
+  color: #64748b;
+  font-weight: 600;
+  font-size: 12px;
+  padding: 8px 0;
+  border-color: #e2e8f0;
+}
+
+/* 时间轴 */
+.calendar-body .fc .fc-timegrid-slot-label {
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 400;
+}
+
+.calendar-body .fc .fc-timegrid-slot {
+  border-color: #f1f5f9;
+}
+
+.calendar-body .fc .fc-timegrid-slot-minor {
+  border-top-style: dotted;
+}
+
+/* 当前时间指示线 */
+.calendar-body .fc .fc-timegrid-now-indicator-line {
+  border-color: #ef4444;
+  border-width: 2px;
+}
+
+.calendar-body .fc .fc-timegrid-now-indicator-arrow {
+  border-color: #ef4444;
+  border-width: 6px;
+}
+
+/* 日期单元格 */
+.calendar-body .fc td {
+  border-color: #e2e8f0;
+}
+
+.calendar-body .fc .fc-day-today {
+  background-color: #eff6ff !important;
+}
+
+.calendar-body .fc .fc-daygrid-day-number {
+  font-size: 13px;
+  color: #334155;
+  padding: 4px 8px;
+}
+
+/* ============ 事件样式 ============ */
+
+.calendar-body .fc .fc-event {
+  border-radius: 4px;
+  padding: 1px 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+  border: none;
+  transition: filter 0.15s ease, transform 0.1s ease;
+  overflow: hidden;
+}
+
+.calendar-body .fc .fc-event:hover {
+  filter: brightness(1.1);
+  transform: scale(1.02);
+}
+
+.calendar-body .fc .fc-event .fc-event-main {
+  color: #ffffff;
+  font-weight: 500;
+}
+
+.calendar-body .fc .fc-event .fc-event-time {
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.calendar-body .fc .fc-event .fc-event-title {
+  font-size: 12px;
+}
+
+/* 已取消事件 - 虚线边框 + 删除线 */
+.calendar-body .fc .fc-event[data-status="CANCELLED"],
+.calendar-body .fc .fc-event-cancelled {
+  opacity: 0.6;
+  border: 2px dashed #d1d5db !important;
+  background-color: #9ca3af !important;
+}
+
+.calendar-body .fc .fc-event[data-status="CANCELLED"] .fc-event-title,
+.calendar-body .fc .fc-event-cancelled .fc-event-title {
+  text-decoration: line-through;
+}
+
+/* 已完成事件 */
+.calendar-body .fc .fc-event[data-status="COMPLETED"],
+.calendar-body .fc .fc-event-completed {
+  background-color: #22c55e !important;
+  border-color: #16a34a !important;
+}
+
+/* 选中/拖拽中的事件 */
+.calendar-body .fc .fc-event.fc-event-dragging {
+  opacity: 0.7;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.calendar-body .fc .fc-event.fc-event-resizing {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* 选择镜像（拖选创建） */
+.calendar-body .fc .fc-highlight {
+  background-color: rgba(59, 130, 246, 0.1);
+}
+
+.calendar-body .fc .fc-event.fc-mirror {
+  background-color: rgba(59, 130, 246, 0.3);
+  border-color: #3b82f6;
+}
+
+/* 全天事件 */
+.calendar-body .fc .fc-daygrid-event {
+  border-radius: 3px;
+  padding: 1px 6px;
+  margin: 1px 2px;
+}
+
+/* 月视图事件 */
+.calendar-body .fc .fc-daygrid-day-events {
+  margin-top: 2px;
+}
+
+.calendar-body .fc .fc-more-link {
+  color: #3b82f6;
+  font-weight: 500;
+  font-size: 12px;
+}
+
+/* ============ 遮罩层 & 弹窗 ============ */
+
+.calendar-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(15, 23, 42, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: calendar-fade-in 0.15s ease;
+}
+
+@keyframes calendar-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.calendar-modal {
+  background-color: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+  width: 520px;
+  max-width: 90vw;
+  max-height: 85vh;
+  overflow-y: auto;
+  animation: calendar-slide-up 0.2s ease;
+}
+
+@keyframes calendar-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.calendar-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.calendar-modal-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.calendar-modal-close {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: none;
+  font-size: 20px;
+  color: #94a3b8;
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.calendar-modal-close:hover {
+  background-color: #f1f5f9;
+  color: #475569;
+}
+
+/* ============ 表单样式 ============ */
+
+.calendar-form {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.calendar-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.calendar-form-group label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #475569;
+}
+
+.calendar-form-group input,
+.calendar-form-group select,
+.calendar-form-group textarea {
+  padding: 8px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #1e293b;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  background-color: #ffffff;
+}
+
+.calendar-form-group input:focus,
+.calendar-form-group select:focus,
+.calendar-form-group textarea:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.calendar-form-group input::placeholder,
+.calendar-form-group textarea::placeholder {
+  color: #94a3b8;
+}
+
+.calendar-form-group textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
+.calendar-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.calendar-form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid #f1f5f9;
+}
+
+/* ============ 详情弹窗 ============ */
+
+.calendar-detail {
+  padding: 16px 20px;
+}
+
+.calendar-detail-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.calendar-detail-type-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #ffffff;
+}
+
+.calendar-detail-status {
+  font-size: 12px;
+  color: #64748b;
+  background-color: #f1f5f9;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.calendar-detail-meeting-title {
+  margin: 0 0 16px 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.calendar-detail-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.calendar-detail-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.calendar-detail-row-block {
+  flex-direction: column;
+  gap: 4px;
+}
+
+.calendar-detail-label {
+  font-size: 13px;
+  color: #94a3b8;
+  min-width: 72px;
+  flex-shrink: 0;
+}
+
+.calendar-detail-value {
+  font-size: 13px;
+  color: #334155;
+  word-break: break-word;
+}
+
+/* ============ 响应式 ============ */
+
+@media (max-width: 768px) {
+  .calendar-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .calendar-toolbar-left,
+  .calendar-toolbar-right {
+    justify-content: space-between;
+  }
+
+  .calendar-current-date {
+    font-size: 15px;
+  }
+
+  .calendar-modal {
+    width: 95vw;
+    max-height: 90vh;
+    border-radius: 8px;
+  }
+
+  .calendar-form-row {
+    grid-template-columns: 1fr;
+  }
+
+  .calendar-body .fc .fc-toolbar {
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .calendar-body .fc .fc-toolbar-chunk {
+    display: flex;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .calendar-btn {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+
+  .calendar-body .fc .fc-button {
+    padding: 4px 8px;
+    font-size: 11px;
+  }
+
+  .calendar-detail-row {
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .calendar-detail-label {
+    min-width: auto;
+  }
+}

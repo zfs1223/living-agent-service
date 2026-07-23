@@ -284,8 +284,12 @@ public class DashboardServiceImpl implements DashboardService {
         return departmentRepository.findAll().stream()
                 .map(dept -> {
                     String code = dept.getCode();
-                    int memberCount = dept.getMemberCount();
-
+                    
+                    // 从员工服务获取该部门的实际成员
+                    var allDeptEmployees = employeeService.listEmployees(
+                            new EmployeeService.EmployeeQuery(null, code, null, null, 1000, 0));
+                    int memberCount = allDeptEmployees.size();
+                    
                     var activeMembers = employeeService.listEmployees(
                             new EmployeeService.EmployeeQuery(null, code, EmployeeStatus.ACTIVE, null, 1000, 0));
 
@@ -294,8 +298,36 @@ public class DashboardServiceImpl implements DashboardService {
                                     t.completedAt().isAfter(Instant.now().minusSeconds(86400)))
                             .count();
 
-                    double healthScore = memberCount > 0 ? (double) activeMembers.size() / memberCount * 100.0 : 0;
-                    String status = healthScore >= 80 ? "HEALTHY" : healthScore >= 50 ? "WARNING" : "CRITICAL";
+                    // 健康分数计算：
+                    // - 有成员的部门：基于活跃成员比例
+                    // - 无成员的部门：检查部门大脑状态
+                    double healthScore;
+                    String status;
+                    if (memberCount == 0) {
+                        // 无成员的部门，检查部门大脑状态
+                        Brain brain = findBrainByDepartmentCode(code);
+                        if (brain != null && brain.getState() != null) {
+                            String brainState = brain.getState().name();
+                            if ("ERROR".equals(brainState)) {
+                                healthScore = 0;
+                                status = "CRITICAL";
+                            } else if ("STOPPED".equals(brainState) || "INITIALIZING".equals(brainState)) {
+                                healthScore = 50;
+                                status = "WARNING";
+                            } else {
+                                healthScore = 100;
+                                status = "HEALTHY";
+                            }
+                        } else {
+                            // 没有部门大脑也视为正常（可能是新部门）
+                            healthScore = 100;
+                            status = "HEALTHY";
+                        }
+                    } else {
+                        // 有成员的部门，基于活跃成员比例
+                        healthScore = (double) activeMembers.size() / memberCount * 100.0;
+                        status = healthScore >= 80 ? "HEALTHY" : healthScore >= 50 ? "WARNING" : "CRITICAL";
+                    }
 
                     return new DashboardDTOs.DepartmentHealth(
                             code,
@@ -311,6 +343,21 @@ public class DashboardServiceImpl implements DashboardService {
                 })
                 .sorted(Comparator.comparingDouble(DashboardDTOs.DepartmentHealth::healthScore).reversed())
                 .collect(Collectors.toList());
+    }
+
+    /** 根据部门代码查找对应的部门大脑 */
+    private Brain findBrainByDepartmentCode(String code) {
+        if (brainRegistry == null || code == null) return null;
+        return brainRegistry.getAll().stream()
+                .filter(b -> {
+                    String dept = b.getDepartment();
+                    String name = b.getName();
+                    if (dept != null && code.equalsIgnoreCase(dept)) return true;
+                    if (name != null && name.toLowerCase().contains(code.toLowerCase())) return true;
+                    return false;
+                })
+                .findFirst()
+                .orElse(null);
     }
 
     private List<DashboardDTOs.RiskAlert> buildRiskAlerts() {
@@ -472,13 +519,40 @@ public class DashboardServiceImpl implements DashboardService {
 
     private DashboardDTOs.DepartmentSummary toDepartmentSummary(DepartmentEntity dept) {
         String code = dept.getCode();
-        int memberCount = dept.getMemberCount();
-
+        
+        // 从员工服务获取该部门的实际成员
+        var allDeptEmployees = employeeService.listEmployees(
+                new EmployeeService.EmployeeQuery(null, code, null, null, 1000, 0));
+        int memberCount = allDeptEmployees.size();
+        
         var activeMembers = employeeService.listEmployees(
                 new EmployeeService.EmployeeQuery(null, code, EmployeeStatus.ACTIVE, null, 1000, 0));
 
-        double healthScore = memberCount > 0 ? (double) activeMembers.size() / memberCount * 100.0 : 0;
-        String status = healthScore >= 80 ? "HEALTHY" : healthScore >= 50 ? "WARNING" : "CRITICAL";
+        // 健康分数计算（与 buildDepartmentHealth 保持一致）
+        double healthScore;
+        String status;
+        if (memberCount == 0) {
+            Brain brain = findBrainByDepartmentCode(code);
+            if (brain != null && brain.getState() != null) {
+                String brainState = brain.getState().name();
+                if ("ERROR".equals(brainState)) {
+                    healthScore = 0;
+                    status = "CRITICAL";
+                } else if ("STOPPED".equals(brainState) || "INITIALIZING".equals(brainState)) {
+                    healthScore = 50;
+                    status = "WARNING";
+                } else {
+                    healthScore = 100;
+                    status = "HEALTHY";
+                }
+            } else {
+                healthScore = 100;
+                status = "HEALTHY";
+            }
+        } else {
+            healthScore = (double) activeMembers.size() / memberCount * 100.0;
+            status = healthScore >= 80 ? "HEALTHY" : healthScore >= 50 ? "WARNING" : "CRITICAL";
+        }
 
         return new DashboardDTOs.DepartmentSummary(
                 code,

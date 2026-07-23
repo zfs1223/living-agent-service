@@ -1,0 +1,25 @@
+# LiveKit Egress 配置 - 会议录制服务
+# 关联: P82 / 闭环 68-A 录制→转写
+# 参考: https://docs.livekit.io/home/self-hosting/egress.md
+# 录制文件输出到 /data/recordings/
+
+# 连接 LiveKit Server (必须与 livekit-server 使用同一 Redis)
+api_key: las-livekit-api-key
+api_secret: las-livekit-api-secret-change-me
+ws_url: ws://livekit:7880
+insecure: true
+
+# Redis (复用 LAS 已有的 Redis 实例)
+redis:
+  address: redis:6379
+
+# 日志级别
+log_level: info
+
+# 健康检查端口
+health_port: 9898
+
+# 本地文件输出配置 (录制文件保存到容器内 /data/recordings/)
+# 录制请求时通过 API 指定输出路径
+# local:
+#   path: /data/recordings/

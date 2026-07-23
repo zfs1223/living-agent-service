@@ -375,6 +375,12 @@ public class DigitalWorkerFactoryImpl implements DigitalWorkerFactory {
         public EmployeeOrigin getOrigin() { return EmployeeOrigin.FIXED; }
 
         @Override
+        public String getPermissionScopeType() { return null; }
+
+        @Override
+        public String getOwnerId() { return null; }
+
+        @Override
         public HumanConfig getHumanConfig() { return null; }
 
         @Override

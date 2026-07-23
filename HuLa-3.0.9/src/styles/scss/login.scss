@@ -1,0 +1,39 @@
+/** 改变输入框中的位置 */
+:deep(.n-input .n-input__input, .n-input .n-input__textarea) {
+  margin-left: 22px;
+}
+
+/** 自定义密码输入框圆点样式 */
+:deep(.n-input .n-input__input-el[type="password"]) {
+  font-size: 22px !important; /* 增大圆点大小 */
+  font-family: 'Courier New', monospace !important; /* 使用等宽字体 */
+  line-height: 22px;
+}
+
+/** 隐藏naive UI的滚动条 */
+:deep(
+    .n-scrollbar > .n-scrollbar-rail.n-scrollbar-rail--vertical > .n-scrollbar-rail__scrollbar,
+    .n-scrollbar + .n-scrollbar-rail.n-scrollbar-rail--vertical > .n-scrollbar-rail__scrollbar
+  ) {
+  display: none;
+}
+
+/** 登录按钮样式 */
+.gradient-button {
+  @apply text-#fff border-none;
+  background: linear-gradient(to left, #7db1ac, #87c0c4);
+  box-shadow:
+    inset 0px 3px 16px 0px rgba(255, 255, 255, 0.5),
+    inset 0px -2px 27px 0px rgba(105, 187, 157, 0.76),
+    inset 0px 2px 6px 0px rgba(254, 254, 254, 0.5);
+  &:span {
+    color: #fff;
+  }
+}
+
+[data-theme='dark'] {
+  .gradient-button {
+    background: linear-gradient(to left, #5a8a86, #629397);
+    box-shadow: 0 0 8px rgba(98, 147, 151, 0.4), inset 0 1px 3px rgba(0, 0, 0, 0.1);
+  }
+}

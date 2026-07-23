@@ -93,6 +93,8 @@ public class JpaEmployeeServiceImpl implements EmployeeService {
             entity.setBrainDomain(request.department());
             entity.setMaxConcurrentTasks(5);
             entity.setOrigin(request.origin() != null ? request.origin().name() : EmployeeOrigin.PERSONAL.name());
+            entity.setPermissionScopeType(request.permissionScopeType() != null ? request.permissionScopeType() : "company");
+            entity.setOwnerId(request.ownerId());
             if (request.primaryModelId() != null && !request.primaryModelId().isBlank()) {
                 entity.setModel(request.primaryModelId());
             }
@@ -202,7 +204,9 @@ public class JpaEmployeeServiceImpl implements EmployeeService {
             .subscribeChannels(request.subscribeChannels())
             .publishChannels(request.publishChannels())
             .workflowBindings(request.workflowBindings())
-            .origin(request.origin());
+            .origin(request.origin())
+            .permissionScopeType(request.permissionScopeType())
+            .ownerId(request.ownerId());
 
         if (request.ttl() != null) {
             builder.expiresAt(Instant.now().plus(request.ttl()));
@@ -595,6 +599,8 @@ public class JpaEmployeeServiceImpl implements EmployeeService {
             .capabilities(capabilities)
             .status(parseStatus(entity.getStatus()))
             .origin(parseOrigin(entity.getOrigin()))
+            .permissionScopeType(entity.getPermissionScopeType())
+            .ownerId(entity.getOwnerId())
             .createdAt(entity.getCreatedAt())
             .build();
     }

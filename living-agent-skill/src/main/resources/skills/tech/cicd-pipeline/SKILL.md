@@ -1,3 +1,11 @@
+---
+name: cicd-pipeline
+description: "CI/CD流水线，自动化构建测试部署"
+risk: medium
+source: ClawHub转换
+date_added: '2026-07-09'
+---
+
 # CI/CD Pipeline
 
 > CI/CD流水线技能，自动化构建、测试、部署流程

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSCameraUsageDescription</key>
+  <string>Request camera access for WebRTC</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Request microphone access for WebRTC</string>
+  <key>NSScreenCaptureUsageDescription</key>
+  <string>HuLa needs screen recording permission to enable screenshot functionality</string>
+  <key>NSAccessibilityUsageDescription</key>
+  <string>HuLa needs accessibility permission to capture screen content</string>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>HuLa needs local network access to reach your development server</string>
+  <key>UISupportedInterfaceOrientations</key>
+  <array>
+    <string>UIInterfaceOrientationPortrait</string>
+  </array>
+  <key>UISupportedInterfaceOrientations~ipad</key>
+  <array>
+    <string>UIInterfaceOrientationPortrait</string>
+    <string>UIInterfaceOrientationPortraitUpsideDown</string>
+    <string>UIInterfaceOrientationLandscapeLeft</string>
+    <string>UIInterfaceOrientationLandscapeRight</string>
+  </array>
+</dict>
+</plist>

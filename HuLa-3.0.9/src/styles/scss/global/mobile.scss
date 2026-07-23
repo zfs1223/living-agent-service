@@ -1,0 +1,36 @@
+/* 只有当安全区域不为0时才应用 */
+@supports (top: env(safe-area-inset-top)) {
+  :root {
+    /* 设置默认值为0，如果env()返回非0值则会覆盖 */
+    --safe-area-inset-top: max(32px, env(safe-area-inset-top));
+    --safe-area-inset-bottom: max(20px, env(safe-area-inset-bottom));
+    --safe-area-inset-left: max(0px, env(safe-area-inset-left));
+    --safe-area-inset-right: max(0px, env(safe-area-inset-right));
+  }
+}
+
+@supports (top: constant(safe-area-inset-top)) {
+  :root {
+    /* 兼容旧版本iOS，设置默认值为0 */
+    --safe-area-inset-top: max(16px, env(safe-area-inset-top));
+    --safe-area-inset-bottom: max(16px, env(safe-area-inset-bottom));
+    --safe-area-inset-left: max(0px, env(safe-area-inset-left));
+    --safe-area-inset-right: max(0px, env(safe-area-inset-right));
+  }
+}
+
+:root {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  -webkit-touch-callout: none !important;
+}
+
+/* 移动端特定样式 */
+/* Naive UI 消息组件安全区域适配 */
+.n-message-container.n-message-container--top {
+  top: var(--safe-area-inset-top);
+}
+
+.chat-bot-message-gap {
+  gap: 4px;
+}

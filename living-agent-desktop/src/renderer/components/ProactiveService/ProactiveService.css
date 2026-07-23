@@ -1,0 +1,274 @@
+/**
+ * P16: 主动服务推送样式
+ */
+
+.proactive-service {
+  position: fixed;
+  right: 20px;
+  bottom: 80px;
+  z-index: 1000;
+}
+
+/* 折叠状态：角标 */
+.proactive-service__badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  background: #1890ff;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(24, 144, 255, 0.4);
+  transition: all 0.3s;
+  position: relative;
+}
+
+.proactive-service__badge:hover {
+  transform: scale(1.1);
+  box-shadow: 0 6px 16px rgba(24, 144, 255, 0.5);
+}
+
+.proactive-service__icon {
+  font-size: 20px;
+}
+
+.proactive-service__count {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: #ff4d4f;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 10px;
+  min-width: 18px;
+  text-align: center;
+}
+
+/* 展开状态：面板 */
+.proactive-service__panel {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  width: 360px;
+  max-height: 480px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.proactive-service__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.proactive-service__title {
+  font-weight: 600;
+  color: #333;
+}
+
+.proactive-service__close {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: #999;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.proactive-service__close:hover {
+  background: #f5f5f5;
+  color: #333;
+}
+
+.proactive-service__error {
+  padding: 12px 16px;
+  color: #ff4d4f;
+  text-align: center;
+}
+
+/* 摘要区域 */
+.proactive-service__digest {
+  padding: 12px 16px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.proactive-service__digest-title {
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 8px;
+}
+
+.proactive-service__digest-summary {
+  font-size: 13px;
+  color: #666;
+  line-height: 1.5;
+}
+
+.proactive-service__suggestions,
+.proactive-service__urgent {
+  margin-top: 12px;
+}
+
+.proactive-service__suggestions-title,
+.proactive-service__urgent-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: #999;
+  margin-bottom: 4px;
+}
+
+.proactive-service__suggestions ul,
+.proactive-service__urgent ul {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 13px;
+  color: #666;
+}
+
+.proactive-service__urgent-title {
+  color: #ff4d4f;
+}
+
+.proactive-service__urgent ul {
+  color: #cf1322;
+}
+
+/* 通知列表 */
+.proactive-service__notifications {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 16px;
+}
+
+.proactive-service__notifications-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: #999;
+  margin-bottom: 8px;
+}
+
+.proactive-service__notification-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.proactive-notification {
+  padding: 10px;
+  background: #fafafa;
+  border-radius: 8px;
+  border: 1px solid #e8e8e8;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.proactive-notification:hover {
+  background: #f5f5f5;
+  border-color: #d9d9d9;
+}
+
+.proactive-notification--unread {
+  background: #e6f7ff;
+  border-color: #91d5ff;
+}
+
+.proactive-notification__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.proactive-notification__type {
+  font-size: 14px;
+}
+
+.proactive-notification__title {
+  font-weight: 500;
+  color: #333;
+  flex: 1;
+}
+
+.proactive-notification__content {
+  font-size: 12px;
+  color: #666;
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+.proactive-notification__time {
+  font-size: 11px;
+  color: #999;
+  margin-top: 4px;
+}
+
+/* 底部 */
+.proactive-service__footer {
+  padding: 12px 16px;
+  border-top: 1px solid #f0f0f0;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.proactive-service__refresh {
+  padding: 6px 16px;
+  background: #1890ff;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.proactive-service__refresh:hover {
+  background: #40a9ff;
+}
+
+/* P26: 降级通知样式 */
+.proactive-notification--degradation {
+  background: #fff7e6;
+  border-color: #ffd591;
+}
+
+.proactive-notification--degradation:hover {
+  background: #fff1cc;
+  border-color: #ffbb33;
+}
+
+.proactive-notification__degradation-details {
+  margin-top: 8px;
+  padding: 8px;
+  background: #fffbe6;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.degradation-detail {
+  color: #873800;
+  line-height: 1.5;
+}
+
+.degradation-detail strong {
+  color: #d4380d;
+}

@@ -23,8 +23,6 @@ function buildZoneMap(agents: AgentLike[]) {
     workstation: [],
     collaboration: [],
     lounge: [],
-    alert: [],
-    offline: [],
   };
   agents.forEach((agent) => {
     map[getZoneByStatus(agent.status) as OfficeZoneId].push(agent);
@@ -72,8 +70,11 @@ function getTimelineMessage(agent: AgentLike, fromZone: OfficeZoneId, toZone: Of
 }
 
 function actionFromTransition(transition: OfficeTransition, agentStatus: string): OfficeEvent['action'] {
-  if (transition.zone === 'alert') return 'alert';
-  if (transition.zone === 'offline') return 'offline';
+  // alert 和 offline 状态的员工统一显示在 lounge 区域,通过状态点区分
+  if (transition.zone === 'lounge') {
+    if (agentStatus === 'disabled' || agentStatus === 'error') return 'alert';
+    if (agentStatus === 'offline' || agentStatus === 'dormant' || agentStatus === 'archived' || agentStatus === 'terminated') return 'offline';
+  }
   if (transition.direction === 'out') return 'sit';
   if (transition.prevZone === 'lounge' && transition.zone === 'workstation') return 'return';
   if (agentStatus === 'idle') return 'sit';
@@ -139,7 +140,8 @@ function useStableTransitions(agents: AgentLike[], isChinese: boolean) {
           nextTransition.phase = 'returning';
         }
 
-        if ((agent.status === 'stopped' || agent.status === 'inactive') && currentZone === 'offline') {
+        // 离线状态的员工在休息区显示
+        if ((agent.status === 'stopped' || agent.status === 'inactive' || agent.status === 'offline' || agent.status === 'dormant') && currentZone === 'lounge') {
           nextTransition.phase = 'idle';
         }
 
@@ -199,8 +201,6 @@ export default function useOfficePresence(agents: AgentLike[], isChinese = false
       workstation: [],
       collaboration: [],
       lounge: [],
-      alert: [],
-      offline: [],
     };
 
     Object.entries(zones).forEach(([zone, list]) => {

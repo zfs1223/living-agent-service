@@ -21,6 +21,8 @@ public class DigitalEmployee implements Employee {
     private final List<String> roles;
     private final String managerId;
     private final EmployeeOrigin origin;
+    private final String permissionScopeType;
+    private final String ownerId;
     
     private final List<String> capabilities;
     private final List<String> skills;
@@ -57,6 +59,8 @@ public class DigitalEmployee implements Employee {
         this.roles = Collections.unmodifiableList(builder.roles);
         this.managerId = builder.managerId;
         this.origin = builder.origin;
+        this.permissionScopeType = builder.permissionScopeType;
+        this.ownerId = builder.ownerId;
         this.capabilities = Collections.unmodifiableList(builder.capabilities);
         this.skills = Collections.unmodifiableList(builder.skills);
         this.tools = Collections.unmodifiableList(builder.tools);
@@ -165,6 +169,12 @@ public class DigitalEmployee implements Employee {
 
     @Override
     public EmployeeOrigin getOrigin() { return origin; }
+
+    @Override
+    public String getPermissionScopeType() { return permissionScopeType; }
+
+    @Override
+    public String getOwnerId() { return ownerId; }
     
     @Override
     public HumanConfig getHumanConfig() { return null; }
@@ -237,6 +247,8 @@ public class DigitalEmployee implements Employee {
         private List<String> roles = new ArrayList<>();
         private String managerId;
         private EmployeeOrigin origin = EmployeeOrigin.PERSONAL;
+        private String permissionScopeType;
+        private String ownerId;
         
         private List<String> capabilities = new ArrayList<>();
         private List<String> skills = new ArrayList<>();
@@ -317,6 +329,16 @@ public class DigitalEmployee implements Employee {
 
         public Builder origin(EmployeeOrigin origin) {
             this.origin = origin;
+            return this;
+        }
+
+        public Builder permissionScopeType(String permissionScopeType) {
+            this.permissionScopeType = permissionScopeType;
+            return this;
+        }
+
+        public Builder ownerId(String ownerId) {
+            this.ownerId = ownerId;
             return this;
         }
 

@@ -1,0 +1,236 @@
+/**
+ * P20: 开发者工具页面样式
+ */
+
+.developer-tools {
+  padding: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.developer-tools__login-prompt,
+.developer-tools__permission-denied {
+  padding: 48px 24px;
+  text-align: center;
+  font-size: 16px;
+  color: #888;
+}
+
+.developer-tools__permission-denied {
+  color: #ff4d4f;
+}
+
+.developer-tools__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.developer-tools__header h1 {
+  font-size: 24px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.developer-tools__filter select {
+  padding: 8px 12px;
+  background: #2a2a3a;
+  border: 1px solid #444;
+  border-radius: 6px;
+  color: #eee;
+  font-size: 14px;
+}
+
+.developer-tools__content {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 24px;
+}
+
+.developer-tools__list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.developer-tools__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: #2a2a3a;
+  border: 1px solid #444;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.developer-tools__item:hover {
+  border-color: #6366f1;
+  background: #32324a;
+}
+
+.developer-tools__item.selected {
+  border-color: #6366f1;
+  background: #3a3a5a;
+}
+
+.developer-tools__item-icon {
+  font-size: 24px;
+}
+
+.developer-tools__item-info {
+  flex: 1;
+}
+
+.developer-tools__item-name {
+  font-weight: 600;
+  color: #eee;
+  margin-bottom: 4px;
+}
+
+.developer-tools__item-desc {
+  font-size: 12px;
+  color: #888;
+}
+
+.developer-tools__item-shortcut {
+  padding: 4px 8px;
+  background: #1a1a2a;
+  border-radius: 4px;
+  font-size: 11px;
+  color: #888;
+  font-family: monospace;
+}
+
+.developer-tools__detail {
+  padding: 24px;
+  background: #2a2a3a;
+  border: 1px solid #444;
+  border-radius: 8px;
+}
+
+.developer-tools__detail-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.developer-tools__detail-icon {
+  font-size: 32px;
+}
+
+.developer-tools__detail-title {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.developer-tools__detail-category {
+  display: inline-block;
+  padding: 4px 12px;
+  background: #6366f1;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #fff;
+  margin-bottom: 12px;
+}
+
+.developer-tools__detail-desc {
+  color: #aaa;
+  line-height: 1.6;
+  margin-bottom: 16px;
+}
+
+.developer-tools__detail-command,
+.developer-tools__detail-shortcut {
+  margin-bottom: 12px;
+}
+
+.command-label,
+.shortcut-label {
+  color: #888;
+  font-size: 12px;
+}
+
+.command-value {
+  margin-left: 8px;
+  padding: 4px 8px;
+  background: #1a1a2a;
+  border-radius: 4px;
+  font-family: monospace;
+  color: #6f6;
+}
+
+.shortcut-value {
+  margin-left: 8px;
+  padding: 4px 8px;
+  background: #333;
+  border-radius: 4px;
+  font-family: monospace;
+}
+
+.developer-tools__run-btn {
+  width: 100%;
+  padding: 12px;
+  background: #6366f1;
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.developer-tools__run-btn:hover:not(:disabled) {
+  background: #5555e1;
+}
+
+.developer-tools__run-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.developer-tools__output {
+  margin-top: 24px;
+  padding: 16px;
+  background: #1a1a2a;
+  border: 1px solid #333;
+  border-radius: 8px;
+}
+
+.output-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  color: #888;
+  font-size: 12px;
+}
+
+.output-header button {
+  background: transparent;
+  border: 1px solid #444;
+  color: #888;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.output-header button:hover {
+  color: #fff;
+  border-color: #6366f1;
+}
+
+.output-content {
+  margin: 0;
+  padding: 12px;
+  background: #0a0a1a;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 12px;
+  color: #6f6;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}

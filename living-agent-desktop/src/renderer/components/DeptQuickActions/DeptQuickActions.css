@@ -1,0 +1,58 @@
+/**
+ * P30: 部门特色快捷功能入口栏样式
+ */
+
+.dept-quick-actions {
+  padding: 12px 16px;
+  background: linear-gradient(135deg, #f0f5ff 0%, #fff 100%);
+  border-bottom: 1px solid #e8e8e8;
+}
+
+.dept-quick-actions__header {
+  margin-bottom: 10px;
+}
+
+.dept-quick-actions__label {
+  font-size: 12px;
+  color: #999;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+}
+
+.dept-quick-actions__grid {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.dept-quick-actions__btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: #fff;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.dept-quick-actions__btn:hover {
+  border-color: #1890ff;
+  background: #e6f7ff;
+  transform: translateY(-1px);
+}
+
+.dept-quick-actions__btn:active {
+  transform: translateY(0);
+}
+
+.dept-quick-actions__icon {
+  font-size: 16px;
+}
+
+.dept-quick-actions__text {
+  font-size: 13px;
+  color: #333;
+  font-weight: 500;
+}

@@ -1,0 +1,299 @@
+name: Release CI
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+# 确保默认情况下所有 job 都只有只读权限，只有需要写权限的 job（比如发布 release 的 job）才会单独提升权限，其他 job 依然保持最小权限，最大程度保护仓库安全
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true # 如果有新的发布任务，取消正在进行的任务
+
+jobs:
+  prepare-frontend:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up environment variables
+        run: echo "${{ secrets.ENV_LOCAL_CONTENT }}" > .env.local
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Generate frontend build (typings & assets)
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: pnpm vite build --emptyOutDir
+
+      - name: Upload frontend dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          if-no-files-found: error
+          path: dist
+
+      - name: Upload generated component typings
+        uses: actions/upload-artifact@v4
+        with:
+          name: components-typings
+          if-no-files-found: error
+          path: |
+            src/typings/components.pc.d.ts
+            src/typings/components.mobile.d.ts
+
+  publish-tauri:
+    needs: prepare-frontend
+    permissions:
+      contents: write # 授予写入仓库内容的权限
+    strategy:
+      fail-fast: false # 某个平台构建失败不影响其他平台
+      matrix:
+        include:
+          - platform: 'macos-latest' # for Arm based macs (M1 and above).
+            args: '--target aarch64-apple-darwin'
+          - platform: 'macos-latest' # for Intel based macs.
+            args: '--target x86_64-apple-darwin'
+          - platform: 'ubuntu-22.04'
+            args: ''
+          - platform: 'windows-latest'
+            args: ''
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine build mode
+        id: build_mode
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF##*/}"
+          MODE="full"
+          if [[ "$TAG" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            PATCH="${BASH_REMATCH[3]}"
+            if (( PATCH > 0 )); then
+              MODE="incremental"
+            fi
+          fi
+          echo "Detected tag: $TAG"
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+          if [[ "$MODE" == "incremental" ]]; then
+            echo "INCREMENTAL_BUILD=true" >> "$GITHUB_ENV"
+          else
+            echo "INCREMENTAL_BUILD=false" >> "$GITHUB_ENV"
+          fi
+          echo "Build mode: $MODE"
+
+      - name: Download component typings
+        uses: actions/download-artifact@v4
+        with:
+          name: components-typings
+          path: components-typings
+
+      - name: Download frontend dist
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend-dist
+
+      - name: Prepare downloaded artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf dist
+          if [[ -d frontend-dist/dist ]]; then
+            mv frontend-dist/dist dist
+            rm -rf frontend-dist
+          elif [[ -d frontend-dist ]]; then
+            mv frontend-dist dist
+          elif [[ ! -d dist ]]; then
+            echo "无法在 artifact 中找到 dist 目录" >&2
+            ls -la
+            exit 1
+          fi
+
+          if [[ -d components-typings/src/typings ]]; then
+            mkdir -p src/typings
+            cp -R components-typings/src/typings/. src/typings/
+            rm -rf components-typings
+          fi
+
+      - name: install dependencies (ubuntu only)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            librsvg2-dev \
+            patchelf \
+            libudev-dev \
+            libasound2-dev \
+            pkg-config \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev
+
+      # 添加环境变量配置
+      - name: Set up environment variables
+        run: echo "${{ secrets.ENV_LOCAL_CONTENT }}" > .env.local
+
+      # 首先安装 pnpm
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+
+      # 然后设置 Node.js
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: pnpm install
+
+      - name: Disable frontend rebuild for release build
+        shell: bash
+        run: |
+          cat <<'EOF' > release-tauri-config.json
+          {
+            "build": {
+              "beforeBuildCommand": ""
+            }
+          }
+          EOF
+
+      - name: Prepare production config
+        shell: bash
+        env:
+          YOUDAO_APP_KEY: ${{ secrets.YOUDAO_APP_KEY }}
+          YOUDAO_APP_SECRET: ${{ secrets.YOUDAO_APP_SECRET }}
+          TENCENT_API_KEY: ${{ secrets.TENCENT_API_KEY }}
+          TENCENT_SECRET_ID: ${{ secrets.TENCENT_SECRET_ID }}
+          TENCENT_MAP_KEY: ${{ secrets.TENCENT_MAP_KEY }}
+        run: |
+          mkdir -p src-tauri/configuration
+          cat > src-tauri/configuration/production.yaml <<'EOF'
+          youdao:
+            app_key: "${YOUDAO_APP_KEY}"
+            app_secret: "${YOUDAO_APP_SECRET}"
+          tencent:
+            api_key: "${TENCENT_API_KEY}"
+            secret_id: "${TENCENT_SECRET_ID}"
+            map_key: "${TENCENT_MAP_KEY}"
+          EOF
+
+      # 安装 Rust
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable # Set this to dtolnay/rust-toolchain@nightly
+        with:
+          # Those targets are only used on macos runners so it's in an `if` to slightly speed up windows and linux builds.
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Cache cargo target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.os == 'Windows' && env.USERPROFILE || env.HOME }}/.cargo/registry
+            ${{ runner.os == 'Windows' && env.USERPROFILE || env.HOME }}/.cargo/git
+            src-tauri/target
+          key: cargo-target-${{ matrix.platform }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            cargo-target-${{ matrix.platform }}-
+
+      - name: Create release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 使用之前配置的私钥
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # 使用之前配置的私钥密码
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # 增加 Node.js 内存限制，避免构建时内存溢出
+          NODE_OPTIONS: --max-old-space-size=4096
+        with:
+          tagName: v__VERSION__ #这个动作会自动将\_\_VERSION\_\_替换为app version
+          releaseName: 'v__VERSION__'
+          releaseBody: 'See the assets to download and install this version.'
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }} --config release-tauri-config.json
+
+  publish-release:
+    needs: publish-tauri
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract changelog for current version
+        id: changelog
+        run: |
+          # 从 CHANGELOG.md 中提取最新版本的内容
+          # 匹配从第一个 ## [version] 到下一个 ## [version] 之间的内容
+          CHANGELOG_CONTENT=$(awk '/^## \[/{if(found) exit; found=1} found' CHANGELOG.md)
+
+          # 将内容写入文件以保留格式
+          echo "$CHANGELOG_CONTENT" > /tmp/release_notes.md
+
+          # 输出到 GITHUB_OUTPUT（使用 EOF 分隔符处理多行）
+          {
+            echo 'body<<EOF'
+            echo "$CHANGELOG_CONTENT"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Publish draft release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 直接按 tag 获取 release，避免同 tag 多个草稿导致多个 ID
+          RELEASE=$(gh api repos/${{ github.repository }}/releases/tags/${{ github.ref_name }} 2>/dev/null || true)
+          if [ -n "$RELEASE" ] && [ "$(echo "$RELEASE" | jq -r '.draft')" = "true" ]; then
+            RELEASE_ID=$(echo "$RELEASE" | jq -r '.id')
+            echo "Publishing draft release with ID: $RELEASE_ID"
+
+            # 使用 changelog 内容更新 release body 并发布
+            gh api -X PATCH repos/${{ github.repository }}/releases/$RELEASE_ID \
+              -f draft=false \
+              -f body="$(cat /tmp/release_notes.md)"
+
+            echo "Release published successfully with changelog"
+          else
+            echo "No draft release found for tag ${{ github.ref_name }}, it may already be published"
+          fi
+
+  upgradeLink-upload:
+    needs: publish-release # 依赖于 publish-release 作业完成（确保 release 已正式发布）
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send a request to UpgradeLink
+        uses: toolsetlink/upgradelink-action@v5
+        with:
+          source-url: 'https://github.com/HuLaSpark/HuLa/releases/download/${{ github.ref_name }}/latest.json'
+          access-key: ${{ secrets.UPGRADE_LINK_ACCESS_KEY }} # ACCESS_KEY  密钥key
+          tauri-key: ${{ secrets.UPGRADE_LINK_TAURI_KEY }} # TAURI_KEY tauri 应用唯一标识
+          github-token: ${{ secrets.GITHUB_TOKEN }}

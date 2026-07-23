@@ -110,6 +110,12 @@ public class EnterpriseEmployeeEntity {
     @Column(name = "origin", length = 20)
     private String origin;
 
+    @Column(name = "permission_scope_type", length = 20)
+    private String permissionScopeType;
+
+    @Column(name = "owner_id", length = 100)
+    private String ownerId;
+
     @Column(name = "created_at")
     private Instant createdAt;
 
@@ -230,4 +236,10 @@ public class EnterpriseEmployeeEntity {
 
     public String getOrigin() { return origin; }
     public void setOrigin(String origin) { this.origin = origin; }
+
+    public String getPermissionScopeType() { return permissionScopeType; }
+    public void setPermissionScopeType(String permissionScopeType) { this.permissionScopeType = permissionScopeType; }
+
+    public String getOwnerId() { return ownerId; }
+    public void setOwnerId(String ownerId) { this.ownerId = ownerId; }
 }

@@ -1,3 +1,11 @@
+---
+name: crm-integration
+description: "CRM系统集成，连接Salesforce/HubSpot等"
+risk: medium
+source: ClawHub转换
+date_added: '2026-07-09'
+---
+
 # CRM Integration
 
 > CRM系统集成技能，连接客户关系管理系统、销售平台、营销工具

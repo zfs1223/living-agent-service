@@ -52,6 +52,8 @@ public interface Employee {
     boolean isHuman();
     boolean isDigital();
     EmployeeOrigin getOrigin();
+    String getPermissionScopeType();
+    String getOwnerId();
     
     HumanConfig getHumanConfig();
     DigitalConfig getDigitalConfig();

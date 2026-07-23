@@ -262,6 +262,7 @@ public class WebCrawlerTool implements Tool {
 
     public static class CrawlerConfig {
         private String crawl4aiUrl = "http://crawl4ai:11235";
+        private String apiToken;
         private String userAgent;
         private List<String> proxies = new ArrayList<>();
         private int currentProxyIndex = 0;
@@ -270,10 +271,13 @@ public class WebCrawlerTool implements Tool {
         private int maxRequestsPerDomain = 100;
         private int requestTimeoutMs = 30000;
         private Set<String> blockedDomains = new HashSet<>();
-        
+
         public String getCrawl4aiUrl() { return crawl4aiUrl; }
         public void setCrawl4aiUrl(String url) { this.crawl4aiUrl = url; }
-        
+
+        public String getApiToken() { return apiToken; }
+        public void setApiToken(String token) { this.apiToken = token; }
+
         public String getUserAgent() { return userAgent; }
         public void setUserAgent(String ua) { this.userAgent = ua; }
         

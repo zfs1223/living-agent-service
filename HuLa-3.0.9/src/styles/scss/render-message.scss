@@ -1,0 +1,259 @@
+/** 气泡样式 */
+@mixin bubble {
+  @apply w-fit min-h-1em p-[8px_12px] line-height-22px bg-[--bg-bubble] rounded-[2px_18px_18px] custom-shadow;
+  max-width: var(--bubble-max-width, 32vw); /** 默认为群聊宽度 */
+  white-space: pre-wrap; /** 保留空白符号并正常换行，支持特殊字符 */
+  word-break: break-word; /** 优先在单词边界换行，必要时在单词内换行 */
+  overflow-wrap: anywhere; /** 在任何位置都可以换行，包括特殊字符 */
+  word-wrap: break-word; /** 兼容旧版浏览器 */
+  -webkit-white-space: pre-wrap; /** 兼容webkit浏览器 */
+  -webkit-word-break: break-word;
+  -webkit-overflow-wrap: anywhere;
+  hyphens: auto; /** 行尾自动断开长单词 */
+  -webkit-hyphens: auto;
+  line-height: 1.7;
+  line-break: anywhere; /** 支持任意位置换行，包括特殊字符和符号 */
+  &.active {
+    background-color: var(--bg-bubble-active);
+    color: var(--text-color);
+  }
+}
+@mixin float($position: top) {
+  @if $position == bottom {
+    @apply fixed z-10 w-fit select-none text-#13987f cursor-pointer;
+  } @else {
+    @apply fixed z-10 top-80px w-fit select-none text-#13987f cursor-pointer;
+  }
+}
+.bubble {
+  @include bubble;
+}
+.bubble-oneself {
+  @include bubble;
+  @apply rounded-[18px_2px_18px_18px] color-#fff;
+  background-color: var(--bg-active-msg);
+}
+
+/* 选中文本时的高亮颜色（包含根节点与后代，避免被全局 ::selection 覆盖） */
+.bubble::selection,
+.bubble *::selection {
+  background: var(--select-bg-color, rgba(19, 152, 127, 0.3));
+}
+.bubble-oneself::selection,
+.bubble-oneself *::selection {
+  background: var(--select-bg-color-self, rgba(255, 255, 255, 0.3));
+}
+.photo-wall {
+  @extend .bubble-oneself;
+  @apply flex flex-col items-start gap-6px flex-1;
+}
+.float-header {
+  @include float;
+}
+.float-footer {
+  @include float(bottom);
+}
+.float-box {
+  background-color: var(--right-bg-color);
+  border-radius: 50px;
+  padding: 6px 8px;
+  box-shadow: 0 2px 8px 0 rgba(0, 0, 0, 0.16);
+  transition: background-color 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  &:hover {
+    background-color: var(--float-hover-bg-color);
+  }
+}
+.mac-close:hover {
+  svg {
+    display: block;
+  }
+}
+/** 浮标达到最大值时候的样式 */
+.max:hover {
+  background-color: #f5dce1;
+}
+/** 回复气泡的样式 */
+.reply-bubble {
+  @apply text-[--reply-color] rounded-8px p-4px cursor-pointer select-none;
+  svg,
+  span {
+    transition: color 0.4s ease-in-out;
+  }
+  .reply-avatar {
+    filter: grayscale(60%);
+    transition: filter 0.4s ease-in-out;
+  }
+  &:hover {
+    .reply-avatar {
+      filter: grayscale(0);
+    }
+    svg {
+      color: #13987f;
+    }
+    span {
+      color: var(--reply-hover);
+    }
+  }
+  .content-span {
+    @apply max-w-232px w-fit truncate flex-1;
+  }
+  /** 回复图片的计数器样式 */
+  .reply-img-sub {
+    @apply absolute bottom-8px right-6px color-#13987f bg-[--bg-reply-img-count] p-[2px_4px] rounded-6px text-10px;
+  }
+}
+/** emoji回复气泡的样式 */
+.emoji-reply-bubble {
+  @apply relative flex-y-center gap-4px rounded-50px p-[4px_8px] cursor-pointer select-none bg-#13987F66 text-14px w-fit border-(1px solid #13987F) custom-shadow;
+}
+
+/** 当前用户标记消息的样式 */
+.emoji-reply-bubble--active {
+  @apply dark:bg-[#fbb99020] bg-[#fbb99030] dark:border-(1px solid #fbb99050) border-(1px solid #fbb99090);
+}
+/** 跳转到回复内容时候显示的样式 */
+.active-reply {
+  background-color: var(--right-chat-reply-active-color);
+  border-radius: 8px;
+  margin: 0 8px;
+  transition: all 0.4s ease-in-out;
+}
+/**  跳转到回复内容时候的退出动画 */
+.reply-exit {
+  margin: 0;
+  background-color: inherit;
+  border-radius: 0;
+  transition: all 0.4s ease-in-out;
+}
+
+/** 翻译气泡的样式 */
+.translated-text {
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 12px;
+  background-color: var(--bg-translate-bubble);
+  line-height: 22px;
+  margin-top: 6px;
+  max-width: var(--bubble-max-width);
+  width: fit-content;
+}
+
+/** 时间搓显示时候的动画(单聊) */
+.fade-single-enter-active,
+.fade-single-leave-active {
+  transition: opacity 0.4s ease-in-out;
+}
+.fade-single-enter-from,
+.fade-single-leave-to {
+  opacity: 0;
+}
+
+/** 时间搓显示时候的动画(群聊) */
+.fade-group-enter-active,
+.fade-group-leave-active {
+  transition: opacity 0.4s ease-in-out;
+}
+.fade-group-enter-from,
+.fade-group-leave-to {
+  opacity: 0;
+}
+
+/** 初始化加载动画 */
+.chat-init-enter-active,
+.chat-init-leave-active {
+  transition: opacity 0.4s ease-in-out;
+}
+.chat-init-enter-from,
+.fchat-init-leave-to {
+  opacity: 0;
+}
+
+/** 翻译动画 */
+.fade-translate-enter-active,
+.fade-translate-leave-active {
+  transition: opacity 0.4s ease-in-out;
+}
+.fade-translate-enter-from,
+.fade-translate-leave-to {
+  opacity: 0;
+}
+
+/** 公告显示/隐藏动画 */
+.announcement-enter-active,
+.announcement-leave-active {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transform-origin: top;
+}
+.announcement-enter-from,
+.announcement-leave-to {
+  opacity: 0;
+  transform: scaleY(0.8) translateY(-10px);
+}
+.announcement-enter-to,
+.announcement-leave-from {
+  opacity: 1;
+  transform: scaleY(1) translateY(0);
+}
+
+// 置顶公告样式
+.custom-announcement {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  background-color: var(--bg-notice, rgba(19, 152, 127, 0.08));
+  border-radius: 8px;
+  border: 1px solid var(--bg-notice, rgba(19, 152, 127, 0.2));
+  margin: 0;
+  height: 34px;
+  line-height: 36px;
+  transition: all 0.3s ease-in-out;
+  z-index: 10;
+}
+
+.announcement-hover {
+  background-color: var(--bg-notice-hover, rgba(19, 152, 127, 0.14));
+}
+
+/**! 替换ait的字体颜色 */
+:deep(#aitSpan) {
+  @apply text-inherit cursor-pointer;
+}
+
+/** 确保文本可选中的通用类 */
+.select-text {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  -moz-user-select: text !important;
+  -ms-user-select: text !important;
+  -khtml-user-select: text !important;
+}
+
+/** 默认禁选外层，避免选中空白区域；具体内容元素再单独开启 */
+.chat-message-max-width {
+  user-select: none;
+
+  .bubble,
+  .bubble-oneself,
+  .translated-text,
+  .select-text {
+    user-select: text;
+    -webkit-user-select: text;
+  }
+}
+
+/* 桌面端全局：禁选消息容器，只有气泡内部允许选中，避免在 mac WebKit 上拖拽时染色到上下 padding */
+:global(#image-chat-main .message-list) {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+:global(#image-chat-main .message-list .bubble),
+:global(#image-chat-main .message-list .bubble-oneself),
+:global(#image-chat-main .message-list .translated-text),
+:global(#image-chat-main .message-list .select-text),
+:global(#image-chat-main .message-list .reply-bubble),
+:global(#image-chat-main .message-list .emoji-reply-bubble) {
+  user-select: text;
+  -webkit-user-select: text;
+}

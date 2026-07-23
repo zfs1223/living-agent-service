@@ -1,0 +1,95 @@
+/**
+ * P11: 部门路由推荐样式
+ */
+
+.dept-recommend {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, #e6f7ff 0%, #bae7ff 100%);
+  border: 1px solid #91d5ff;
+  border-radius: 8px;
+  margin: 8px 0;
+  animation: slideIn 0.3s ease;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.dept-recommend__content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.dept-recommend__icon {
+  font-size: 20px;
+}
+
+.dept-recommend__text {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.dept-recommend__label {
+  font-size: 13px;
+  color: #666;
+}
+
+.dept-recommend__dept {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1890ff;
+}
+
+.dept-recommend__reason {
+  font-size: 12px;
+  color: #666;
+  padding: 2px 8px;
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 4px;
+}
+
+.dept-recommend__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.dept-recommend__btn {
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s;
+}
+
+.dept-recommend__btn--accept {
+  background: #1890ff;
+  color: #fff;
+}
+
+.dept-recommend__btn--accept:hover {
+  background: #40a9ff;
+}
+
+.dept-recommend__btn--dismiss {
+  background: transparent;
+  color: #666;
+  border: 1px solid #d9d9d9;
+}
+
+.dept-recommend__btn--dismiss:hover {
+  background: #fafafa;
+}

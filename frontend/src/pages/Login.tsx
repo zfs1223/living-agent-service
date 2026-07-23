@@ -253,19 +253,29 @@ export default function Login() {
 
     return (
         <div className="login-page" style={{ position: 'relative' }}>
+            {/* ── 右上角固定区域：语言切换 + 登录按钮 ── */}
+            <div style={{
+                position: 'absolute',
+                top: 16,
+                right: 16,
+                zIndex: 100,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12
+            }}>
+                <div className="login-hero-lang" onClick={toggleLang} style={{ cursor: 'pointer' }}>
+                    <span>🌐</span><span>{langLabel}</span>
+                </div>
+                <button className="login-drawer-trigger" onClick={() => setDrawerOpen(true)}>
+                    {t('phoneLogin.openDrawer')}
+                </button>
+            </div>
+
             <div className="login-hero" style={{ flex: 1, width: '100%' }}>
                 <div className="login-hero-bg" />
                 <div className="login-hero-content">
                     {/* ── Left column: hero text + features ── */}
                     <div className="login-hero-left">
-                        <div className="login-hero-topbar">
-                            <div className="login-hero-lang" onClick={toggleLang}>
-                                <span>🌐</span><span>{langLabel}</span>
-                            </div>
-                            <button className="login-drawer-trigger" onClick={() => setDrawerOpen(true)}>
-                                {t('phoneLogin.openDrawer')}
-                            </button>
-                        </div>
                         <div className="login-hero-badge">
                             <span className="login-hero-badge-dot" />{t('login.hero.badge')}
                         </div>

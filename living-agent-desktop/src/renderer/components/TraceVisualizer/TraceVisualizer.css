@@ -1,0 +1,232 @@
+/**
+ * P8: Trace 可视化样式
+ */
+
+/* ========== Trace 容器 ========== */
+.trace-visualizer {
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  max-width: 400px;
+  font-size: 13px;
+}
+
+/* ========== 头部 ========== */
+.trace-visualizer__header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.trace-visualizer__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: #333;
+}
+
+.trace-visualizer__icon {
+  font-size: 16px;
+}
+
+.trace-visualizer__id {
+  font-size: 11px;
+  color: #999;
+  font-weight: 400;
+}
+
+.trace-visualizer__progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.trace-visualizer__progress-bar {
+  flex: 1;
+  height: 6px;
+  background: #f0f0f0;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.trace-visualizer__progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #52c41a 0%, #73d13d 100%);
+  border-radius: 3px;
+  transition: width 0.3s;
+}
+
+.trace-visualizer__progress-fill--failed {
+  background: linear-gradient(90deg, #ff4d4f 0%, #ff7875 100%);
+}
+
+.trace-visualizer__progress-text {
+  font-size: 12px;
+  color: #666;
+  font-weight: 500;
+}
+
+.trace-visualizer__close {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: #999;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.trace-visualizer__close:hover {
+  background: #f5f5f5;
+  color: #333;
+}
+
+/* ========== 内容区 ========== */
+.trace-visualizer__content {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+/* ========== 底部 ========== */
+.trace-visualizer__footer {
+  padding: 12px 16px;
+  background: #fff2f0;
+  border-top: 1px solid #ffccc7;
+}
+
+.trace-visualizer__error-hint {
+  color: #cf1322;
+  font-size: 12px;
+}
+
+/* ========== Trace 单步卡片 ========== */
+.trace-step {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.trace-step__header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  cursor: default;
+}
+
+.trace-step__index {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.trace-step__icon {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.trace-step__content {
+  flex: 1;
+  min-width: 0;
+}
+
+.trace-step__stage {
+  font-weight: 500;
+  color: #333;
+}
+
+.trace-step__message {
+  font-size: 12px;
+  color: #666;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.trace-step__time {
+  font-size: 11px;
+  color: #999;
+  flex-shrink: 0;
+}
+
+.trace-step__expand {
+  font-size: 10px;
+  color: #999;
+  transition: transform 0.2s;
+}
+
+.trace-step__expand--expanded {
+  transform: rotate(180deg);
+}
+
+.trace-step__details {
+  padding: 8px 12px;
+  margin-left: 36px;
+  background: #fafafa;
+  border-radius: 6px;
+  font-size: 11px;
+}
+
+.trace-step__detail-row {
+  display: flex;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.trace-step__detail-key {
+  color: #666;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.trace-step__detail-value {
+  color: #333;
+  word-break: break-all;
+}
+
+.trace-step__connector {
+  width: 2px;
+  height: 8px;
+  margin-left: 11px;
+  opacity: 0.5;
+}
+
+/* ========== 状态样式 ========== */
+.trace-step--pending {
+  opacity: 0.6;
+}
+
+.trace-step--running .trace-step__stage {
+  color: #1890ff;
+  font-weight: 600;
+}
+
+.trace-step--failed .trace-step__stage {
+  color: #cf1322;
+}
+
+.trace-step--failed .trace-step__message {
+  color: #cf1322;
+}

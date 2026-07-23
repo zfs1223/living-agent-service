@@ -1,0 +1,35 @@
+.item-box {
+  @apply relative flex flex-col h-100vh box-border select-none text-[--text-color];
+  .item {
+    height: 46px;
+    padding: 0 4px;
+    width: 95%;
+    box-sizing: border-box;
+    border-radius: 6px;
+    &:hover {
+      cursor: pointer;
+      background-color: var(--list-hover-color);
+    }
+  }
+  &:hover {
+    .contraction {
+      opacity: 1;
+    }
+  }
+}
+/**! 修改naive-ui虚拟列表滚动条的宽度 */
+:deep(
+    .n-scrollbar > .n-scrollbar-rail.n-scrollbar-rail--vertical,
+    .n-scrollbar + .n-scrollbar-rail.n-scrollbar-rail--vertical
+  ) {
+  width: 6px;
+}
+
+.announcement-text {
+  white-space: normal; /** 保留空白符号并正常换行 */
+  word-break: break-all; /** 强制在单词内部进行换行 */
+  overflow-wrap: break-all;
+  -webkit-white-space: normal; /** 兼容webkit浏览器 */
+  -webkit-word-break: break-all;
+  -webkit-overflow-wrap: break-all;
+}

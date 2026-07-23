@@ -33,7 +33,6 @@ export default function OfficeZonePanel({ zoneId, title, hint, agents, onAgentCl
     if (zoneId === 'workstation') return `seat-${(index % workstationSeats.length) + 1}`;
     if (zoneId === 'collaboration') return ['table-a', 'table-b', 'aisle'][index % 3];
     if (zoneId === 'lounge') return ['sofa-a', 'sofa-b', 'aisle'][index % 3];
-    if (zoneId === 'alert') return ['desk-a', 'desk-b', 'desk-a'][index % 3];
     return ['corner', 'back', 'aisle'][index % 3];
   };
 
@@ -70,12 +69,6 @@ export default function OfficeZonePanel({ zoneId, title, hint, agents, onAgentCl
               <span className="office-fixture office-fixture--sofa office-fixture--sofa-left" />
               <span className="office-fixture office-fixture--sofa office-fixture--sofa-right" />
               <span className="office-fixture office-fixture--pantry" />
-            </>
-          )}
-          {zoneId === 'alert' && (
-            <>
-              <span className="office-fixture office-fixture--desk office-fixture--control" />
-              <span className="office-fixture office-fixture--screen office-fixture--control-screen" />
             </>
           )}
         </div>

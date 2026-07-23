@@ -1,0 +1,62 @@
+name: '🐛 Bug Report'
+description: 'Report an bug'
+title: '[bug] '
+labels: ['bug']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## First of all
+        1. Please search for [existing issues](https://github.com/HuLaSpark/HuLa/issues?q=is%3Aissue) about this problem first.
+        2. Make sure `rustc` and all relevant HuLa packages are up to date.
+        3. Make sure it's an issue with HuLa and not something else you are using.
+        4. Remember to follow our community guidelines and be friendly.
+
+  - type: input
+    attributes:
+      label: '📌 Version'
+    validations:
+      required: true
+
+  - type: dropdown
+    attributes:
+      label: '💻 Operating System'
+      multiple: true
+      options:
+        - 'Windows 10'
+        - 'Windows 11'
+        - 'macOS'
+        - 'Linux'
+        - 'Android'
+        - 'ios'
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: '🐛 Bug Description'
+      description: A clear and concise description of the bug, Include screenshots if applicable.
+    validations:
+      required: true
+
+  - type: textarea
+    id: info
+    attributes:
+      label: '☄️ intact `pnpm tauri info` output'
+      description: 'Please run "pnpm tauri info" in the console and wait for the output to finish, then copy the output here'
+      render: text
+
+  - type: textarea
+    attributes:
+      label: '📷 Recurrence Steps'
+      description: A clear and concise description of how to recurrence.
+
+  - type: textarea
+    attributes:
+      label: '🚦 Expected Behavior'
+      description: A clear and concise description of what you expected to happen.
+
+  - type: textarea
+    attributes:
+      label: '📝 Additional Information'
+      description: If your problem needs further explanation, or if the issue you're seeing cannot be reproduced in a gist, please add more information here.

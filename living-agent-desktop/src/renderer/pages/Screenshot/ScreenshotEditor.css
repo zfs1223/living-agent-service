@@ -1,0 +1,110 @@
+/**
+ * P2 截图标注编辑器样式
+ */
+
+.screenshot-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: #1a1a1a;
+  color: #fff;
+}
+
+/* 工具栏 */
+.screenshot-editor__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: #2a2a2a;
+  border-bottom: 1px solid #3a3a3a;
+}
+
+.screenshot-editor__tools {
+  display: flex;
+  gap: 8px;
+}
+
+.screenshot-editor__tool {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #4a4a4a;
+  border-radius: 6px;
+  background: #2a2a2a;
+  color: #ccc;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.screenshot-editor__tool:hover {
+  background: #3a3a3a;
+  border-color: #5a5a5a;
+}
+
+.screenshot-editor__tool--active {
+  background: #1890ff;
+  border-color: #1890ff;
+  color: #fff;
+}
+
+.screenshot-editor__tool--active:hover {
+  background: #40a9ff;
+  border-color: #40a9ff;
+}
+
+/* 操作按钮 */
+.screenshot-editor__actions {
+  display: flex;
+  gap: 12px;
+}
+
+.screenshot-editor__btn {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.screenshot-editor__btn--secondary {
+  background: transparent;
+  border: 1px solid #4a4a4a;
+  color: #ccc;
+}
+
+.screenshot-editor__btn--secondary:hover {
+  background: #3a3a3a;
+  border-color: #5a5a5a;
+}
+
+.screenshot-editor__btn--primary {
+  background: #1890ff;
+  border: 1px solid #1890ff;
+  color: #fff;
+}
+
+.screenshot-editor__btn--primary:hover {
+  background: #40a9ff;
+  border-color: #40a9ff;
+}
+
+/* Canvas 容器 */
+.screenshot-editor__canvas-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  background: #0a0a0a;
+}
+
+.screenshot-editor__canvas {
+  max-width: 100%;
+  max-height: 100%;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}

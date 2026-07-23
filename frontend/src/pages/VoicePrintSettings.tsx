@@ -1,185 +1,359 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../stores';
-import { voicePrintExtendedApi } from '../services/api';
+import { voicePrintApi, voicePrintExtendedApi } from '../services/api';
 
+/* ────── Main Component: 声纹管理（管理所有已注册声纹） ────── */
 export default function VoicePrintSettings() {
     const { t, i18n } = useTranslation();
+    const queryClient = useQueryClient();
     const isChinese = i18n.language?.startsWith('zh');
     const user = useAuthStore(s => s.user);
 
-    const [status, setStatus] = useState<any>(null);
-    const [voicePrints, setVoicePrints] = useState<any[]>([]);
-    const [loading, setLoading] = useState(false);
     const [msg, setMsg] = useState('');
-    const [isRecording, setIsRecording] = useState(false);
-    const [recordingTarget, setRecordingTarget] = useState<'register' | 'verify' | null>(null);
-    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-    const audioChunksRef = useRef<Blob[]>([]);
-    const streamRef = useRef<MediaStream | null>(null);
-    const lastRecordingRef = useRef<Blob | null>(null);
+    const [msgType, setMsgType] = useState<'success' | 'error' | 'info'>('info');
+    const [searchTerm, setSearchTerm] = useState('');
+    const [selectedVp, setSelectedVp] = useState<any>(null);
 
-    const showMsg = (text: string) => { setMsg(text); setTimeout(() => setMsg(''), 4000); };
-
-    const fetchStatus = async () => {
-        setLoading(true);
-        try {
-            const s = await voicePrintExtendedApi.getStatus();
-            setStatus(s);
-            const list = await voicePrintExtendedApi.list();
-            setVoicePrints(list || []);
-        } catch (e: any) {
-            showMsg(e.message || 'Failed to load status');
-        }
-        setLoading(false);
+    const showMsg = (text: string, type: 'success' | 'error' | 'info' = 'info') => {
+        setMsg(text);
+        setMsgType(type);
+        setTimeout(() => setMsg(''), 5000);
     };
 
-    const startRecording = async (target: 'register' | 'verify') => {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: { sampleRate: 16000, channelCount: 1 } });
-            streamRef.current = stream;
-            const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
-            const mr = new MediaRecorder(stream, { mimeType });
-            mediaRecorderRef.current = mr;
-            audioChunksRef.current = [];
+    // 查询所有声纹列表
+    const { data: voicePrints = [], isLoading, refetch } = useQuery({
+        queryKey: ['all-voiceprints'],
+        queryFn: async () => {
+            try {
+                const list = await voicePrintApi.list();
+                return list || [];
+            } catch {
+                return [];
+            }
+        },
+        refetchInterval: 30000,
+    });
 
-            mr.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
-            mr.onstop = () => {
-                const blob = new Blob(audioChunksRef.current, { type: mr.mimeType });
-                lastRecordingRef.current = blob;
-                setIsRecording(false);
-                setRecordingTarget(null);
-                if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
-            };
+    // 查询服务状态
+    const { data: serviceStatus } = useQuery({
+        queryKey: ['voiceprint-service-status'],
+        queryFn: async () => {
+            try {
+                return await voicePrintExtendedApi.getStatus();
+            } catch {
+                return { available: false };
+            }
+        },
+        refetchInterval: 60000,
+    });
 
-            mr.start(100);
-            setIsRecording(true);
-            setRecordingTarget(target);
-        } catch (err: any) {
-            showMsg(err.name === 'NotAllowedError' ? (isChinese ? '麦克风权限被拒绝' : 'Microphone permission denied') : (isChinese ? '无法访问麦克风' : 'Cannot access microphone'));
+    // 判断是否是管理员（可以管理所有声纹）
+    const isAdmin = user?.role === 'org_admin' || user?.identity === ('CHAIRMAN' as any) || user?.access_level === 'FULL';
+
+    // 过滤声纹列表
+    const filteredPrints = voicePrints.filter((vp: any) => {
+        if (!searchTerm) return true;
+        const name = vp.name || vp.speaker_id || '';
+        return name.toLowerCase().includes(searchTerm.toLowerCase());
+    });
+
+    // 根据权限过滤：非管理员只能看自己的
+    const visiblePrints = isAdmin
+        ? filteredPrints
+        : filteredPrints.filter((vp: any) =>
+            vp.speaker_id === user?.id || vp.speaker_id === user?.username || vp.user_id === user?.id
+        );
+
+    // 删除声纹
+    const deleteMutation = useMutation({
+        mutationFn: async (id: string) => {
+            return voicePrintApi.delete(id);
+        },
+        onSuccess: () => {
+            showMsg(isChinese ? '声纹已删除' : 'Voice print deleted', 'success');
+            setSelectedVp(null);
+            queryClient.invalidateQueries({ queryKey: ['all-voiceprints'] });
+        },
+        onError: (e: any) => {
+            showMsg(e.message || (isChinese ? '删除失败' : 'Delete failed'), 'error');
+        },
+    });
+
+    // 更新声纹状态
+    const updateMutation = useMutation({
+        mutationFn: async ({ id, data }: { id: string; data: any }) => {
+            return voicePrintApi.update(id, data);
+        },
+        onSuccess: () => {
+            showMsg(isChinese ? '声纹状态已更新' : 'Voice print updated', 'success');
+            queryClient.invalidateQueries({ queryKey: ['all-voiceprints'] });
+        },
+        onError: (e: any) => {
+            showMsg(e.message || (isChinese ? '更新失败' : 'Update failed'), 'error');
+        },
+    });
+
+    const handleDelete = (vp: any) => {
+        if (!confirm(isChinese ? `确定删除声纹 "${vp.name || vp.speaker_id}"？` : `Delete voice print "${vp.name || vp.speaker_id}"?`)) {
+            return;
         }
+        deleteMutation.mutate(vp.id || vp.speaker_id);
     };
 
-    const stopRecording = () => {
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-            mediaRecorderRef.current.stop();
-        }
-    };
-
-    const handleRegister = async () => {
-        if (!lastRecordingRef.current || !user) return;
-        setLoading(true);
-        try {
-            const speakerId = user.id || user.username || 'unknown';
-            await voicePrintExtendedApi.register(lastRecordingRef.current, speakerId, user.display_name || user.username);
-            showMsg(isChinese ? '声纹注册成功' : 'Voice print registered');
-            lastRecordingRef.current = null;
-            fetchStatus();
-        } catch (e: any) {
-            showMsg(e.message || 'Registration failed');
-        }
-        setLoading(false);
-    };
-
-    const handleVerify = async () => {
-        if (!lastRecordingRef.current || !user) return;
-        setLoading(true);
-        try {
-            const speakerId = user.id || user.username || 'unknown';
-            const result = await voicePrintExtendedApi.verify(lastRecordingRef.current, speakerId);
-            const score = result?.score ?? result?.data?.score ?? 0;
-            const accepted = result?.accepted ?? result?.data?.accepted ?? score >= 0.7;
-            showMsg(accepted
-                ? (isChinese ? `验证通过（置信度: ${(score * 100).toFixed(1)}%）` : `Verified (score: ${(score * 100).toFixed(1)}%)`)
-                : (isChinese ? `验证失败（置信度: ${(score * 100).toFixed(1)}%）` : `Verification failed (score: ${(score * 100).toFixed(1)}%)`));
-            lastRecordingRef.current = null;
-        } catch (e: any) {
-            showMsg(e.message || 'Verification failed');
-        }
-        setLoading(false);
+    const handleToggleActive = (vp: any) => {
+        const newStatus = vp.status === 'active' ? 'inactive' : 'active';
+        updateMutation.mutate({
+            id: vp.id || vp.speaker_id,
+            data: { status: newStatus },
+        });
     };
 
     return (
-        <div style={{ padding: 24, maxWidth: 600, margin: '0 auto' }}>
-            <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>
-                {isChinese ? '🎤 声纹管理' : '🎤 Voice Print Settings'}
-            </h2>
+        <div style={{ padding: 24, maxWidth: 900, margin: '0 auto' }}>
+            {/* Header */}
+            <div style={{
+                borderRadius: 16,
+                padding: 20,
+                background: 'linear-gradient(135deg, rgba(59,130,246,0.12), rgba(12,18,28,0.84))',
+                border: '1px solid rgba(255,255,255,0.08)',
+                marginBottom: 20,
+            }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div>
+                        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>
+                            🎤 {isChinese ? '声纹管理' : 'Voice Print Management'}
+                        </h1>
+                        <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '8px 0 0' }}>
+                            {isAdmin
+                                ? (isChinese ? '管理所有已注册的声纹记录' : 'Manage all registered voice prints')
+                                : (isChinese ? '管理您的个人声纹记录' : 'Manage your personal voice prints')}
+                        </p>
+                    </div>
+                    <div style={{
+                        padding: '8px 14px',
+                        borderRadius: 8,
+                        background: serviceStatus?.available ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)',
+                        color: serviceStatus?.available ? 'var(--success)' : 'var(--error)',
+                        fontSize: 12,
+                        fontWeight: 500,
+                    }}>
+                        {serviceStatus?.available
+                            ? (isChinese ? '✅ 服务正常' : '✅ Service OK')
+                            : (isChinese ? '❌ 服务异常' : '❌ Service Down')}
+                    </div>
+                </div>
+            </div>
 
+            {/* 消息提示 */}
             {msg && (
-                <div style={{ padding: '8px 12px', borderRadius: 6, marginBottom: 12, fontSize: 12, background: msg.includes('成功') || msg.includes('通过') || msg.includes('Verified') ? 'rgba(0,180,120,0.12)' : 'rgba(255,80,80,0.12)', color: msg.includes('成功') || msg.includes('通过') || msg.includes('Verified') ? 'var(--success)' : 'var(--error)' }}>
+                <div style={{
+                    padding: '10px 14px',
+                    borderRadius: 8,
+                    marginBottom: 16,
+                    fontSize: 13,
+                    background: msgType === 'success' ? 'rgba(16,185,129,0.12)' : msgType === 'error' ? 'rgba(239,68,68,0.12)' : 'rgba(59,130,246,0.12)',
+                    color: msgType === 'success' ? 'var(--success)' : msgType === 'error' ? 'var(--error)' : 'var(--accent)',
+                    border: `1px solid ${msgType === 'success' ? 'rgba(16,185,129,0.2)' : msgType === 'error' ? 'rgba(239,68,68,0.2)' : 'rgba(59,130,246,0.2)'}`,
+                }}>
                     {msg}
                 </div>
             )}
 
-            <button onClick={fetchStatus} disabled={loading} className="btn btn-primary" style={{ marginBottom: 16, fontSize: 12 }}>
-                {loading ? '...' : (isChinese ? '查询声纹状态' : 'Check Status')}
-            </button>
-
-            {status && (
-                <div style={{ padding: 12, borderRadius: 8, background: 'var(--bg-secondary)', marginBottom: 16, fontSize: 12 }}>
-                    <div>{isChinese ? '已注册声纹数' : 'Registered prints'}: {status.count ?? status.total ?? voicePrints.length}</div>
-                    <div>{isChinese ? '服务状态' : 'Service'}: {status.available ? '✅' : '❌'}</div>
+            {/* 统计信息 */}
+            <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, 1fr)',
+                gap: 12,
+                marginBottom: 20,
+            }}>
+                <div style={{
+                    padding: 14,
+                    borderRadius: 10,
+                    background: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-subtle)',
+                }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+                        {isChinese ? '总声纹数' : 'Total Voice Prints'}
+                    </div>
+                    <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--text-primary)', marginTop: 4 }}>
+                        {visiblePrints.length}
+                    </div>
                 </div>
-            )}
-
-            {/* 注册声纹 */}
-            <div style={{ padding: 16, borderRadius: 8, border: '1px solid var(--border-subtle)', marginBottom: 12 }}>
-                <h3 style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>{isChinese ? '注册声纹' : 'Register Voice Print'}</h3>
-                <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 8 }}>{isChinese ? '录制3-5秒语音样本进行声纹注册' : 'Record 3-5 seconds for voice print registration'}</p>
-                <div style={{ display: 'flex', gap: 8 }}>
-                    <button
-                        onMouseDown={() => startRecording('register')}
-                        onMouseUp={stopRecording}
-                        onTouchStart={() => startRecording('register')}
-                        onTouchEnd={stopRecording}
-                        disabled={isRecording && recordingTarget !== 'register'}
-                        style={{ padding: '6px 12px', borderRadius: 6, border: isRecording && recordingTarget === 'register' ? '2px solid var(--error)' : '1px solid var(--border-subtle)', background: isRecording && recordingTarget === 'register' ? 'rgba(255,80,80,0.15)' : 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 12, cursor: 'pointer' }}
-                    >
-                        {isRecording && recordingTarget === 'register' ? '⏹ 停止' : '🎤 录制'}
-                    </button>
-                    {lastRecordingRef.current && recordingTarget === null && (
-                        <button onClick={handleRegister} disabled={loading} className="btn btn-primary" style={{ fontSize: 12 }}>
-                            {isChinese ? '提交注册' : 'Submit'}
-                        </button>
-                    )}
+                <div style={{
+                    padding: 14,
+                    borderRadius: 10,
+                    background: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-subtle)',
+                }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+                        {isChinese ? '活跃声纹' : 'Active Prints'}
+                    </div>
+                    <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--success)', marginTop: 4 }}>
+                        {visiblePrints.filter((vp: any) => vp.status === 'active').length}
+                    </div>
                 </div>
-            </div>
-
-            {/* 验证声纹 */}
-            <div style={{ padding: 16, borderRadius: 8, border: '1px solid var(--border-subtle)', marginBottom: 12 }}>
-                <h3 style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>{isChinese ? '验证声纹' : 'Verify Voice Print'}</h3>
-                <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 8 }}>{isChinese ? '录制语音验证声纹是否匹配' : 'Record to verify voice print match'}</p>
-                <div style={{ display: 'flex', gap: 8 }}>
-                    <button
-                        onMouseDown={() => startRecording('verify')}
-                        onMouseUp={stopRecording}
-                        onTouchStart={() => startRecording('verify')}
-                        onTouchEnd={stopRecording}
-                        disabled={isRecording && recordingTarget !== 'verify'}
-                        style={{ padding: '6px 12px', borderRadius: 6, border: isRecording && recordingTarget === 'verify' ? '2px solid var(--error)' : '1px solid var(--border-subtle)', background: isRecording && recordingTarget === 'verify' ? 'rgba(255,80,80,0.15)' : 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 12, cursor: 'pointer' }}
-                    >
-                        {isRecording && recordingTarget === 'verify' ? '⏹ 停止' : '🎤 录制'}
-                    </button>
-                    {lastRecordingRef.current && recordingTarget === null && (
-                        <button onClick={handleVerify} disabled={loading} className="btn btn-primary" style={{ fontSize: 12 }}>
-                            {isChinese ? '验证' : 'Verify'}
-                        </button>
-                    )}
+                <div style={{
+                    padding: 14,
+                    borderRadius: 10,
+                    background: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-subtle)',
+                }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+                        {isChinese ? '服务状态' : 'Service Status'}
+                    </div>
+                    <div style={{ fontSize: 18, fontWeight: 600, color: serviceStatus?.available ? 'var(--success)' : 'var(--error)', marginTop: 6 }}>
+                        {serviceStatus?.available ? (isChinese ? '正常' : 'OK') : (isChinese ? '异常' : 'Error')}
+                    </div>
                 </div>
             </div>
 
-            {/* 已注册声纹列表 */}
-            {voicePrints.length > 0 && (
-                <div style={{ padding: 12, borderRadius: 8, background: 'var(--bg-secondary)', fontSize: 12 }}>
-                    <h4 style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>{isChinese ? '已注册声纹' : 'Registered Prints'}</h4>
-                    {voicePrints.map((vp, i) => (
-                        <div key={i} style={{ padding: '6px 0', borderBottom: '1px solid var(--border-subtle)' }}>
-                            {vp.name || vp.speaker_id || `Voice Print ${i + 1}`}
-                            {vp.created_at && <span style={{ color: 'var(--text-tertiary)', marginLeft: 8 }}>{new Date(vp.created_at).toLocaleDateString()}</span>}
-                        </div>
-                    ))}
+            {/* 搜索栏 */}
+            <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+                <input
+                    type="text"
+                    value={searchTerm}
+                    onChange={e => setSearchTerm(e.target.value)}
+                    placeholder={isChinese ? '搜索声纹名称...' : 'Search voice prints...'}
+                    style={{
+                        flex: 1,
+                        padding: '10px 14px',
+                        fontSize: 13,
+                        background: 'var(--bg-secondary)',
+                        color: 'var(--text-primary)',
+                        border: '1px solid var(--border-default)',
+                        borderRadius: 8,
+                        outline: 'none',
+                    }}
+                />
+                <button
+                    onClick={() => refetch()}
+                    className="btn btn-secondary"
+                    style={{ fontSize: 13 }}
+                >
+                    {isChinese ? '刷新' : 'Refresh'}
+                </button>
+            </div>
+
+            {/* 声纹列表 */}
+            <div style={{
+                borderRadius: 12,
+                border: '1px solid var(--border-subtle)',
+                overflow: 'hidden',
+            }}>
+                <div style={{
+                    padding: '12px 16px',
+                    background: 'rgba(255,255,255,0.03)',
+                    borderBottom: '1px solid var(--border-subtle)',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                }}>
+                    <h3 style={{ margin: 0, fontSize: 14, fontWeight: 500, color: 'var(--text-secondary)' }}>
+                        {isChinese ? '声纹列表' : 'Voice Print List'}
+                    </h3>
+                    <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
+                        {visiblePrints.length} {isChinese ? '条记录' : 'records'}
+                    </span>
                 </div>
-            )}
+
+                {isLoading ? (
+                    <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
+                        {isChinese ? '加载中...' : 'Loading...'}
+                    </div>
+                ) : visiblePrints.length === 0 ? (
+                    <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
+                        {isChinese ? '暂无声纹记录' : 'No voice prints found'}
+                    </div>
+                ) : (
+                    <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+                        {visiblePrints.map((vp: any, i: number) => (
+                            <div
+                                key={vp.id || i}
+                                style={{
+                                    padding: '12px 16px',
+                                    borderBottom: i < visiblePrints.length - 1 ? '1px solid var(--border-subtle)' : 'none',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 12,
+                                    transition: 'background 0.15s',
+                                }}
+                                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--bg-hover)'; }}
+                                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                            >
+                                <div style={{
+                                    width: 40,
+                                    height: 40,
+                                    borderRadius: 10,
+                                    background: 'var(--bg-tertiary)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    fontSize: 18,
+                                    color: 'var(--text-tertiary)',
+                                }}>
+                                    🎤
+                                </div>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>
+                                        {vp.name || vp.speaker_id || `Voice Print ${i + 1}`}
+                                    </div>
+                                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>
+                                        {vp.description || vp.speaker_id || '-'}
+                                        {vp.created_at && (
+                                            <span style={{ marginLeft: 8 }}>
+                                                {isChinese ? '注册: ' : 'Created: '}{new Date(vp.created_at).toLocaleDateString()}
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                                <span style={{
+                                    padding: '4px 10px',
+                                    borderRadius: 6,
+                                    fontSize: 11,
+                                    fontWeight: 500,
+                                    background: vp.status === 'active' ? 'rgba(16,185,129,0.12)' : 'rgba(107,114,128,0.12)',
+                                    color: vp.status === 'active' ? 'var(--success)' : 'var(--text-tertiary)',
+                                }}>
+                                    {vp.status === 'active' ? (isChinese ? '活跃' : 'Active') : (isChinese ? '停用' : 'Inactive')}
+                                </span>
+                                <button
+                                    onClick={() => handleToggleActive(vp)}
+                                    className="btn btn-ghost"
+                                    style={{ fontSize: 11, padding: '4px 8px' }}
+                                    title={vp.status === 'active' ? (isChinese ? '停用' : 'Disable') : (isChinese ? '启用' : 'Enable')}
+                                >
+                                    {vp.status === 'active' ? '⏸' : '▶️'}
+                                </button>
+                                <button
+                                    onClick={() => handleDelete(vp)}
+                                    className="btn btn-ghost"
+                                    style={{ fontSize: 11, padding: '4px 8px', color: 'var(--error)' }}
+                                    title={isChinese ? '删除' : 'Delete'}
+                                >
+                                    🗑️
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            {/* 权限说明 */}
+            <div style={{
+                marginTop: 16,
+                padding: 12,
+                borderRadius: 8,
+                background: 'rgba(59,130,246,0.06)',
+                border: '1px solid rgba(59,130,246,0.15)',
+                fontSize: 12,
+                color: 'var(--text-secondary)',
+            }}>
+                {isAdmin
+                    ? (isChinese ? '💡 您是管理员，可以管理所有声纹记录' : '💡 You are admin and can manage all voice prints')
+                    : (isChinese ? '💡 您只能管理自己的声纹记录' : '💡 You can only manage your own voice prints')}
+            </div>
         </div>
     );
 }

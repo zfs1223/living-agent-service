@@ -205,7 +205,8 @@ public class VoicePrintController {
         VoicePrintStatusResponse response = new VoicePrintStatusResponse(
                 speakerVerificationService.isEnabled(),
                 speakerVerificationService.isUseRemote(),
-                speakerVerificationService.getThreshold()
+                speakerVerificationService.getThreshold(),
+                speakerVerificationService.isEnabled() // available字段与enabled一致
         );
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
@@ -254,7 +255,8 @@ public class VoicePrintController {
     public record VoicePrintStatusResponse(
             boolean enabled,
             boolean useRemote,
-            double threshold
+            double threshold,
+            boolean available
     ) {}
 
     public record VoicePrintInfo(

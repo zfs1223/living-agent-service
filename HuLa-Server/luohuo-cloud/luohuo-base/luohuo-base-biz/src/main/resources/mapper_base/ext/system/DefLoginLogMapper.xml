@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.luohuo.flex.base.mapper.system.DefLoginLogMapper">
+
+    <delete id="clearLog" parameterType="map">
+        delete from def_login_log
+        <trim prefix="WHERE" prefixOverrides="AND | OR">
+            <if test="clearBeforeTime != null">
+                AND create_time <![CDATA[ <= ]]> #{clearBeforeTime}
+            </if>
+            <if test="idList != null and idList.size() > 0">
+                AND id NOT in
+                <foreach close=")" collection="idList" item="id" open="(" separator=",">
+                    #{id}
+                </foreach>
+            </if>
+        </trim>
+    </delete>
+
+    <select id="selectUserCountWithMinLogins" resultType="long">
+        SELECT COUNT(*) FROM (
+        SELECT employee_id AS uid, COUNT(*) AS total
+        FROM def_login_log
+        <trim prefix="WHERE" prefixOverrides="AND | OR">
+            AND status = '01'
+            <if test="start != null">
+                AND login_date <![CDATA[ >= ]]> #{start}
+            </if>
+            <if test="end != null">
+                AND login_date <![CDATA[ <= ]]> #{end}
+            </if>
+        </trim>
+        GROUP BY employee_id
+        HAVING COUNT(*) <![CDATA[ >= ]]> #{minTimes}
+        ) t
+    </select>
+
+    <select id="selectLoginCountBetween" resultType="com.luohuo.flex.base.service.system.dto.LoginCountDTO">
+        SELECT employee_id AS uid, COUNT(*) AS total
+        FROM def_login_log
+        <trim prefix="WHERE" prefixOverrides="AND | OR">
+            AND status = '01'
+            <if test="start != null">
+                AND login_date <![CDATA[ >= ]]> #{start}
+            </if>
+            <if test="end != null">
+                AND login_date <![CDATA[ <= ]]> #{end}
+            </if>
+        </trim>
+        GROUP BY employee_id
+        ORDER BY total DESC
+        <if test="limit != null">
+            LIMIT #{limit}
+        </if>
+    </select>
+
+</mapper>

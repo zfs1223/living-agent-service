@@ -163,11 +163,11 @@ LLM 是整个系统的"灵魂"。除闲聊使用固定的轻量模型外，所�
 
 ### 工具执行
 
-工具调用不走独立的"工具神经元"，而是由大脑层的 `BrainReActEngine` 驱动 ReAct 循环——LLM 自主决定调用哪个工具、传入什么参数，然后由对应的数字员工在 Java 端执行具体的 Tool 实现。76 个技能定义了工具的能力边界和使用规范，数字员工在编制约束下完成实际执行。`Qwen3.5-2B` 作为本地轻量模型保留为兜底备用，在模型池所有模型不可用时提供降级响应能力。
+工具调用不走独立的"工具神经元"，而是由大脑层的 `BrainReActEngine` 驱动 ReAct 循环——LLM 自主决定调用哪个工具、传入什么参数，然后由对应的数字员工在 Java 端执行具体的 Tool 实现。89 个技能定义了工具的能力边界和使用规范，数字员工在编制约束下完成实际执行。`Qwen3.5-2B` 作为本地轻量模型保留为兜底备用，在模型池所有模型不可用时提供降级响应能力。
 
 ---
 
-## 九大部门大脑 · 76 个技能 · 32 个数字员工
+## 九大部门大脑 · 89 个技能 · 32 个数字员工
 
 ### 部门大脑
 
@@ -175,10 +175,11 @@ LLM 是整个系统的"灵魂"。除闲聊使用固定的轻量模型外，所�
 
 | 部门大脑 | 技能数 | 核心能力 |
 |---------|--------|---------|
-| **TechBrain** (技术部) | 25 | 代码审查、架构设计、CI/CD、浏览器自动化、Docker、前端设计、LangGraph、RAG、MCP 构建 |
-| **AdminBrain** (行政部) | 15 | 公文写作 (docx/pptx/xlsx)、品牌规范、内部通讯、Slack/钉钉/飞书/Discord/Notion 集成 |
+| **MainBrain** (主脑) | 12 | DBS方法论内化（战略部署/问题解决/VOC/标准作业/VSM/Kaizen/员工分派/人才发展/可视化管理/TPI/5S/PDCA）|
+| **TechBrain** (技术部) | 27 | 代码审查、架构设计、CI/CD、浏览器自动化、Docker、前端设计、LangGraph、RAG、MCP 构建 |
+| **AdminBrain** (行政部) | 16 | 公文写作 (docx/pptx/xlsx)、品牌规范、内部通讯、Slack/钉钉/飞书/Discord/Notion 集成 |
+| **OpsBrain** (运营部) | 12 | 定时任务、数据聚合、周报生成、项目风险监控、入职自动化、合同监控、智能家居、工作流编排 |
 | **CoreBrain** (核心层) | 10 | Tavily 搜索、知识图谱、主动代理、模式预判、风险预判、事件通知、自我改进 |
-| **OpsBrain** (运营部) | 9 | 定时任务、数据聚合、周报生成、项目风险监控、入职自动化、合同监控、智能家居 |
 | **SalesBrain** (销售部) | 4 | 销售自动化、CRM 集成、SEO 审计、头脑风暴 |
 | **FinanceBrain** (财务部) | 4 | 账单自动化、预算管理、发票处理、财务 API 网关 |
 | **HrBrain** (人力资源部) | 3 | HR 专业助手、招聘自动化、绩效管理 |
@@ -217,7 +218,7 @@ LLM 是整个系统的"灵魂"。除闲聊使用固定的轻量模型外，所�
 
 ## 闭环体系
 
-系统建立了 65 个闭环的四层验证架构，确保从流程正确性到用户业务的每个环节都有完整的 input→processing→output→feedback→improvement 链路。
+系统建立了 67 个闭环的四层验证架构，确保从流程正确性到用户业务的每个环节都有完整的 input→processing→output→feedback→improvement 链路。
 
 | 层级 | 闭环数 | 关注点 | 示例 |
 |------|--------|--------|------|
@@ -225,9 +226,11 @@ LLM 是整个系统的"灵魂"。除闲聊使用固定的轻量模型外，所�
 | **L2 覆盖完整性** | 10 | 被遗漏的支撑流程闭环 | 前端交互、DB持久化、Rust JNI、Python守护进程 |
 | **L2 业务** | 1 | 业务层跨模块闭环 | Claude CLI工具闭环 |
 | **L3 生命体自洽** | 14 | 无需人工+兼容人工的自洽生命智能体 | 自愈、经济自治、降级链路、执行回执、固定员工SOP |
-| **L4 用户业务** | 26 | 用户可感知的业务功能生命周期 | 认证、项目管理、技能管理、预算、绩效考核 |
+| **L4 用户业务** | 28 | 用户可感知的业务功能生命周期 | 认证、项目管理、技能管理、预算、绩效考核、人类员工汇报、客户价值指标 |
 
 所有闭环均为 ✅ 完整闭环，已通过代码逐环节核验。主脑六步决策法（意图识别→路由决策→需求就绪评估→任务规划→员工分派→执行与交付）贯穿 L1-L4 全链路。核心决策链路遵循 **LLM-first / Rule-fallback** 原则——LLM 自主决策优先，规则降级兜底。
+
+主脑内化 DBS 方法论为 12 个专属技能（P0/P1/P2 三个优先级），实现"方法→技能→进化"三层架构，驱动系统级持续改善。
 
 ---
 
@@ -324,7 +327,12 @@ WebSocket 层基于 Spring Boot WebSocket（纯 JSON 协议）构建，支持 4 
 
 ## 技能系统
 
-76 个技能以声明式 SKILL.md 文件定义（YAML frontmatter 格式），支持热重载和安全审查。
+89 个技能以声明式 SKILL.md 文件定义（YAML frontmatter 格式），支持热重载和安全审查。
+
+技能分为三类：
+- **核心技能 (10)** — 每个神经元必备的基础能力（搜索、知识图谱、主动代理、预判器等）
+- **主脑专属技能 (12)** — DBS 方法论内化技能，不对部门大脑开放（战略部署、问题解决、VOC、标准作业、VSM、Kaizen、员工分派、人才发展、可视化管理、TPI、5S、PDCA）
+- **部门技能 (67)** — 各部门专属技能（技术部27、行政部16、运营部12、销售部4、财务部4、人力资源部3、客服部3、法务部3）
 
 `SkillLoader` 扫描三个来源（内置 `resources/skills`、配置 `config/skills`、数据 `data/skills`），解析 frontmatter 后经 `SkillVetter` 安全审查。`SkillHotReloader` 使用 Java `WatchService` 监听文件变更，1 秒去抖后自动重新注册。`SkillBindingService` 管理技能与神经元的绑定关系，核心技能（`tavily-search`、`find-skills`、`proactive-agent`、`weather`）自动绑定到每个神经元。
 
@@ -445,16 +453,17 @@ living-agent-service/
 │   ├── text/                    #   TextNeuron (文本预处理)
 │   └── sensor/                  #   PerceptionSensorNeuron (WiFi CSI 感知)
 │
-├── living-agent-skill/          # 技能系统 — 76 个技能
+├── living-agent-skill/          # 技能系统 — 89 个技能
 │   ├── loader/                  #   SkillLoader (YAML frontmatter 解析)
 │   ├── hotreload/               #   SkillHotReloader (WatchService 热重载)
 │   ├── registry/                #   SkillRegistryImpl (三来源注册)
 │   ├── service/                 #   SkillBindingService, SkillService
 │   └── resources/skills/        #   技能定义文件
 │       ├── core/     (10)       #   搜索、知识图谱、主动代理、预判器...
-│       ├── tech/     (25)       #   代码审查、架构、CI/CD、Docker、HF...
-│       ├── admin/    (15)       #   docx/pptx/xlsx、飞书、Slack、Notion...
-│       ├── ops/      (9)        #   定时任务、数据聚合、周报、风险监控...
+│       ├── mainbrain/(12)       #   DBS技能（战略部署/问题解决/VOC/标准作业/VSM/Kaizen/员工分派/人才发展/可视化管理/TPI/5S/PDCA）
+│       ├── tech/     (27)       #   代码审查、架构、CI/CD、Docker、HF...
+│       ├── admin/    (16)       #   docx/pptx/xlsx、飞书、Slack、Notion...
+│       ├── ops/      (12)       #   定时任务、数据聚合、周报、风险监控...
 │       ├── sales/    (4)        #   CRM、SEO、销售自动化、头脑风暴
 │       ├── finance/  (4)        #   账单、预算、发票、API 网关
 │       ├── hr/       (3)        #   HR 助手、招聘、绩效
@@ -590,8 +599,10 @@ npm run build
 | 文档 | 说明 |
 |------|------|
 | [代码结构与文件指南](docs/CODE_STRUCTURE_AND_FILE_GUIDE.md) | 全量代码结构、文件功能、模块关系 |
-| [闭环改进方案索引](docs/IMPROVEMENT_PLAN_INDEX.md) | 65 个闭环四层架构(L1-L4)验证与改进 |
+| [闭环改进方案索引](docs/IMPROVEMENT_PLAN_INDEX.md) | 67 个闭环四层架构(L1-L4)验证与改进 |
+| [闭环关联流程图](docs/LOOP_RELATIONSHIP_FLOW_DIAGRAMS.md) | 闭环关联关系图与 DBS 技能映射 |
 | [权限与入口矩阵](docs/权限与入口矩阵.md) | 登录/身份/通道/语音/流程/审计统一规则 |
+| [DBS 改进计划](docs/DBS_IMPROVEMENT_PLAN.md) | DBS 方法论改进计划（12技能+14代码项） |
 | [核心架构设计](docs/core/02-core-architecture.md) | 整体架构与模块设计 |
 | [主脑执行规则](docs/core/MAINBRAIN_EXECUTION_RULES.md) | 六步决策法与 LLM-first 降级规则 |
 | [员工模型](docs/core/03-employee-model.md) | 统一员工模型（人类+数字） |
@@ -604,7 +615,7 @@ npm run build
 
 ## 路线图
 
-**已完成** — 65 个闭环全部完整（L1 流程正确性 14 + L2 覆盖完整性 10 + L2 业务 1 + L3 生命体自洽 14 + L4 用户业务 26），LLM 模型池自主决策，九大部门大脑，76 个技能，神经元通信系统，自主进化引擎，主动预判，Rust 原生组件，统一员工模型，32 个固定数字员工，WebSocket 实时通信，企业集成（飞书/Jenkins/GitLab/OpenProject），Claude CLI 代理，WiFi 物理感知，Windows 桌面应用自动化，桌面客户端，智能前台架构（model_daemon.py 独立服务 + 5 个公共工具），语音对话闭环（ASR→LLM→TTS），声纹识别（CAM++ + 声纹登录），固定员工禁止直连防护。
+**已完成** — 67 个闭环全部完整（L1 流程正确性 14 + L2 覆盖完整性 10 + L2 业务 1 + L3 生命体自洽 14 + L4 用户业务 28），LLM 模型池自主决策，十大部门大脑（含 MainBrain），89 个技能（含 12 个主脑 DBS 技能），神经元通信系统，自主进化引擎，主动预判，Rust 原生组件，统一员工模型，32 个固定数字员工，WebSocket 实时通信，企业集成（飞书/Jenkins/GitLab/OpenProject），Claude CLI 代理，WiFi 物理感知，Windows 桌面应用自动化，桌面客户端，智能前台架构（model_daemon.py 独立服务 + 5 个公共工具），语音对话闭环（ASR→LLM→TTS），声纹识别（CAM++ + 声纹登录），固定员工禁止直连防护，DBS 方法论内化（"方法→技能→进化"三层架构），员工类型区分机制（fixed/human/personal），能力等级体系（NOVICE→BLACK_BELT），客户价值指标（VOC 聚合 + Net Value Score），TPI 流程效率度量，5S 审计器，日常管理看板+数字站会，分级熔断策略，5Ps 对齐评估。
 
 **进行中** — 多租户联邦架构设计、边缘部署优化、联邦学习。
 

@@ -8,7 +8,7 @@ import { existsSync } from 'fs';
 import { writeFile, readFile, mkdir } from 'fs/promises';
 import { join, dirname } from 'path';
 import { loadToken, saveToken, clearToken } from './auth';
-import { getBackendUrl, setBackendUrl, loadBackendUrl, isBackendConfigured, getPublicTasks, claimTask, getMyCredits, listMyVisibleArtifacts, downloadArtifact, sendSmsCode, phoneLogin, getCurrentUser, getApprovalList, getApprovalDetail, approveApproval, rejectApproval, cancelApproval, getMessages, markMessageRead, markAllMessagesRead, getUnreadCount, listAgents, getAgent, startAgent, stopAgent, listInterventions, respondIntervention, escalateIntervention, listSkills, browseSkills, bindSkill, unbindSkill, getProactiveDigest, listHabits, listProactiveNotifications, listPosts, createPost, likePost, getPlazaStats } from './api-client';
+import { getBackendUrl, setBackendUrl, loadBackendUrl, isBackendConfigured, getPublicTasks, claimTask, getMyCredits, listMyVisibleArtifacts, downloadArtifact, sendSmsCode, phoneLogin, getCurrentUser, getApprovalList, getApprovalDetail, approveApproval, rejectApproval, cancelApproval, getMessages, markMessageRead, markAllMessagesRead, getUnreadCount, listAgents, getAgent, startAgent, stopAgent, createAgent, listInterventions, respondIntervention, escalateIntervention, listSkills, browseSkills, bindSkill, unbindSkill, getProactiveDigest, listHabits, listProactiveNotifications, listPosts, createPost, likePost, getPlazaStats } from './api-client';
 import { loadConfig, saveConfig, getCachedConfig, resetCachedConfig } from './local-save-config';
 import { localSaveSync, triggerSync, openLocalSaveFolder, getLocalSaveStats } from './local-save-sync';
 import { refreshPendingCount, claimTopPriorityTask } from './task-board-tray';
@@ -16,10 +16,13 @@ import { showFloatingTaskBoard, hideFloatingTaskBoard, setFloatingExpanded } fro
 import { cacheVisibleTasks, loadCachedTasks, clearAllCache } from './task-board-cache';
 import { setNotificationConfig, getNotificationConfig } from './task-notification';
 import { notify } from './notifications';
-import { showMainWindow, hideMainWindow } from './window';
+import { showMainWindow, hideMainWindow, getMainWindow } from './window';
 import { getOrCreateClientId, getCachedClientId, resetClientId } from './client-id';
 import { winAutomationService } from './win-automation-service';
+import { operationRecorder } from './recorder-controller';
 import { wsClient } from './ws-client';
+import { showQuickView, hideQuickView, toggleQuickView, setQuickViewTyping, getQuickViewWindow } from './quick-view/quick-view-window';
+import { forwardMessageToMainWindow, forwardResponseToQuickView, syncDepartmentToQuickView, pushProactiveNotification, triggerScreenshot } from './quick-view/quick-view-controller';
 
 const IPC_CHANNELS: readonly string[] = [
   'backend:check', 'backend:get-url', 'backend:is-configured', 'backend:set-url',
@@ -34,14 +37,21 @@ const IPC_CHANNELS: readonly string[] = [
   'window:minimize-to-tray', 'window:show', 'window:quit',
   'app:version', 'app:platform', 'app:user-data-path', 'app:client-id', 'app:client-info', 'app:reset-client-id',
   'win-automation:start', 'win-automation:stop', 'win-automation:status', 'win-automation:execute',
+  'recorder:start', 'recorder:stop', 'recorder:pause', 'recorder:resume', 'recorder:status', 'recorder:set-note', 'recorder:skip-note',
   'approval:list', 'approval:detail', 'approval:approve', 'approval:reject', 'approval:cancel',
   'message:list', 'message:mark-read', 'message:mark-all-read', 'message:unread-count',
   'ws:connect', 'ws:disconnect', 'ws:switch-channel', 'ws:status', 'ws:send',
-  'agent:list', 'agent:get', 'agent:start', 'agent:stop',
+  'agent:list', 'agent:get', 'agent:start', 'agent:stop', 'agent:create',
   'intervention:list', 'intervention:respond', 'intervention:escalate',
   'skill:list', 'skill:browse', 'skill:bind', 'skill:unbind',
   'proactive:digest', 'proactive:habits', 'proactive:notifications',
-  'plaza:posts', 'plaza:create', 'plaza:like', 'plaza:stats'
+  'plaza:posts', 'plaza:create', 'plaza:like', 'plaza:stats',
+  // P2: 截图工具
+  'screenshot:capture-full', 'screenshot:capture-region', 'screenshot:apply-crop', 'screenshot:save-temp', 'screenshot:open-editor', 'screenshot:close-editor',
+  // P7: Quick View 悬浮对话
+  'quickview:show', 'quickview:hide', 'quickview:toggle', 'quickview:send', 'quickview:set-typing', 'quickview:switch-department', 'quickview:trigger-screenshot', 'quickview:open-in-main-window',
+  // P10: 语音输入
+  'voice-input:toggle'
 ];
 
 export function registerIpcHandlers(): void {
@@ -320,6 +330,55 @@ export function registerIpcHandlers(): void {
     }
   });
 
+  // ============ 操作录制（习惯录制） ============
+  ipcMain.handle('recorder:start', async (_e, config: { target_app: string; note_mode: string }) => {
+    try {
+      const result = await operationRecorder.start(config as { target_app: string; note_mode: 'all' | 'key' | 'summary' });
+      return result;
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('recorder:stop', async () => {
+    try {
+      const result = await operationRecorder.stop();
+      return { success: true, result };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('recorder:pause', async () => {
+    operationRecorder.pause();
+    return { success: true };
+  });
+
+  ipcMain.handle('recorder:resume', async () => {
+    operationRecorder.resume();
+    return { success: true };
+  });
+
+  ipcMain.handle('recorder:status', async () => {
+    return {
+      recording: operationRecorder.isRecording,
+      paused: operationRecorder.isPaused,
+      stepCount: operationRecorder.stepCount,
+      pendingNoteIndex: operationRecorder.pendingNoteIndex,
+      steps: operationRecorder.currentSteps
+    };
+  });
+
+  ipcMain.handle('recorder:set-note', async (_e, index: number, text: string) => {
+    operationRecorder.setNote(index, text);
+    return { success: true };
+  });
+
+  ipcMain.handle('recorder:skip-note', async () => {
+    operationRecorder.skipNote();
+    return { success: true };
+  });
+
   // ============ 审批 ============
   ipcMain.handle('approval:list', async (_e, status?: string) => {
     return getApprovalList(status);
@@ -411,6 +470,10 @@ export function registerIpcHandlers(): void {
     return stopAgent(id);
   });
 
+  ipcMain.handle('agent:create', async (_e, data: { name: string; description?: string; agent_type?: string; origin?: string }) => {
+    return createAgent(data);
+  });
+
   // ============ 干预决策 (P1-2) ============
   ipcMain.handle('intervention:list', async (_e, status?: string) => {
     return listInterventions(status);
@@ -469,6 +532,51 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle('plaza:stats', async () => {
     return getPlazaStats();
+  });
+
+  // ============ P7: Quick View 悬浮对话 ============
+  ipcMain.handle('quickview:show', async () => {
+    showQuickView();
+  });
+
+  ipcMain.handle('quickview:hide', async () => {
+    hideQuickView();
+  });
+
+  ipcMain.handle('quickview:toggle', async () => {
+    toggleQuickView();
+  });
+
+  ipcMain.handle('quickview:send', async (_e, data: { content: string; attachments?: any[]; metadata?: any }) => {
+    // 转发到主窗口 OfficeChatPage
+    forwardMessageToMainWindow(data);
+  });
+
+  ipcMain.handle('quickview:set-typing', async (_e, typing: boolean) => {
+    setQuickViewTyping(typing);
+  });
+
+  ipcMain.handle('quickview:switch-department', async (_e, department: string) => {
+    // 同步部门切换到主窗口
+    const mainWindow = getMainWindow();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('quickview:switch-department', { department });
+    }
+    // 同步到 Quick View
+    syncDepartmentToQuickView({ department, locked: false });
+  });
+
+  ipcMain.handle('quickview:trigger-screenshot', async () => {
+    triggerScreenshot();
+  });
+
+  ipcMain.handle('quickview:open-in-main-window', async () => {
+    // 显示主窗口并跳转到聊天页面
+    showMainWindow();
+    const mainWindow = getMainWindow();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('navigate', '/chat');
+    }
   });
 }
 

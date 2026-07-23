@@ -1,3 +1,11 @@
+---
+name: code-review
+description: "代码审查技能，自动化代码质量检查、安全漏洞扫描、最佳实践建议"
+risk: low
+source: ClawHub转换
+date_added: '2026-07-09'
+---
+
 # Code Review
 
 > 代码审查技能，自动化代码质量检查、安全漏洞扫描、最佳实践建议

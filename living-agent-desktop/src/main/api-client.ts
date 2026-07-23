@@ -395,23 +395,33 @@ export async function stopAgent(id: string): Promise<any> {
   return apiRequest<any>(`/api/agents/${encodeURIComponent(id)}/stop`, { method: 'POST' });
 }
 
+export async function createAgent(data: { name: string; role_description?: string; agent_type?: string; department?: string; skill_ids?: string[] }): Promise<any> {
+  return apiRequest<any>('/api/agents', { method: 'POST', body: JSON.stringify(data) });
+}
+
 // ─── Interventions (P1-2) ──────────────────────────────────
+// 干预功能：用于高风险操作的人工审批流程
+// - pending: 待处理的人工干预决策
+// - statistics: 干预统计数据
 export async function listInterventions(status?: string): Promise<any[]> {
-  const query = status ? `?status=${encodeURIComponent(status)}` : '';
-  return apiRequest<any[]>(`/api/interventions${query}`);
+  // 后端只有 /api/intervention/pending 端点，不支持按状态筛选
+  // 如果需要非 pending 状态的决策，返回空列表
+  if (status && status !== 'pending') {
+    return [];
+  }
+  return apiRequest<any[]>('/api/intervention/pending');
 }
 
 export async function respondIntervention(id: string, action: string, comment?: string): Promise<any> {
-  return apiRequest<any>(`/api/interventions/${encodeURIComponent(id)}/respond`, {
+  return apiRequest<any>(`/api/intervention/${encodeURIComponent(id)}/respond`, {
     method: 'POST',
-    body: JSON.stringify({ action, comment: comment || '' }),
+    body: JSON.stringify({ decision: action, respondedBy: 'desktop-user' }),
   });
 }
 
 export async function escalateIntervention(id: string, reason: string): Promise<any> {
-  return apiRequest<any>(`/api/interventions/${encodeURIComponent(id)}/escalate`, {
+  return apiRequest<any>(`/api/intervention/${encodeURIComponent(id)}/escalate`, {
     method: 'POST',
-    body: JSON.stringify({ reason }),
   });
 }
 

@@ -136,6 +136,23 @@ export interface LivingAgentAPI {
       Promise<{ success: boolean; result?: unknown; error?: string }>;
   };
 
+  /* ============ 习惯录制 ============ */
+  recorder: {
+    start: (config: { targetApp: string; noteMode: string }) => Promise<{ success: boolean; error?: string }>;
+    stop: () => Promise<{ success: boolean; result?: unknown; error?: string }>;
+    pause: () => Promise<{ success: boolean }>;
+    resume: () => Promise<{ success: boolean }>;
+    status: () => Promise<{
+      recording: boolean;
+      paused: boolean;
+      stepCount: number;
+      pendingNoteIndex: number | null;
+      steps: any[];
+    }>;
+    setNote: (index: number, text: string) => Promise<{ success: boolean }>;
+    skipNote: () => Promise<{ success: boolean }>;
+  };
+
   /* ============ 审批 ============ */
   approval: {
     list: (status?: string) => Promise<any[]>;
@@ -168,6 +185,7 @@ export interface LivingAgentAPI {
     get: (id: string) => Promise<any>;
     start: (id: string) => Promise<any>;
     stop: (id: string) => Promise<any>;
+    create: (data: { name: string; role_description?: string; agent_type?: string; department?: string; skill_ids?: string[] }) => Promise<any>;
   };
 
   /* ============ 干预决策 (P1-2) ============ */
@@ -208,4 +226,18 @@ export interface LivingAgentAPI {
   onAuthChanged: (cb: (info: { hasToken: boolean }) => void) => () => void;
   onNavigate: (cb: (path: string) => void) => () => void;
   onBackendStatusChanged: (cb: (info: BackendStatusInfo) => void) => () => void;
+
+  /* ============ P6: 快捷键事件 ============ */
+  onFocusChatInput: (cb: () => void) => () => void;
+  onQuickAskWithSelection: (cb: () => void) => () => void;
+
+  /* ============ P10: 语音输入事件 ============ */
+  onVoiceInputToggle: (cb: () => void) => () => void;
+
+  /* ============ 习惯录制事件 ============ */
+  onRecorderStatus: (cb: (info: { recording: boolean; paused: boolean; stepCount: number }) => void) => () => void;
+  onRecorderStep: (cb: (step: any) => void) => () => void;
+  onRecorderNoteRequest: (cb: (info: { index: number; operation: string; suggestion: string }) => void) => () => void;
+  onRecorderResult: (cb: (result: any) => void) => () => void;
+  onRecorderError: (cb: (info: { message: string }) => void) => () => void;
 }

@@ -29,7 +29,6 @@ const Interventions = lazy(() => import('./pages/Interventions'));
 const Proactive = lazy(() => import('./pages/Proactive'));
 const Reception = lazy(() => import('./pages/Reception'));
 const VoicePrintLogin = lazy(() => import('./pages/VoicePrintLogin'));
-const Office = lazy(() => import('./pages/Office'));
 const Autonomous = lazy(() => import('./pages/Autonomous'));
 const FrontDesk = lazy(() => import('./pages/FrontDesk'));
 const VoicePrintSettings = lazy(() => import('./pages/VoicePrintSettings'));
@@ -264,10 +263,9 @@ export default function App() {
                             <Route path="proactive" element={<Proactive />} />
                             {/* Reception */}
                             <Route path="reception" element={<Reception />} />
-                            {/* Voice & Office */}
+                            {/* Voice */}
                             <Route path="voiceprint" element={<VoicePrintLogin />} />
                             <Route path="voiceprint-settings" element={<VoicePrintSettings />} />
-                            <Route path="office" element={<Office />} />
                             {/* Autonomous */}
                             <Route path="autonomous" element={<Autonomous />} />
                             {/* Department routes */}

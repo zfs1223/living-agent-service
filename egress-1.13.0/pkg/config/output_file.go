@@ -1,0 +1,178 @@
+// Copyright 2023 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package config
+
+import (
+	"fmt"
+	"path"
+	"strings"
+	"time"
+
+	"github.com/livekit/egress/pkg/errors"
+	"github.com/livekit/egress/pkg/types"
+	"github.com/livekit/protocol/egress"
+	"github.com/livekit/protocol/livekit"
+)
+
+type FileConfig struct {
+	outputConfig
+
+	FileInfo        *livekit.FileInfo
+	LocalFilepath   string
+	StorageFilepath string
+
+	DisableManifest bool
+	StorageConfig   *StorageConfig
+}
+
+func (p *PipelineConfig) GetFileConfig() *FileConfig {
+	o, ok := p.Outputs[types.EgressTypeFile]
+	if !ok || len(o) == 0 {
+		return nil
+	}
+	return o[0].(*FileConfig)
+}
+
+func (p *PipelineConfig) getEncodedFileConfig(file *livekit.EncodedFileOutput) (*FileConfig, error) {
+	return p.getFileConfig(fileTypeToOutputType(file.FileType), file.GetFilepath(), file.GetDisableManifest(), file)
+}
+
+func (p *PipelineConfig) getDirectFileConfig(file *livekit.DirectFileOutput) (*FileConfig, error) {
+	return p.getFileConfig(types.OutputTypeUnknownFile, file.GetFilepath(), file.GetDisableManifest(), file)
+}
+
+func fileTypeToOutputType(ft livekit.EncodedFileType) types.OutputType {
+	switch ft {
+	case livekit.EncodedFileType_MP4:
+		return types.OutputTypeMP4
+	case livekit.EncodedFileType_OGG:
+		return types.OutputTypeOGG
+	case livekit.EncodedFileType_MP3:
+		return types.OutputTypeMP3
+	default:
+		return types.OutputTypeUnknownFile
+	}
+}
+
+func (p *PipelineConfig) getFileConfig(outputType types.OutputType, filepath string, disableManifest bool, upload egress.UploadRequest) (*FileConfig, error) {
+	sc, err := p.getStorageConfig(upload)
+	if err != nil {
+		return nil, err
+	}
+
+	filepath = clean(filepath)
+
+	// On retry, explicit paths must include {retry} to avoid overwriting previous attempt.
+	// Empty or directory-only paths are auto-generated with retry count appended.
+	if p.Info.RetryCount > 0 && filepath != "" && !strings.HasSuffix(filepath, "/") && !strings.Contains(filepath, "{retry}") {
+		return nil, errors.ErrNonRetryableOutput
+	}
+
+	conf := &FileConfig{
+		outputConfig:    outputConfig{OutputType: outputType},
+		FileInfo:        &livekit.FileInfo{},
+		StorageFilepath: filepath,
+		DisableManifest: disableManifest,
+		StorageConfig:   sc,
+	}
+
+	// filename
+	identifier, replacements := p.getFilenameInfo()
+	if conf.OutputType != types.OutputTypeUnknownFile {
+		err := conf.updateFilepath(p, identifier, replacements)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		conf.StorageFilepath = stringReplace(conf.StorageFilepath, replacements)
+	}
+
+	return conf, nil
+}
+
+func (p *PipelineConfig) getFilenameInfo() (string, map[string]string) {
+	now := time.Now()
+	utc := fmt.Sprintf("%s%03d", now.Format("20060102150405"), now.UnixMilli()%1000)
+
+	replacements := make(map[string]string)
+	if p.Info.RetryCount > 0 {
+		replacements["{retry}"] = fmt.Sprintf("%d", p.Info.RetryCount)
+	}
+	if p.Info.RoomName != "" {
+		replacements["{room_name}"] = p.Info.RoomName
+		replacements["{room_id}"] = p.Info.RoomId
+		replacements["{time}"] = now.Format("2006-01-02T150405")
+		replacements["{utc}"] = utc
+		return p.Info.RoomName, replacements
+	}
+
+	replacements["{time}"] = now.Format("2006-01-02T150405")
+	replacements["{utc}"] = utc
+
+	return "web", replacements
+}
+
+func (o *FileConfig) updateFilepath(p *PipelineConfig, identifier string, replacements map[string]string) error {
+	o.StorageFilepath = stringReplace(o.StorageFilepath, replacements)
+
+	// get file extension
+	ext := types.FileExtensionForOutputType[o.OutputType]
+
+	if o.StorageFilepath == "" || strings.HasSuffix(o.StorageFilepath, "/") {
+		// generate filepath
+		baseName := fmt.Sprintf("%s-%s", identifier, time.Now().Format("2006-01-02T150405"))
+		if p.Info.RetryCount > 0 {
+			baseName = fmt.Sprintf("%s-%d", baseName, p.Info.RetryCount)
+		}
+		o.StorageFilepath = fmt.Sprintf("%s%s%s", o.StorageFilepath, baseName, ext)
+	} else if !strings.HasSuffix(o.StorageFilepath, string(ext)) {
+		// check for existing (incorrect) extension
+		if extIdx := strings.LastIndex(o.StorageFilepath, "."); extIdx > -1 {
+			existingExt := types.FileExtension(o.StorageFilepath[extIdx:])
+			if _, ok := types.FileExtensions[existingExt]; ok {
+				o.StorageFilepath = o.StorageFilepath[:extIdx]
+			}
+		}
+
+		// add file extension
+		o.StorageFilepath = o.StorageFilepath + string(ext)
+	}
+
+	// update filename
+	o.FileInfo.Filename = o.StorageFilepath
+
+	// get local filepath
+	_, filename := path.Split(o.StorageFilepath)
+
+	// write to tmp dir
+	o.LocalFilepath = path.Join(p.TmpDir, filename)
+
+	return nil
+}
+
+func clean(filepath string) string {
+	hasEndingSlash := strings.HasSuffix(filepath, "/")
+	filepath = path.Clean(filepath)
+	for strings.HasPrefix(filepath, "../") {
+		filepath = filepath[3:]
+	}
+	if filepath == "" || filepath == "." || filepath == ".." {
+		return ""
+	}
+	if hasEndingSlash {
+		return filepath + "/"
+	}
+	return filepath
+}

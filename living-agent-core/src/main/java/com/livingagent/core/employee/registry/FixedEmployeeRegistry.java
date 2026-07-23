@@ -995,7 +995,8 @@ public class FixedEmployeeRegistry {
             null,
             "DEPARTMENT",
             null,
-            null
+            null,
+            null  // FIXED 员工无 owner
         );
         
         Employee employee = employeeService.createEmployee(request);

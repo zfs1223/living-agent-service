@@ -1,0 +1,56 @@
+/**
+ * P13: 敏感信息显示样式
+ */
+
+.sensitive-text {
+  display: inline;
+}
+
+.sensitive-text__mask {
+  position: relative;
+  border-bottom: 1px dashed currentColor;
+  cursor: help;
+  padding-bottom: 1px;
+  transition: all 0.2s;
+}
+
+.sensitive-text__mask:hover {
+  opacity: 0.8;
+}
+
+.sensitive-text__tooltip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #333;
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: nowrap;
+  z-index: 1000;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.sensitive-text__tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 6px solid #333;
+}
+
+.sensitive-text__tooltip-label {
+  opacity: 0.8;
+  margin-right: 6px;
+}
+
+.sensitive-text__tooltip-value {
+  font-weight: 500;
+}

@@ -94,6 +94,15 @@ public class SelfHealingOrchestratorImpl implements SelfHealingOrchestrator {
             // Step 2: 根因分析（基于 IssueType 和 Severity）
             double confidence = analyzeConfidence(issue);
 
+            // DBS PSP: 置信度低于 70% 时启动 5-Why 根因分析
+            if (confidence < 0.70) {
+                List<String> fiveWhyChain = performFiveWhyAnalysis(issue);
+                if (!fiveWhyChain.isEmpty()) {
+                    // 将 5-Why 分析结果注入经验沉淀
+                    captureFiveWhyExperience(issue, fiveWhyChain);
+                }
+            }
+
             // Step 3-4: 决策（基于 confidence 阈值）+ 执行修复动作
             String action = determineAction(issue, confidence);
             boolean executed = executeAction(action, issue);
@@ -362,5 +371,181 @@ public class SelfHealingOrchestratorImpl implements SelfHealingOrchestrator {
         } catch (Exception e) {
             log.warn("[P24] Failed to capture healing experience (non-critical): {}", e.getMessage());
         }
+    }
+
+    /**
+     * DBS PSP: 5-Why 根因分析。
+     * 当快速根因置信度低于 70% 时，执行 5 层 Why 追问，逐层深入根因。
+     * 返回 5-Why 分析链（从表面原因到根本原因），空列表表示分析失败。
+     */
+    private List<String> performFiveWhyAnalysis(HealthIssue issue) {
+        List<String> chain = new ArrayList<>();
+        try {
+            String currentProblem = issue.getDescription() != null ? issue.getDescription() : issue.getComponentName();
+            
+            // Why 1: 为什么发生这个问题？
+            String why1 = inferWhy(currentProblem, issue.getType(), 1);
+            chain.add("Why1:" + why1);
+            
+            // Why 2: 为什么会出现 Why1 的原因？
+            String why2 = inferWhy(why1, issue.getType(), 2);
+            chain.add("Why2:" + why2);
+            
+            // Why 3: 为什么存在 Why2 的原因？
+            String why3 = inferWhy(why2, issue.getType(), 3);
+            chain.add("Why3:" + why3);
+            
+            // Why 4: 为什么允许 Why3 存在？
+            String why4 = inferWhy(why3, issue.getType(), 4);
+            chain.add("Why4:" + why4);
+            
+            // Why 5: 为什么 Why4 未被发现？
+            String why5 = inferWhy(why4, issue.getType(), 5);
+            chain.add("Why5:" + why5);
+            
+            log.info("[DBS-PSP] 5-Why analysis for {}: {}", issue.getComponentName(), chain);
+        } catch (Exception e) {
+            log.warn("[DBS-PSP] 5-Why analysis failed (non-critical): {}", e.getMessage());
+        }
+        return chain;
+    }
+
+    /**
+     * 基于 IssueType 和当前问题描述推断 Why 层原因。
+     * 规则驱动（LLM 增强留给后续版本），每层追问更深层原因。
+     */
+    private String inferWhy(String currentDescription, HealthIssue.IssueType issueType, int depth) {
+        if (currentDescription == null || currentDescription.isBlank()) {
+            return "unknown_cause_at_depth_" + depth;
+        }
+        
+        // 基于 IssueType 的通用推理规则
+        if (issueType == HealthIssue.IssueType.CONNECTIVITY) {
+            return switch (depth) {
+                case 1 -> "连接中断或超时";
+                case 2 -> "目标服务不可用或网络异常";
+                case 3 -> "服务进程崩溃或资源不足";
+                case 4 -> "缺少进程健康监控和自动重启机制";
+                default -> "系统级容错和自愈能力不足";
+            };
+        } else if (issueType == HealthIssue.IssueType.RESOURCE) {
+            return switch (depth) {
+                case 1 -> "资源耗尽或降级";
+                case 2 -> "资源分配不合理或泄漏";
+                case 3 -> "缺少资源使用监控和预警";
+                case 4 -> "未建立资源基准线和自动扩缩容机制";
+                default -> "资源管理体系缺乏持续优化";
+            };
+        } else {
+            return switch (depth) {
+                case 1 -> "系统异常: " + abbreviate(currentDescription, 50);
+                case 2 -> "异常未及时检测和处理";
+                case 3 -> "缺少对该类异常的监控规则";
+                case 4 -> "监控体系覆盖不完整";
+                default -> "系统性改善机制不足（需DBS持续改善）";
+            };
+        }
+    }
+
+    private String abbreviate(String s, int maxLen) {
+        return s.length() <= maxLen ? s : s.substring(0, maxLen) + "...";
+    }
+
+    /**
+     * DBS PSP: 将 5-Why 分析结果写入 KnowledgeBase 作为经验沉淀。
+     */
+    private void captureFiveWhyExperience(HealthIssue issue, List<String> fiveWhyChain) {
+        try {
+            String key = "five-why:" + issue.getComponentName() + ":" + issue.getType() + ":" + Instant.now().getEpochSecond();
+            
+            Map<String, Object> analysis = new HashMap<>();
+            analysis.put("componentName", issue.getComponentName());
+            analysis.put("issueType", issue.getType() != null ? issue.getType().name() : "UNKNOWN");
+            analysis.put("severity", issue.getSeverity() != null ? issue.getSeverity().name() : "UNKNOWN");
+            analysis.put("fiveWhyChain", fiveWhyChain);
+            analysis.put("rootCause", fiveWhyChain.isEmpty() ? "unknown" : fiveWhyChain.get(fiveWhyChain.size() - 1));
+            analysis.put("timestamp", Instant.now().toString());
+            analysis.put("experienceType", "DBS_FIVE_WHY_ANALYSIS");
+            
+            Map<String, String> metadata = new HashMap<>();
+            metadata.put("source", "SelfHealingOrchestrator.DBS_PSP");
+            metadata.put("category", "ROOT_CAUSE_ANALYSIS");
+            metadata.put("dbsTool", "dbs-problem-solving");
+            
+            knowledgeBase.store(key, analysis, KnowledgeScope.L3_SHARED, "system", metadata);
+            log.info("[DBS-PSP] Captured 5-Why analysis to KnowledgeBase: key={}", key);
+        } catch (Exception e) {
+            log.warn("[DBS-PSP] Failed to capture 5-Why analysis (non-critical): {}", e.getMessage());
+        }
+    }
+
+    /**
+     * DBS PSP: 生成 A3 报告。
+     * 当自愈无法自动解决时，生成结构化问题分析报告（背景→现状→目标→根因→对策→验证→跟进）。
+     * 报告存储到 KnowledgeBase 供闭环 41 人工干预使用。
+     */
+    public Map<String, Object> generateA3Report(HealthIssue issue, List<String> fiveWhyChain) {
+        Map<String, Object> report = new LinkedHashMap<>();
+        report.put("reportType", "A3_PROBLEM_SOLVING_REPORT");
+        report.put("issueId", issue.getIssueId());
+        report.put("timestamp", Instant.now().toString());
+        
+        // 1. 背景
+        Map<String, Object> background = new HashMap<>();
+        background.put("component", issue.getComponentName());
+        background.put("severity", issue.getSeverity() != null ? issue.getSeverity().name() : "UNKNOWN");
+        background.put("type", issue.getType() != null ? issue.getType().name() : "UNKNOWN");
+        report.put("background", background);
+        
+        // 2. 现状
+        Map<String, Object> currentCondition = new HashMap<>();
+        currentCondition.put("description", issue.getDescription());
+        currentCondition.put("suggestedAction", issue.getSuggestedAction());
+        currentCondition.put("autoHealingAttempted", true);
+        currentCondition.put("autoHealingSucceeded", false);
+        report.put("currentCondition", currentCondition);
+        
+        // 3. 目标
+        Map<String, Object> targetCondition = new HashMap<>();
+        targetCondition.put("goal", "恢复组件健康状态，消除根因，防止复发");
+        targetCondition.put("metric", "HealthStatus == HEALTHY for 24h");
+        report.put("targetCondition", targetCondition);
+        
+        // 4. 根因分析
+        report.put("rootCauseAnalysis", fiveWhyChain);
+        report.put("rootCause", fiveWhyChain.isEmpty() ? "pending_investigation" : fiveWhyChain.get(fiveWhyChain.size() - 1));
+        
+        // 5. 对策
+        Map<String, Object> countermeasures = new HashMap<>();
+        countermeasures.put("immediate", "人工审查并修复");
+        countermeasures.put("preventive", "更新标准作业书（dbs-standard-work）和监控规则");
+        report.put("countermeasures", countermeasures);
+        
+        // 6. 验证
+        Map<String, Object> verification = new HashMap<>();
+        verification.put("method", "人工确认组件恢复健康 + 24h 无复发");
+        verification.put("responsible", "闭环41 人工干预");
+        report.put("verification", verification);
+        
+        // 7. 跟进
+        Map<String, Object> followUp = new HashMap<>();
+        followUp.put("action", "更新标准作业 + 5-Why 结果写入知识库");
+        followUp.put("dbsTool", "dbs-problem-solving v1.0");
+        report.put("followUp", followUp);
+        
+        // 存储到 KnowledgeBase
+        try {
+            String key = "a3-report:" + issue.getComponentName() + ":" + Instant.now().getEpochSecond();
+            Map<String, String> metadata = new HashMap<>();
+            metadata.put("source", "SelfHealingOrchestrator.A3Report");
+            metadata.put("category", "A3_PROBLEM_REPORT");
+            metadata.put("dbsTool", "dbs-problem-solving");
+            knowledgeBase.store(key, report, KnowledgeScope.L3_SHARED, "system", metadata);
+            log.info("[DBS-PSP] A3 report generated and stored: key={}", key);
+        } catch (Exception e) {
+            log.warn("[DBS-PSP] Failed to store A3 report (non-critical): {}", e.getMessage());
+        }
+        
+        return report;
     }
 }

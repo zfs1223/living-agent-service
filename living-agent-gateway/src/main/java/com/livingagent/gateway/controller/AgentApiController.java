@@ -116,7 +116,8 @@ public class AgentApiController {
                     request.permission_scope_type(),
                     request.permission_access_level(),
                     request.max_tokens_per_day(),
-                    request.max_tokens_per_month()
+                    request.max_tokens_per_month(),
+                    employeeId  // ownerId = 创建者的 employeeId
             );
 
             Employee created = employeeService.createEmployee(creationRequest);
@@ -172,6 +173,16 @@ public class AgentApiController {
 
         List<Employee> employees = employeeService.listEmployees(query);
         List<AgentSummary> agents = employees.stream()
+                .filter(e -> {
+                    // scope='company' 或无 scope 的 Agent 对所有人可见
+                    String scope = e.getPermissionScopeType();
+                    if (scope == null || "company".equals(scope)) return true;
+                    // scope='user' 的 Agent 仅对创建者(owner)可见
+                    if ("user".equals(scope)) {
+                        return employeeId != null && employeeId.equals(e.getOwnerId());
+                    }
+                    return true;
+                })
                 .map(this::convertToSummary)
                 .toList();
 
@@ -723,7 +734,9 @@ public class AgentApiController {
                 employee.getStatus().name(),
                 employee.isDigital() ? "digital" : "human",
                 mapOrigin(employee),
-                employee.getLastActiveAt()
+                employee.getLastActiveAt(),
+                employee.getPermissionScopeType(),
+                employee.getOwnerId()
         );
     }
 
@@ -767,7 +780,9 @@ public class AgentApiController {
             String status,
             String type,
             String origin,
-            Instant lastActiveAt
+            Instant lastActiveAt,
+            String permissionScopeType,
+            String ownerId
     ) {}
 
     public record AgentStatusDetail(

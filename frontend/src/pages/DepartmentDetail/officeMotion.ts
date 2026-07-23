@@ -1,7 +1,7 @@
 import { AgentLike } from './types';
 import { getZoneByStatus, normalizeStatus } from './status';
 
-export type OfficeZoneId = 'workstation' | 'collaboration' | 'lounge' | 'alert' | 'offline';
+export type OfficeZoneId = 'workstation' | 'collaboration' | 'lounge';
 export type OfficeMotionKind = 'arrive' | 'walk' | 'sit' | 'standby' | 'alert' | 'return';
 export type OfficeSeatPosition = 'front' | 'middle' | 'back' | 'corner' | 'aisle';
 export type OfficeOutfit = 'support' | 'tech' | 'finance' | 'legal' | 'ops' | 'hr' | 'sales' | 'admin' | 'default';
@@ -60,21 +60,21 @@ const MOTION_BY_STATUS: Record<string, OfficeMotionProfile> = {
   learning: { zone: 'workstation', lane: 0, seat: 'front', pace: 'normal', mood: 'focused', holdMs: 12000, jitterMs: 200, motionKind: 'walk', outfit: 'tech', pose: 'walk' },
   evolving: { zone: 'workstation', lane: 0, seat: 'front', pace: 'fast', mood: 'urgent', holdMs: 10000, jitterMs: 220, motionKind: 'walk', outfit: 'tech', pose: 'walk' },
 
-  // 离开/休息状态
+  // 离开/休息状态（包括所有非工作状态）
   away: { zone: 'lounge', lane: 2, seat: 'corner', pace: 'slow', mood: 'resting', holdMs: 15000, jitterMs: 320, motionKind: 'sit', outfit: 'default', pose: 'sit' },
   idle: { zone: 'lounge', lane: 2, seat: 'corner', pace: 'slow', mood: 'resting', holdMs: 15000, jitterMs: 320, motionKind: 'sit', outfit: 'default', pose: 'sit' },
 
-  // 离线/休眠状态
-  offline: { zone: 'offline', lane: 3, seat: 'corner', pace: 'slow', mood: 'calm', holdMs: 30000, jitterMs: 0, motionKind: 'standby', outfit: 'default', pose: 'stand' },
-  stopped: { zone: 'offline', lane: 3, seat: 'corner', pace: 'slow', mood: 'calm', holdMs: 30000, jitterMs: 0, motionKind: 'standby', outfit: 'default', pose: 'stand' },
-  inactive: { zone: 'offline', lane: 3, seat: 'corner', pace: 'slow', mood: 'calm', holdMs: 30000, jitterMs: 0, motionKind: 'standby', outfit: 'default', pose: 'stand' },
-  dormant: { zone: 'offline', lane: 3, seat: 'back', pace: 'slow', mood: 'calm', holdMs: 30000, jitterMs: 0, motionKind: 'standby', outfit: 'default', pose: 'stand' },
-  archived: { zone: 'offline', lane: 3, seat: 'back', pace: 'slow', mood: 'calm', holdMs: 30000, jitterMs: 0, motionKind: 'standby', outfit: 'default', pose: 'stand' },
-  terminated: { zone: 'offline', lane: 3, seat: 'corner', pace: 'slow', mood: 'calm', holdMs: 30000, jitterMs: 0, motionKind: 'standby', outfit: 'default', pose: 'stand' },
+  // 离线/休眠状态（归纳到休息区）
+  offline: { zone: 'lounge', lane: 2, seat: 'back', pace: 'slow', mood: 'calm', holdMs: 30000, jitterMs: 0, motionKind: 'standby', outfit: 'default', pose: 'stand' },
+  stopped: { zone: 'lounge', lane: 2, seat: 'back', pace: 'slow', mood: 'calm', holdMs: 30000, jitterMs: 0, motionKind: 'standby', outfit: 'default', pose: 'stand' },
+  inactive: { zone: 'lounge', lane: 2, seat: 'back', pace: 'slow', mood: 'calm', holdMs: 30000, jitterMs: 0, motionKind: 'standby', outfit: 'default', pose: 'stand' },
+  dormant: { zone: 'lounge', lane: 2, seat: 'back', pace: 'slow', mood: 'calm', holdMs: 30000, jitterMs: 0, motionKind: 'standby', outfit: 'default', pose: 'stand' },
+  archived: { zone: 'lounge', lane: 2, seat: 'back', pace: 'slow', mood: 'calm', holdMs: 30000, jitterMs: 0, motionKind: 'standby', outfit: 'default', pose: 'stand' },
+  terminated: { zone: 'lounge', lane: 2, seat: 'back', pace: 'slow', mood: 'calm', holdMs: 30000, jitterMs: 0, motionKind: 'standby', outfit: 'default', pose: 'stand' },
 
-  // 异常/禁用状态
-  disabled: { zone: 'alert', lane: 0, seat: 'front', pace: 'slow', mood: 'urgent', holdMs: 5000, jitterMs: 260, motionKind: 'alert', outfit: 'legal', pose: 'alert' },
-  error: { zone: 'alert', lane: 0, seat: 'front', pace: 'fast', mood: 'urgent', holdMs: 5000, jitterMs: 260, motionKind: 'alert', outfit: 'legal', pose: 'alert' },
+  // 异常/禁用状态（归纳到休息区）
+  disabled: { zone: 'lounge', lane: 2, seat: 'corner', pace: 'slow', mood: 'urgent', holdMs: 5000, jitterMs: 260, motionKind: 'alert', outfit: 'legal', pose: 'alert' },
+  error: { zone: 'lounge', lane: 2, seat: 'corner', pace: 'fast', mood: 'urgent', holdMs: 5000, jitterMs: 260, motionKind: 'alert', outfit: 'legal', pose: 'alert' },
 };
 
 function getOutfitByAgent(agent?: AgentLike): OfficeOutfit {

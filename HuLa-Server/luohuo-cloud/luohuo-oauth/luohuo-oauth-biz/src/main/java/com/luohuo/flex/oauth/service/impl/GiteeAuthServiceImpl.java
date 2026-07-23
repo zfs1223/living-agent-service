@@ -1,0 +1,77 @@
+package com.luohuo.flex.oauth.service.impl;
+
+import cn.hutool.core.util.StrUtil;
+import cn.hutool.http.HttpUtil;
+import cn.hutool.json.JSONObject;
+import cn.hutool.json.JSONUtil;
+import com.luohuo.basic.exception.BizException;
+import com.luohuo.flex.oauth.service.GiteeAuthService;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+import java.util.HashMap;
+import java.util.Map;
+
+@Service
+@Slf4j
+public class GiteeAuthServiceImpl implements GiteeAuthService {
+
+	@Value("${gitee.client-id}")
+	private String clientId;
+
+	@Value("${gitee.client-secret}")
+	private String clientSecret;
+
+	@Value("${gitee.redirect-uri}")
+	private String redirectUri;
+
+	@Override
+	public JSONObject getGiteeUserInfo(String code) {
+		// 1. 获取 Access Token
+		String tokenUrl = "https://gitee.com/oauth/token";
+
+		// 处理 redirectUri，移除末尾斜杠以匹配授权请求
+		String finalRedirectUri = redirectUri;
+		if (StrUtil.isNotBlank(finalRedirectUri)) {
+			finalRedirectUri = finalRedirectUri.trim();
+			if (finalRedirectUri.endsWith("/")) {
+				finalRedirectUri = StrUtil.subBefore(finalRedirectUri, "/", true);
+			}
+		}
+
+		Map<String, Object> paramMap = new HashMap<>();
+		paramMap.put("grant_type", "authorization_code");
+		paramMap.put("code", code);
+		paramMap.put("client_id", clientId);
+		paramMap.put("client_secret", clientSecret);
+		paramMap.put("redirect_uri", finalRedirectUri);
+
+		String tokenResponse;
+		try {
+			tokenResponse = HttpUtil.post(tokenUrl, paramMap);
+		} catch (Exception e) {
+			log.error("请求 Gitee Token 失败", e);
+			throw new BizException("连接 Gitee 失败");
+		}
+
+		JSONObject tokenJson = JSONUtil.parseObj(tokenResponse);
+		String accessToken = tokenJson.getStr("access_token");
+		if (StrUtil.isBlank(accessToken)) {
+			log.error("Gitee token 响应: {}", tokenResponse);
+			throw new BizException("获取 Gitee Access Token 失败: " + tokenResponse);
+		}
+
+		// 2. 获取用户信息
+		String userUrl = "https://gitee.com/api/v5/user";
+		String userResponse;
+		try {
+			userResponse = HttpUtil.get(userUrl + "?access_token=" + accessToken);
+		} catch (Exception e) {
+			log.error("请求 Gitee 用户信息失败", e);
+			throw new BizException("获取 Gitee 用户信息失败");
+		}
+
+		return JSONUtil.parseObj(userResponse);
+	}
+}

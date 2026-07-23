@@ -32,7 +32,8 @@ import {
     IconSettingsAutomation,
     IconFolder,
     IconChecklist,
-    IconBrain
+    IconBrain,
+    IconUserPlus
 } from '@tabler/icons-react';
 import { DEPARTMENTS, type DepartmentCode } from '../types';
 import { useAppStore } from '../stores';
@@ -434,19 +435,13 @@ export default function Layout() {
                             <span className="sidebar-item-icon" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
                                 <IconScale size={14} stroke={1.5} />
                             </span>
-                            <span className="sidebar-item-text">{t('nav.voiceprint', '声纹')}</span>
+                            <span className="sidebar-item-text">{t('nav.voiceprint', '声纹设置')}</span>
                         </NavLink>
                         <NavLink to="/voiceprint-settings" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}>
                             <span className="sidebar-item-icon" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
                                 <IconBrain size={14} stroke={1.5} />
                             </span>
                             <span className="sidebar-item-text">{t('nav.voiceprintSettings', '声纹管理')}</span>
-                        </NavLink>
-                        <NavLink to="/office" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}>
-                            <span className="sidebar-item-icon" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                                <IconSettingsAutomation size={14} stroke={1.5} />
-                            </span>
-                            <span className="sidebar-item-text">{t('nav.office', '办公室')}</span>
                         </NavLink>
                     </div>
                 </div>
@@ -459,6 +454,12 @@ export default function Layout() {
                             <NavLink to="/agents/new" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`} title={t('nav.newAgent')}>
                                 <span className="sidebar-item-icon" style={{ display: 'flex' }}>{SidebarIcons.plus}</span>
                                 <span className="sidebar-item-text">{t('nav.newAgent')}</span>
+                            </NavLink>
+                        )}
+                        {user && (
+                            <NavLink to="/agents/new?type=personal" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`} title={t('nav.newPersonalAgent', '新建个人助理')}>
+                                <span className="sidebar-item-icon" style={{ display: 'flex' }}><IconUserPlus size={14} stroke={1.5} /></span>
+                                <span className="sidebar-item-text">{t('nav.newPersonalAgent', '新建个人助理')}</span>
                             </NavLink>
                         )}
                         {user && ['platform_admin', 'org_admin'].includes(user.role) && (

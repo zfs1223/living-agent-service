@@ -36,8 +36,13 @@ buildNumber.properties
 
 .workbuddy/
 
-docs/
+# docs/ - 只保留 docs/core 目录
+docs/*
+!docs/core/
+!docs/core/**
+# 其他 md 文件仍然忽略
 *.md
+!docs/core/*.md
 *.json
 .docs/references/API_REFERENCE.md
 # IDE - IntelliJ IDEA

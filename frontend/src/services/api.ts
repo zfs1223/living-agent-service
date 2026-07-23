@@ -750,8 +750,23 @@ export const voicePrintApi = {
     register: (data: any) =>
         request<any>('/auth/voiceprint', { method: 'POST', body: JSON.stringify(data) }),
 
-    verify: (data: any) =>
-        request<any>('/auth/voiceprint/verify', { method: 'POST', body: JSON.stringify(data) }),
+    verify: (audio: Blob | any, speakerId?: string) =>
+        request<any>('/auth/voiceprint/verify', { method: 'POST', body: JSON.stringify(audio instanceof Blob ? {} : audio) }),
+
+    delete: (id: string) =>
+        request<void>(`/auth/voiceprint/${id}`, { method: 'DELETE' }),
+
+    update: (id: string, data: any) =>
+        request<any>(`/auth/voiceprint/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+
+    getVerifySettings: () =>
+        request<any>('/auth/voiceprint/settings'),
+
+    updateVerifySettings: (data: { command: string; enabled: boolean }) =>
+        request<any>('/auth/voiceprint/settings', { method: 'PUT', body: JSON.stringify(data) }),
+
+    verifyWithCommand: (data: { audio: Blob; command: string; speakerId?: string }) =>
+        request<any>('/auth/voiceprint/verify-command', { method: 'POST', body: JSON.stringify(data) }),
 };
 
 // ─── Offices ─────────────────────────────────────────────

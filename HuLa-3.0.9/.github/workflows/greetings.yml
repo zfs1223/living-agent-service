@@ -1,0 +1,24 @@
+name: Greetings
+
+on: [pull_request_target, issues]
+
+# 顶层设置最小权限，推荐 contents: read
+permissions:
+  contents: read
+
+jobs:
+  greeting:
+    # 跳过 Renovate PR
+    if: |
+      github.actor != 'renovate[bot]' &&
+      github.actor != 'renovate-preview[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+    - uses: actions/first-interaction@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
+        issue-message: "👋 Thank you for your first Issue! We will check and reply as soon as possible. Please ensure that sufficient information has been provided to describe the problem."
+        pr-message: "🎉 Thank you for your first PR! We are very happy to have you join the HuLa project. We will review your contribution as soon as possible."

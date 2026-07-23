@@ -168,6 +168,12 @@ public class HumanEmployee implements Employee {
 
     @Override
     public EmployeeOrigin getOrigin() { return EmployeeOrigin.HUMAN; }
+
+    @Override
+    public String getPermissionScopeType() { return null; }
+
+    @Override
+    public String getOwnerId() { return null; }
     
     @Override
     public HumanConfig getHumanConfig() {

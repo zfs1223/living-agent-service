@@ -1,0 +1,41 @@
+# 前端相关变更
+'前端':
+  - src/**/*
+
+# 工作流程相关变更
+'工作流程':
+  - .github/**/*
+
+# 文档相关变更
+'文档':
+  - '**/*.md'
+
+# 依赖相关变更
+'依赖更新':
+  - package.json
+  - pnpm-lock.yaml
+
+# Rust 相关变更
+'Rust':
+  - '**/*.rs'
+  - '**/Cargo.toml'
+  - '**/Cargo.lock'
+  - 'src-tauri/**/*'
+
+# 配置文件变更
+'配置':
+  - '*.config.ts'
+  - '*.config.js'
+  - 'tsconfig.json'
+  - '.env*'
+
+# 测试相关变更
+'测试':
+  - '**/*.test.ts'
+  - 'test/**/*'
+
+# 样式相关变更
+'样式':
+  - '**/*.css'
+  - '**/*.scss'
+  - 'uno.config.*'

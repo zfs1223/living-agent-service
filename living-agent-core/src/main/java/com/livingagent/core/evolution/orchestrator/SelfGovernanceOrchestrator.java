@@ -20,4 +20,7 @@ public interface SelfGovernanceOrchestrator {
     void onHealthIssue(HealthIssue issue);
     
     void onEvolutionSignal(EvolutionSignal signal);
+    
+    // Scheduled 方法声明（解决 JDK 代理无法调用的问题）
+    void kaizenWeeklyReview();
 }

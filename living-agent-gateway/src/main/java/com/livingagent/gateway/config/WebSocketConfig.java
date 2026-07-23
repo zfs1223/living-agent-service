@@ -17,11 +17,11 @@ public class WebSocketConfig implements WebSocketConfigurer {
 
     private static final int MAX_TEXT_MESSAGE_BUFFER_SIZE = 131072;   // 128KB
     private static final int MAX_BINARY_MESSAGE_BUFFER_SIZE = 262144;  // 256KB
-    
+
     private final AgentWebSocketHandler agentWebSocketHandler;
     private final DepartmentWebSocketHandler departmentWebSocketHandler;
     private final AuthHandshakeInterceptor authHandshakeInterceptor;
-    
+
     public WebSocketConfig(AgentWebSocketHandler agentWebSocketHandler,
                           DepartmentWebSocketHandler departmentWebSocketHandler,
                           AuthHandshakeInterceptor authHandshakeInterceptor) {
@@ -29,11 +29,14 @@ public class WebSocketConfig implements WebSocketConfigurer {
         this.departmentWebSocketHandler = departmentWebSocketHandler;
         this.authHandshakeInterceptor = authHandshakeInterceptor;
     }
-    
+
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
         // 使用 setAllowedOriginPatterns("*") 允许所有来源连接 WebSocket
         // 安全性由 AuthHandshakeInterceptor 的 Token 认证保证
+        // 注意：不使用 Sec-WebSocket-Protocol 传递 token，因为 Spring DefaultHandshakeHandler
+        // 的子协议匹配是严格相等（bearer.<token> 无法匹配 bearer），会导致 400 错误
+        // 客户端通过 URL 查询参数 ?token=xxx 传递 token（AuthHandshakeInterceptor 已支持）
         String[] origins = {"*"};
 
         registry.addHandler(agentWebSocketHandler, "/ws/agent")

@@ -1,0 +1,331 @@
+/**
+ * P22: 执行回执审核样式
+ */
+
+.receipt-review {
+  padding: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.receipt-review__empty {
+  padding: 48px;
+  text-align: center;
+  color: #999;
+}
+
+.receipt-review__error {
+  padding: 48px;
+  text-align: center;
+  color: #ff4d4f;
+}
+
+/* ========== 头部 ========== */
+.receipt-review__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.receipt-review__header h1 {
+  font-size: 22px;
+  font-weight: 600;
+  color: #333;
+  margin: 0;
+}
+
+.receipt-review__filters {
+  display: flex;
+  gap: 8px;
+}
+
+.receipt-review__filter {
+  padding: 6px 16px;
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+  background: #fff;
+  color: #666;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+
+.receipt-review__filter:hover {
+  border-color: #1890ff;
+  color: #1890ff;
+}
+
+.receipt-review__filter.active {
+  background: #1890ff;
+  border-color: #1890ff;
+  color: #fff;
+}
+
+/* ========== 主体 ========== */
+.receipt-review__body {
+  display: flex;
+  gap: 20px;
+}
+
+/* ========== 回执列表 ========== */
+.receipt-review__list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.receipt-review__empty-list {
+  padding: 48px;
+  text-align: center;
+  color: #999;
+  background: #fafafa;
+  border-radius: 8px;
+}
+
+/* ========== 回执卡片 ========== */
+.receipt-card {
+  background: #fff;
+  border: 1px solid #e8e8e8;
+  border-radius: 10px;
+  padding: 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.receipt-card:hover {
+  border-color: #1890ff;
+  box-shadow: 0 2px 8px rgba(24, 144, 255, 0.1);
+}
+
+.receipt-card.selected {
+  border-color: #1890ff;
+  background: #e6f7ff;
+}
+
+.receipt-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.receipt-card__id {
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+}
+
+.receipt-card__status {
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 10px;
+  font-weight: 500;
+}
+
+.receipt-card__status--needs_review,
+.receipt-card__status--needs_approval {
+  background: #fff7e6;
+  color: #d46b08;
+}
+
+.receipt-card__status--completed {
+  background: #f6ffed;
+  color: #389e0d;
+}
+
+.receipt-card__status--failed {
+  background: #fff2f0;
+  color: #cf1322;
+}
+
+.receipt-card__info {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 8px;
+}
+
+.receipt-card__summary {
+  font-size: 13px;
+  color: #333;
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+
+.receipt-card__time {
+  font-size: 11px;
+  color: #999;
+}
+
+/* ========== 回执详情 ========== */
+.receipt-review__detail {
+  width: 400px;
+  background: #fff;
+  border: 1px solid #e8e8e8;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  max-height: 600px;
+}
+
+.receipt-detail__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.receipt-detail__header h2 {
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+  margin: 0;
+}
+
+.receipt-detail__close {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: #999;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.receipt-detail__close:hover { background: #f5f5f5; color: #333; }
+
+.receipt-detail__info {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.receipt-detail__field {
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+}
+
+.receipt-detail__label {
+  width: 80px;
+  color: #999;
+}
+
+.receipt-detail__value {
+  flex: 1;
+  color: #333;
+  word-break: break-all;
+}
+
+.receipt-detail__status {
+  padding: 3px 10px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.receipt-detail__status--needs_review,
+.receipt-detail__status--needs_approval {
+  background: #fff7e6;
+  color: #d46b08;
+}
+
+.receipt-detail__status--completed {
+  background: #f6ffed;
+  color: #389e0d;
+}
+
+.receipt-detail__status--failed {
+  background: #fff2f0;
+  color: #cf1322;
+}
+
+.receipt-detail__section {
+  padding: 12px 16px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.receipt-detail__section h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+  margin: 0 0 8px;
+}
+
+.receipt-detail__summary {
+  font-size: 13px;
+  color: #666;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+/* ========== 审核操作 ========== */
+.receipt-detail__review {
+  padding: 12px 16px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.receipt-detail__review h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+  margin: 0 0 8px;
+}
+
+.receipt-detail__comment {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  font-size: 13px;
+  resize: none;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.receipt-detail__comment:focus {
+  border-color: #1890ff;
+}
+
+.receipt-detail__actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.receipt-detail__approve,
+.receipt-detail__reject {
+  flex: 1;
+  padding: 10px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.receipt-detail__approve {
+  background: #52c41a;
+  color: #fff;
+}
+
+.receipt-detail__approve:hover:not(:disabled) { background: #73d13d; }
+.receipt-detail__approve:disabled { background: #d9d9d9; cursor: not-allowed; }
+
+.receipt-detail__reject {
+  background: #ff4d4f;
+  color: #fff;
+}
+
+.receipt-detail__reject:hover:not(:disabled) { background: #ff7875; }
+.receipt-detail__reject:disabled { background: #d9d9d9; cursor: not-allowed; }

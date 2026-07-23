@@ -1,3 +1,11 @@
+---
+name: crawl4ai
+description: "智能网页爬取，基于Crawl4AI的高性能内容提取"
+risk: low
+source: internal
+date_added: '2026-07-13'
+---
+
 # Crawl4AI - 智能网页爬取技能
 
 > 基于 Crawl4AI 的高性能网页爬取和内容提取技能

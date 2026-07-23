@@ -1,0 +1,62 @@
+name: '🐛 反馈缺陷'
+description: '反馈一个问题缺陷'
+title: '[bug] '
+labels: ['bug']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 首先
+        1.请先搜索 [现有问题](https://github.com/HuLaSpark/HuLa/issues?q=is%3Aissue)关于此问题。
+        2.确保 rustc 和所有相关的 HuLa 包都是最新的。
+        3.确保这是 HuLa 的问题，而不是你正在使用的其他东西。
+        4.请记住遵循我们的社区准则并保持友好。
+
+  - type: input
+    attributes:
+      label: '📌 软件版本'
+    validations:
+      required: true
+
+  - type: dropdown
+    attributes:
+      label: '💻 系统环境'
+      multiple: true
+      options:
+        - 'Windows 10'
+        - 'Windows 11'
+        - 'macOS'
+        - 'Linux'
+        - 'Android'
+        - 'ios'
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: '🐛 问题描述'
+      description: 请提供一个清晰且简洁的问题描述，如果适用，请包括屏幕截图。
+    validations:
+      required: true
+
+  - type: textarea
+    id: info
+    attributes:
+      label: '☄️ 完整的 `pnpm tauri info` 输出'
+      description: '请运行 “pnpm tauri info” 在控制台等待输出完毕，并将输出内容复制到此处'
+      render: text
+
+  - type: textarea
+    attributes:
+      label: '📷 复现步骤'
+      description: 请提供一个清晰且简洁的描述，说明如何复现问题。
+
+  - type: textarea
+    attributes:
+      label: '🚦 期望结果'
+      description: 请提供一个清晰且简洁的描述，说明您期望发生什么。
+
+  - type: textarea
+    attributes:
+      label: '📝 补充信息'
+      description: 如果您的问题需要进一步说明，或者您遇到的问题无法在一个简单的示例中复现，请在这里添加更多信息。

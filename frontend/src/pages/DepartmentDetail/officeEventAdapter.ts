@@ -42,11 +42,10 @@ export type OfficeDepartmentSnapshot = {
 };
 
 export function normalizeZone(zone?: string): OfficeZoneId {
-  if (zone === 'workstation' || zone === 'collaboration' || zone === 'lounge' || zone === 'alert' || zone === 'offline') return zone;
+  if (zone === 'workstation' || zone === 'collaboration' || zone === 'lounge') return zone;
   if (zone?.includes('work')) return 'workstation';
   if (zone?.includes('collab')) return 'collaboration';
-  if (zone?.includes('alert')) return 'alert';
-  if (zone?.includes('offline')) return 'offline';
+  // alert 和 offline 区域统一映射到 lounge
   return 'lounge';
 }
 

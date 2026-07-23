@@ -3,6 +3,7 @@ package com.livingagent.core.security.auth;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.livingagent.core.database.entity.SessionContextEntity;
 import com.livingagent.core.database.repository.SessionContextRepository;
+import com.livingagent.core.security.AccessLevel;
 import com.livingagent.core.security.AuthContext;
 import com.livingagent.core.security.UserIdentity;
 import com.livingagent.core.security.voiceprint.VoicePrintService;
@@ -328,13 +329,15 @@ public class UnifiedAuthService {
         entity.setDepartmentCode(session.authContext().getDepartment());
         entity.setConnectedAt(session.createdAt());
         entity.setLastActivity(Instant.now());
-        // 将 authMethod、expiresAt 等信息序列化到 attributesJson
+        // 将 authMethod、expiresAt、accessLevel 等信息序列化到 attributesJson
         try {
             Map<String, Object> attrs = new ConcurrentHashMap<>();
             attrs.put("authMethod", session.authMethod());
             attrs.put("expiresAt", session.expiresAt().toString());
             attrs.put("name", session.authContext().getName());
             attrs.put("identity", session.authContext().getIdentity() != null ? session.authContext().getIdentity().name() : null);
+            attrs.put("accessLevel", session.authContext().getAccessLevel() != null ? session.authContext().getAccessLevel().name() : null);
+            attrs.put("founder", session.authContext().isFounder());
             if (session.metadata() != null && !session.metadata().isEmpty()) {
                 attrs.put("metadata", session.metadata());
             }
@@ -362,6 +365,15 @@ public class UnifiedAuthService {
                 try {
                     authContext.setIdentity(UserIdentity.valueOf((String) attrs.get("identity")));
                 } catch (Exception ignored) {}
+            }
+            // 恢复 accessLevel 和 founder 字段
+            if (attrs.containsKey("accessLevel")) {
+                try {
+                    authContext.setAccessLevel(AccessLevel.valueOf((String) attrs.get("accessLevel")));
+                } catch (Exception ignored) {}
+            }
+            if (attrs.containsKey("founder")) {
+                authContext.setFounder(Boolean.TRUE.equals(attrs.get("founder")));
             }
 
             String authMethod = (String) attrs.getOrDefault("authMethod", "unknown");

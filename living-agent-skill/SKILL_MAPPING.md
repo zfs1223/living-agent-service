@@ -29,6 +29,8 @@
 | `event-driven-notifier` | 事件驱动通知器，多渠道消息推送 | 通知, 推送, 告警 | [EventDrivenNotifier.java](../living-agent-core/src/main/java/com/livingagent/core/notification/EventDrivenNotifier.java) | ✅ 已实现 |
 | `risk-predictor` | 风险预警预判器，项目/预算/人员风险预测 | 风险, 预警, 预测 | - | 🔜 待开发 |
 | `pattern-predictor` | 用户行为模式预测器，习惯识别与需求预测 | 习惯, 模式, 预测 | - | 🔜 待开发 |
+| `windows-desktop-automation` | 通用Windows桌面应用自动化，控制本地电脑 | 操作电脑, 打开应用, 截图 | [WindowsAutomationTool.java](../living-agent-core/src/main/java/com/livingagent/core/tool/impl/WindowsAutomationTool.java) | ✅ 已实现 |
+| `wechat-messenger` | 微信桌面版专用操作，发送消息/查看联系人 | 发微信, 微信联系, 发消息 | win_automation工具 | ✅ 已实现 |
 
 ### 核心技能绑定机制
 
@@ -159,7 +161,7 @@ this.skills.addAll(CORE_SKILLS);
 │                    技能集成统计 (v1.8.2)                                      │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  核心技能 (Core Skills) ────────────────────────────────────────── 10 个    │
+│  核心技能 (Core Skills) ────────────────────────────────────────── 12 个    │
 │  ├── tavily-search (AI搜索) ✅ 工具已实现                                    │
 │  ├── find-skills (技能发现) ✅ 工具已实现                                    │
 │  ├── proactive-agent (主动代理) ✅ 工具已实现                                │
@@ -169,7 +171,9 @@ this.skills.addAll(CORE_SKILLS);
 │  ├── risk-predictor (风险预测) 🔜 待开发                                     │
 │  ├── pattern-predictor (模式预测) 🔜 待开发                                  │
 │  ├── knowledge-graph (知识图谱) ✅ ClawHub转换                               │
-│  └── self-improving (自我改进) ✅ ClawHub转换                                │
+│  ├── self-improving (自我改进) ✅ ClawHub转换                                │
+│  ├── windows-desktop-automation (Windows桌面自动化) ✅ 工具已实现            │
+│  └── wechat-messenger (微信操作) ✅ 工具已实现                               │
 │                                                                             │
 │  部门技能 ───────────────────────────────────────────────────────── 67 个    │
 │  ├── TechBrain (技术部): 27 个 ✅ 覆盖率 92%                                 │
@@ -185,8 +189,8 @@ this.skills.addAll(CORE_SKILLS);
 │  ├── CsBrain (客服部): 3 个 ✅ 覆盖率 85%                                    │
 │  └── LegalBrain (法务部): 3 个 ✅ 覆盖率 85%                                 │
 │                                                                             │
-│  总计: 77 个技能 (核心10 + 部门67)                                           │
-│  工具实现: 18 个 ✅                                                          │
+│  总计: 79 个技能 (核心12 + 部门67)                                           │
+│  工具实现: 20 个 ✅                                                          │
 │  编制覆盖率: 87% ✅                                                          │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -231,7 +235,7 @@ this.skills.addAll(CORE_SKILLS);
 living-agent-skill/src/main/resources/skills/
 ├── SKILL_INDEX.json          # 技能索引 (v1.8.1)
 ├── SKILL_DEPENDENCIES.yml    # 技能依赖关系
-├── core/                     # 核心技能 (10个) ✓
+├── core/                     # 核心技能 (12个) ✓
 │   ├── tavily-search/SKILL.md
 │   ├── find-skills/SKILL.md
 │   ├── proactive-agent/SKILL.md
@@ -241,7 +245,9 @@ living-agent-skill/src/main/resources/skills/
 │   ├── risk-predictor/SKILL.md
 │   ├── pattern-predictor/SKILL.md
 │   ├── knowledge-graph/SKILL.md
-│   └── self-improving/SKILL.md
+│   ├── self-improving/SKILL.md
+│   ├── windows-desktop-automation/SKILL.md  # 2026-07-16新增 通用Windows桌面自动化
+│   └── wechat-messenger/SKILL.md            # 2026-07-16新增 微信桌面版专用(基于windows-desktop-automation)
 ├── tech/                     # TechBrain (27个) ✓
 │   ├── skill-creator/
 │   ├── coding-agent/
@@ -358,6 +364,6 @@ public void validateSkill(String employeeCode, String skillId) {
 
 ---
 
-*文档更新时间: 2026-07-09*
-*技能版本: v1.8.2*
+*文档更新时间: 2026-07-16*
+*技能版本: v1.9.0*
 *编制覆盖率: 87%*

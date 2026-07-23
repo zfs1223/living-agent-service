@@ -40,13 +40,19 @@ public class Crawl4aiClient implements AutoCloseable {
             
             String jsonBody = objectMapper.writeValueAsString(requestBody);
             
-            HttpRequest httpRequest = HttpRequest.newBuilder()
+            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + "/crawl"))
                 .header("Content-Type", "application/json")
                 .header("User-Agent", request.getUserAgent() != null ? request.getUserAgent() : "LivingAgent/1.0")
                 .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
-                .timeout(Duration.ofMillis(config.getRequestTimeoutMs()))
-                .build();
+                .timeout(Duration.ofMillis(config.getRequestTimeoutMs()));
+
+            // crawl4ai 0.9+ 强制认证，需携带 API Token
+            if (config.getApiToken() != null && !config.getApiToken().isEmpty()) {
+                requestBuilder.header("Authorization", "Bearer " + config.getApiToken());
+            }
+
+            HttpRequest httpRequest = requestBuilder.build();
 
             HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
             

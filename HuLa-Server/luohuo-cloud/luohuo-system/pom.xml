@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.luohuo.flex</groupId>
+        <artifactId>luohuo-dependencies-parent</artifactId>
+        <version>3.0.9</version>
+        <relativePath>../luohuo-dependencies-parent/pom.xml</relativePath>
+    </parent>
+
+    <artifactId>luohuo-system</artifactId>
+    <packaging>pom</packaging>
+    <description>后台服务-im后台相关业务、缓存等</description>
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+    <modules>
+        <module>luohuo-system-controller</module>
+        <module>luohuo-system-entity</module>
+        <module>luohuo-system-facade</module>
+        <module>luohuo-system-server</module>
+        <module>luohuo-system-biz</module>
+    </modules>
+
+</project>

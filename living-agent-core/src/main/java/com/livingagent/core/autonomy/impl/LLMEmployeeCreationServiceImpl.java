@@ -209,7 +209,8 @@ public class LLMEmployeeCreationServiceImpl implements LLMEmployeeCreationServic
             null,
             "DEPARTMENT",
             null,
-            null
+            null,
+            null  // EVOLVED 员工无 owner
         );
 
         Employee employee = employeeService.createEmployee(request);

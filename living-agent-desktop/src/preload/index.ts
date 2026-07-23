@@ -129,6 +129,30 @@ const api = {
       ipcRenderer.invoke('win-automation:execute', operation, args) as Promise<{ success: boolean; result?: unknown; error?: string }>
   },
 
+  /* ============ 习惯录制 ============ */
+  recorder: {
+    start: (config: { targetApp: string; noteMode: string }) =>
+      ipcRenderer.invoke('recorder:start', { target_app: config.targetApp, note_mode: config.noteMode }) as Promise<{ success: boolean; error?: string }>,
+    stop: () =>
+      ipcRenderer.invoke('recorder:stop') as Promise<{ success: boolean; result?: any; error?: string }>,
+    pause: () =>
+      ipcRenderer.invoke('recorder:pause') as Promise<{ success: boolean }>,
+    resume: () =>
+      ipcRenderer.invoke('recorder:resume') as Promise<{ success: boolean }>,
+    status: () =>
+      ipcRenderer.invoke('recorder:status') as Promise<{
+        recording: boolean;
+        paused: boolean;
+        stepCount: number;
+        pendingNoteIndex: number | null;
+        steps: any[];
+      }>,
+    setNote: (index: number, text: string) =>
+      ipcRenderer.invoke('recorder:set-note', index, text) as Promise<{ success: boolean }>,
+    skipNote: () =>
+      ipcRenderer.invoke('recorder:skip-note') as Promise<{ success: boolean }>
+  },
+
   /* ============ 审批 ============ */
   approval: {
     list: (status?: string) => ipcRenderer.invoke('approval:list', status) as Promise<any[]>,
@@ -162,7 +186,8 @@ const api = {
     list: () => ipcRenderer.invoke('agent:list') as Promise<any[]>,
     get: (id: string) => ipcRenderer.invoke('agent:get', id) as Promise<any>,
     start: (id: string) => ipcRenderer.invoke('agent:start', id) as Promise<any>,
-    stop: (id: string) => ipcRenderer.invoke('agent:stop', id) as Promise<any>
+    stop: (id: string) => ipcRenderer.invoke('agent:stop', id) as Promise<any>,
+    create: (data: { name: string; role_description?: string; agent_type?: string; department?: string; skill_ids?: string[] }) => ipcRenderer.invoke('agent:create', data) as Promise<any>,
   },
 
   /* ============ 干预决策 (P1-2) ============ */
@@ -236,6 +261,67 @@ const api = {
     const wrapped = (_: unknown, info: any) => cb(info);
     ipcRenderer.on('backend:status-changed', wrapped);
     return () => ipcRenderer.removeListener('backend:status-changed', wrapped);
+  },
+
+  /* ============ 习惯录制事件 ============ */
+  onRecorderStatus: (cb: (info: { recording: boolean; paused: boolean; stepCount: number }) => void) => {
+    const wrapped = (_: unknown, info: any) => cb(info);
+    ipcRenderer.on('recorder:status', wrapped);
+    return () => ipcRenderer.removeListener('recorder:status', wrapped);
+  },
+
+  onRecorderStep: (cb: (step: any) => void) => {
+    const wrapped = (_: unknown, step: any) => cb(step);
+    ipcRenderer.on('recorder:step', wrapped);
+    return () => ipcRenderer.removeListener('recorder:step', wrapped);
+  },
+
+  onRecorderNoteRequest: (cb: (info: { index: number; operation: string; suggestion: string }) => void) => {
+    const wrapped = (_: unknown, info: any) => cb(info);
+    ipcRenderer.on('recorder:note-request', wrapped);
+    return () => ipcRenderer.removeListener('recorder:note-request', wrapped);
+  },
+
+  onRecorderResult: (cb: (result: any) => void) => {
+    const wrapped = (_: unknown, result: any) => cb(result);
+    ipcRenderer.on('recorder:result', wrapped);
+    return () => ipcRenderer.removeListener('recorder:result', wrapped);
+  },
+
+  onRecorderError: (cb: (info: { message: string }) => void) => {
+    const wrapped = (_: unknown, info: any) => cb(info);
+    ipcRenderer.on('recorder:error', wrapped);
+    return () => ipcRenderer.removeListener('recorder:error', wrapped);
+  },
+
+  /* ============ P6: AI 唤起快捷键事件 ============ */
+  onFocusChatInput: (cb: () => void) => {
+    const wrapped = () => cb();
+    ipcRenderer.on('focus-chat-input', wrapped);
+    return () => ipcRenderer.removeListener('focus-chat-input', wrapped);
+  },
+
+  onQuickAskWithSelection: (cb: () => void) => {
+    const wrapped = () => cb();
+    ipcRenderer.on('quick-ask-with-selection', wrapped);
+    return () => ipcRenderer.removeListener('quick-ask-with-selection', wrapped);
+  },
+
+  /* ============ P7: Quick View 悬浮对话 ============ */
+  quickView: {
+    show: () => ipcRenderer.invoke('quickview:show') as Promise<void>,
+    hide: () => ipcRenderer.invoke('quickview:hide') as Promise<void>,
+    toggle: () => ipcRenderer.invoke('quickview:toggle') as Promise<void>,
+    send: (data: { content: string; attachments?: any[]; metadata?: any }) =>
+      ipcRenderer.invoke('quickview:send', data) as Promise<void>,
+    setTyping: (typing: boolean) =>
+      ipcRenderer.invoke('quickview:set-typing', typing) as Promise<void>,
+    switchDepartment: (department: string) =>
+      ipcRenderer.invoke('quickview:switch-department', department) as Promise<void>,
+    triggerScreenshot: () =>
+      ipcRenderer.invoke('quickview:trigger-screenshot') as Promise<void>,
+    openInMainWindow: () =>
+      ipcRenderer.invoke('quickview:open-in-main-window') as Promise<void>
   }
 };
 

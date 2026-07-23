@@ -279,6 +279,8 @@ function PixelCanvas({ pattern, pose }: { pattern: string[][]; pose: 'stand' | '
   );
 }
 
+export type EmployeeOrigin = 'fixed' | 'personal' | 'human';
+
 export interface PixelEmployeeProps {
   id: string;
   name: string;
@@ -287,7 +289,26 @@ export interface PixelEmployeeProps {
   currentTask?: string;
   department?: string;
   instanceNum?: number;
-  onClick?: (id: string) => void;
+  /**
+   * P28: 员工来源（AGENTS.md §5.3 / §7.3）
+   * - fixed: 固定数字员工，禁止 /ws/agent 直连，仅可走部门大脑
+   * - personal: 个人助理，允许 /ws/agent 直连
+   * - human: 真实人类，允许 /ws/agent 直连
+   * 未传值时按 fixed 处理（最严格兜底）
+   */
+  origin?: EmployeeOrigin;
+  onClick?: (id: string, origin: EmployeeOrigin) => void;
+  /**
+   * P23: 员工状态自动恢复可见性
+   * 当 status=error/offline 时，显示恢复进度
+   */
+  recoveryStatus?: {
+    isRecovering: boolean;
+    progress?: number; // 0-100
+    step?: string;
+    attemptCount?: number;
+    estimatedCompleteAt?: string;
+  };
 }
 
 // 状态颜色
@@ -355,7 +376,7 @@ function getStatusBubbleText(status: string, currentTask?: string): string | nul
   return null;
 }
 
-export default function PixelEmployee({ id, name, title, status, currentTask, department = 'tech', instanceNum = 0, onClick }: PixelEmployeeProps) {
+export default function PixelEmployee({ id, name, title, status, currentTask, department = 'tech', instanceNum = 0, origin = 'fixed', recoveryStatus, onClick }: PixelEmployeeProps) {
   const normalizedStatus = (status || 'idle').toLowerCase();
   const styleKey = getCharacterStyle(department, instanceNum, id);
   const characterPattern = renderCharacter(styleKey);
@@ -375,10 +396,21 @@ export default function PixelEmployee({ id, name, title, status, currentTask, de
   // 说话气泡文本
   const bubbleText = getStatusBubbleText(normalizedStatus, currentTask);
 
+  // P23: 是否显示恢复进度环（error/offline 且正在恢复）
+  const showRecoveryRing = recoveryStatus?.isRecovering && (faulted || normalizedStatus === 'offline');
+  const recoveryProgress = recoveryStatus?.progress ?? 0;
+
+  // P28: origin 角标——fixed=🔒(锁)，personal=⭐(星)，human=👤(人)
+  const originBadge: { icon: string; label: string; className: string } | null =
+    origin === 'fixed'   ? { icon: '🔒', label: '固定员工 · 仅走部门大脑',           className: 'pixel-employee__origin-badge pixel-employee__origin-badge--fixed' } :
+    origin === 'personal' ? { icon: '⭐', label: '个人助理 · 可直连',                className: 'pixel-employee__origin-badge pixel-employee__origin-badge--personal' } :
+    origin === 'human'    ? { icon: '👤', label: '人类员工 · 可直连',                className: 'pixel-employee__origin-badge pixel-employee__origin-badge--human' } :
+    null;
+
   return (
     <div
       className={`pixel-employee pixel-employee--${normalizedStatus}`}
-      onClick={() => onClick?.(id)}
+      onClick={() => onClick?.(id, origin)}
       role="button"
       tabIndex={0}
     >
@@ -407,6 +439,54 @@ export default function PixelEmployee({ id, name, title, status, currentTask, de
         style={{ background: dotColor }}
         title={online ? '在线' : (faulted ? '故障' : '离线')}
       />
+
+      {/* P28: origin 角标（右下角） */}
+      {originBadge && (
+        <span className={originBadge.className} title={originBadge.label} aria-label={originBadge.label}>
+          {originBadge.icon}
+        </span>
+      )}
+
+      {/* P23: 恢复进度环（error/offline 且正在恢复时显示） */}
+      {showRecoveryRing && (
+        <div
+          className="pixel-employee__recovery-ring"
+          title={recoveryStatus?.step || '正在恢复...'}
+        >
+          <svg viewBox="0 0 36 36" className="recovery-ring-svg">
+            <circle
+              cx="18"
+              cy="18"
+              r="16"
+              fill="none"
+              stroke="#333"
+              strokeWidth="3"
+            />
+            <circle
+              cx="18"
+              cy="18"
+              r="16"
+              fill="none"
+              stroke="#52c41a"
+              strokeWidth="3"
+              strokeDasharray={`${recoveryProgress} 100`}
+              strokeLinecap="round"
+              transform="rotate(-90 18 18)"
+            />
+          </svg>
+          <span className="recovery-ring-text">{recoveryProgress}%</span>
+        </div>
+      )}
+
+      {/* P23: 恢复详情悬浮提示 */}
+      {showRecoveryRing && (
+        <div className="pixel-employee__recovery-tooltip">
+          <div className="recovery-tooltip-title">🔄 自动恢复中</div>
+          {recoveryStatus?.step && <div className="recovery-tooltip-step">步骤: {recoveryStatus.step}</div>}
+          {recoveryStatus?.attemptCount !== undefined && <div className="recovery-tooltip-attempt">已尝试: {recoveryStatus.attemptCount} 次</div>}
+          {recoveryStatus?.estimatedCompleteAt && <div className="recovery-tooltip-eta">预计完成: {recoveryStatus.estimatedCompleteAt}</div>}
+        </div>
+      )}
     </div>
   );
 }

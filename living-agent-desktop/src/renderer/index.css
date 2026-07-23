@@ -84,6 +84,7 @@ input, select, textarea {
   flex-direction: column;
   background: #001529;
   color: rgba(255, 255, 255, 0.85);
+  min-height: 0; /* 允许收缩，使子元素 overflow 生效 */
 }
 
 .sidebar-brand {
@@ -102,6 +103,24 @@ input, select, textarea {
   display: flex;
   flex-direction: column;
   padding: 8px 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0; /* 允许收缩，使滚动生效 */
+}
+
+/* 自定义滚动条（侧边栏） */
+.sidebar-nav::-webkit-scrollbar {
+  width: 4px;
+}
+.sidebar-nav::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sidebar-nav::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+}
+.sidebar-nav::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
 }
 
 .nav-section {

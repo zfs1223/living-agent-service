@@ -14,6 +14,7 @@ import { getCachedClientId, getCachedClientInfo } from './client-id';
 import { getInstalledAppsString } from './app-scanner';
 import { winAutomationService } from './win-automation-service';
 import { SHARED_CONSTANTS } from '../shared/constants';
+import { forwardResponseToQuickView } from './quick-view/quick-view-controller';
 
 /** 4种WebSocket通道常量 */
 export const WS_CHANNELS = {
@@ -67,7 +68,9 @@ class WSClient {
       return;
     }
 
-    // 携带 clientId + 设备信息 + 应用列表
+    // 携带 token + clientId + 设备信息 + 应用列表
+    // token 通过 URL 查询参数传递（不使用 Sec-WebSocket-Protocol，因为 Spring 的子协议
+    // 匹配是严格相等，bearer.<token> 无法匹配注册的 bearer，导致 400 错误）
     const clientId = getCachedClientId();
     const clientInfo = getCachedClientInfo();
 
@@ -81,8 +84,8 @@ class WSClient {
       }
     }
 
-    // 使用 Sec-WebSocket-Protocol 传递 token（更安全，避免 URL 泄露）
     const search = new URLSearchParams({
+      ...(token ? { token } : {}),
       ...(clientId ? { clientId } : {}),
       ...(clientInfo?.hostname ? { hostname: clientInfo.hostname } : {}),
       ...(clientInfo?.macAddress ? { macAddress: clientInfo.macAddress } : {}),
@@ -97,8 +100,8 @@ class WSClient {
 
     // 返回 Promise，等待握手完成或失败
     return new Promise((resolve, reject) => {
-      // 通过 Sec-WebSocket-Protocol 传递 token（格式：bearer.<token>）
-      this.socket = new WebSocket(url, [`bearer.${token}`], { handshakeTimeout: 10000 });
+      // token 已通过 URL 查询参数传递，不再使用 Sec-WebSocket-Protocol
+      this.socket = new WebSocket(url, { handshakeTimeout: 10000 });
 
       let handshakeComplete = false;
 
@@ -128,6 +131,14 @@ class WSClient {
             }
             const set = this.listeners.get(msg.type as WsEventType);
             if (set) set.forEach((cb) => cb(msg.data ?? msg));
+            // P7: 转发 AI 响应到 Quick View（done 类型消息）
+            if (msg.type === 'done') {
+              forwardResponseToQuickView({
+                content: msg.data?.content || msg.data?.message || '',
+                trace: msg.data?.trace || msg.data?.execution_progress ? [msg.data.execution_progress] : undefined,
+                attachments: msg.data?.attachments,
+              });
+            }
             // 通配监听
             const wild = this.listeners.get('*' as any);
             if (wild) wild.forEach((cb) => cb(msg));

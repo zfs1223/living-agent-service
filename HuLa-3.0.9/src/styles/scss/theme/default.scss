@@ -1,0 +1,81 @@
+/**! 主题变量 */
+:root {
+  .default {
+    // 侧边栏样式
+    --left-bg-color: #64a29c;
+    --left-active-bg-color: rgba(222, 222, 222, 0.2);
+    --left-text-color: #e3e3e3;
+    --left-icon-color: #e3e3e3;
+    --left-active-hover: #f1f1f1;
+    --left-bg-hover: rgba(255, 255, 255, 0.2);
+    --left-active-icon-color: #f1f1f1;
+    --left-win-icon-color: rgba(255, 255, 255, 0.4);
+
+    // 包含边框的选中样式
+    --border-active-color: #64a29c;
+
+    // 右边布局内容背景
+    --right-theme-bg-color: radial-gradient(
+      circle at top left,
+      rgba(255, 209, 255, 0.3) 20%,
+      rgba(130, 193, 187, 0.3) 100%
+    );
+
+    // 聊天框主体样式
+    --right-chat-reply-color: #f1f1f1;
+    --right-chat-reply-active-color: rgba(99, 99, 99, 0.1);
+    --right-chat-footer-line-color: rgba(99, 99, 99, 0.1);
+
+    // 消息列表样式
+    --msg-active-color: #13987f;
+    // 群公告消息背景色
+    --group-notice-bg: #fff;
+
+    // 列表通用hover
+    --list-hover-color: rgba(99, 99, 99, 0.1);
+
+    // 整体hover图标的样式
+    --icon-hover-color: rgba(166, 166, 166, 0.2);
+  }
+}
+
+html[data-theme='dark'] {
+  .default {
+    // 侧边栏样式
+    --left-bg-color: rgba(62, 101, 100, 0.8);
+    --left-active-bg-color: rgba(222, 222, 222, 0.1);
+    --left-text-color: #ccc;
+    --left-icon-color: #ccc;
+    --left-active-hover: rgba(26, 178, 146, 0.8);
+    --left-bg-hover: rgba(133, 133, 133, 0.2);
+    --left-active-icon-color: #1ab292;
+    --left-win-icon-color: #1ab292;
+
+    // 包含边框的选中样式
+    --border-active-color: #64a29c;
+
+    // 右边布局内容背景
+    --right-theme-bg-color: radial-gradient(
+      circle at top left,
+      rgba(255, 209, 255, 0.2) 0%,
+      rgba(130, 193, 187, 0.2) 150%
+    );
+
+    // 聊天框主体样式
+    --right-chat-reply-color: #666;
+    --right-chat-reply-active-color: rgba(255, 255, 255, 0.1);
+    --right-chat-footer-line-color: #555;
+
+    // 消息列表样式
+    --msg-active-color: rgba(19, 152, 127, 0.4);
+    // 群公告消息背景色
+    --group-notice-bg: rgba(133, 133, 133, 0.2);
+
+    // 列表通用hover
+    --list-hover-color: rgba(244, 244, 244, 0.1);
+
+    // 整体hover图标的样式
+    --icon-hover-color: rgba(90, 90, 90, 0.4);
+  }
+}
+/**! end */

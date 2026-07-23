@@ -1,3 +1,11 @@
+---
+name: claude-cli
+description: "Claude CLI工具，代码生成/审查/测试/调试"
+risk: medium
+source: internal
+date_added: '2026-07-09'
+---
+
 # Claude CLI Tool
 
 > Claude CLI 集成技能，用于代码生成、审查、测试、调试和仓库协作

@@ -4,10 +4,11 @@
  * 包含：
  * - 后端 URL 配置（必填，缺失时强制进入）
  * - 客户端标识详情（可复制完整 UUID）
+ * - 习惯录制（操作录制开关与配置）
  * - 退出登录
  * - 桌面端版本信息
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import type { ClientInfo } from '@shared/api-types';
 
 interface SettingsProps {
@@ -15,6 +16,28 @@ interface SettingsProps {
   onBackendChanged: (url: string) => void;
   onLogout: () => void;
   hasToken: boolean;
+}
+
+/** 录制步骤 */
+interface RecorderStep {
+  index: number;
+  operation: string;
+  args: Record<string, unknown>;
+  target: Record<string, unknown>;
+  note: string;
+  timestamp: string;
+}
+
+/** 录制结果 */
+interface RecorderResult {
+  steps: RecorderStep[];
+  meta: {
+    app: string;
+    recorded_at: string;
+    duration_seconds: number;
+    step_count: number;
+    note_mode: string;
+  };
 }
 
 export function Settings({ clientInfo, onBackendChanged, onLogout, hasToken }: SettingsProps) {
@@ -25,6 +48,19 @@ export function Settings({ clientInfo, onBackendChanged, onLogout, hasToken }: S
   const [testResult, setTestResult] = useState<{ ok: boolean; latency?: number; error?: string } | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  // ---- 习惯录制状态 ----
+  const [recording, setRecording] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const [stepCount, setStepCount] = useState(0);
+  const [targetApp, setTargetApp] = useState('');
+  const [noteMode, setNoteMode] = useState<'all' | 'key' | 'summary'>('key');
+  const [recorderError, setRecorderError] = useState<string | null>(null);
+  const [pendingNote, setPendingNote] = useState<{ index: number; operation: string; suggestion: string } | null>(null);
+  const [noteText, setNoteText] = useState('');
+  const [recordedSteps, setRecordedSteps] = useState<RecorderStep[]>([]);
+  const [showResult, setShowResult] = useState(false);
+  const [recorderResult, setRecorderResult] = useState<RecorderResult | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -75,6 +111,82 @@ export function Settings({ clientInfo, onBackendChanged, onLogout, hasToken }: S
     } catch (e) {
       console.warn('[settings] clipboard failed:', e);
     }
+  }
+
+  // ---- 习惯录制事件监听 ----
+  useEffect(() => {
+    const unsubStatus = window.livingAgentAPI.onRecorderStatus((info) => {
+      setRecording(info.recording);
+      setPaused(info.paused);
+      setStepCount(info.stepCount);
+    });
+    const unsubStep = window.livingAgentAPI.onRecorderStep((step) => {
+      setRecordedSteps(prev => [...prev, step]);
+      setStepCount(prev => prev + 1);
+    });
+    const unsubNoteRequest = window.livingAgentAPI.onRecorderNoteRequest((info) => {
+      setPendingNote({ index: info.index, operation: info.operation, suggestion: info.suggestion });
+      setNoteText(info.suggestion);
+    });
+    const unsubResult = window.livingAgentAPI.onRecorderResult((result) => {
+      setRecorderResult(result);
+      setShowResult(true);
+      setRecording(false);
+      setPaused(false);
+    });
+    const unsubError = window.livingAgentAPI.onRecorderError((info) => {
+      setRecorderError(info.message);
+    });
+    return () => {
+      unsubStatus();
+      unsubStep();
+      unsubNoteRequest();
+      unsubResult();
+      unsubError();
+    };
+  }, []);
+
+  // ---- 习惯录制操作 ----
+  async function handleStartRecording() {
+    setRecorderError(null);
+    setShowResult(false);
+    setRecordedSteps([]);
+    setStepCount(0);
+    const result = await window.livingAgentAPI.recorder.start({
+      targetApp,
+      noteMode
+    });
+    if (!result.success) {
+      setRecorderError(result.error || '启动录制失败');
+    }
+  }
+
+  async function handleStopRecording() {
+    const result = await window.livingAgentAPI.recorder.stop();
+    if (!result.success && result.error) {
+      setRecorderError(result.error);
+    }
+  }
+
+  async function handlePauseRecording() {
+    await window.livingAgentAPI.recorder.pause();
+  }
+
+  async function handleResumeRecording() {
+    await window.livingAgentAPI.recorder.resume();
+  }
+
+  async function handleSetNote() {
+    if (!pendingNote) return;
+    await window.livingAgentAPI.recorder.setNote(pendingNote.index, noteText);
+    setPendingNote(null);
+    setNoteText('');
+  }
+
+  async function handleSkipNote() {
+    await window.livingAgentAPI.recorder.skipNote();
+    setPendingNote(null);
+    setNoteText('');
   }
 
   const dirty = draftUrl !== currentUrl;
@@ -195,6 +307,244 @@ export function Settings({ clientInfo, onBackendChanged, onLogout, hasToken }: S
           </>
         ) : (
           <div style={{ color: '#999' }}>加载中…</div>
+        )}
+      </section>
+
+      {/* 习惯录制 */}
+      <section className="settings-section">
+        <div className="settings-section-head">
+          <h2>📹 习惯录制</h2>
+          <span className="settings-hint">
+            录制您的桌面操作流程，LAS 大脑将学习并形成可复用的操作经验
+          </span>
+        </div>
+
+        {recorderError && (
+          <div className="test-result fail" role="alert" style={{ marginBottom: 12 }}>
+            ❌ {recorderError}
+          </div>
+        )}
+
+        {/* 录制中状态 */}
+        {recording && (
+          <div style={{
+            padding: '12px 16px',
+            borderRadius: 8,
+            background: paused ? '#fff3cd' : '#d4edda',
+            marginBottom: 12,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between'
+          }}>
+            <div>
+              <span style={{ fontSize: 16, marginRight: 8 }}>
+                {paused ? '⏸' : '🔴'}
+              </span>
+              <strong>{paused ? '已暂停' : '录制中'}</strong>
+              <span style={{ marginLeft: 12, color: '#666' }}>
+                步骤: {stepCount}
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {paused ? (
+                <button className="btn btn-secondary" onClick={handleResumeRecording}>
+                  ▶ 继续
+                </button>
+              ) : (
+                <button className="btn btn-secondary" onClick={handlePauseRecording}>
+                  ⏸ 暂停
+                </button>
+              )}
+              <button className="btn btn-danger" onClick={handleStopRecording}>
+                ⏹ 停止
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 备注输入弹窗（嵌入式） */}
+        {pendingNote && (
+          <div style={{
+            padding: '12px 16px',
+            borderRadius: 8,
+            background: '#e7f3ff',
+            marginBottom: 12,
+            border: '1px solid #b3d7ff'
+          }}>
+            <div style={{ marginBottom: 8 }}>
+              <strong>📝 步骤 #{pendingNote.index} 备注</strong>
+              <span style={{ marginLeft: 8, color: '#666' }}>
+                操作: {pendingNote.operation}
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input
+                type="text"
+                value={noteText}
+                onChange={(e) => setNoteText(e.target.value)}
+                placeholder="为此操作添加备注..."
+                style={{ flex: 1, padding: '6px 10px', borderRadius: 4, border: '1px solid #ccc' }}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleSetNote(); }}
+              />
+              <button className="btn btn-primary" onClick={handleSetNote}>
+                ✓ 确认
+              </button>
+              <button className="btn btn-secondary" onClick={handleSkipNote}>
+                ⏭ 跳过
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 录制配置（未录制时显示） */}
+        {!recording && !showResult && (
+          <div style={{ marginBottom: 12 }}>
+            <div className="form-row">
+              <label>目标应用</label>
+              <input
+                type="text"
+                value={targetApp}
+                onChange={(e) => setTargetApp(e.target.value)}
+                placeholder="如：微信、记事本（留空录制全部应用）"
+                style={{ flex: 1 }}
+              />
+            </div>
+            <div className="form-row">
+              <label>备注模式</label>
+              <select
+                value={noteMode}
+                onChange={(e) => setNoteMode(e.target.value as 'all' | 'key' | 'summary')}
+                style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #ccc' }}
+              >
+                <option value="all">每步弹出</option>
+                <option value="key">关键步骤弹出（推荐）</option>
+                <option value="summary">仅总结</option>
+              </select>
+            </div>
+            <div style={{ marginTop: 8, fontSize: 12, color: '#888' }}>
+              {noteMode === 'all' && '每个操作都会弹出备注输入，适合初学者或复杂流程'}
+              {noteMode === 'key' && '仅在操作类型变化时弹出备注（如从点击变为输入），推荐模式'}
+              {noteMode === 'summary' && '录制结束后统一添加备注，适合有经验的用户'}
+            </div>
+          </div>
+        )}
+
+        {/* 录制按钮 */}
+        {!recording && !showResult && (
+          <div className="form-actions">
+            <button
+              className="btn btn-primary"
+              onClick={handleStartRecording}
+            >
+              🔴 开始录制
+            </button>
+          </div>
+        )}
+
+        {/* 已录制的步骤列表 */}
+        {recordedSteps.length > 0 && !showResult && (
+          <div style={{ marginTop: 12 }}>
+            <h3 style={{ fontSize: 14, marginBottom: 8 }}>已录制步骤 ({recordedSteps.length})</h3>
+            <div style={{ maxHeight: 200, overflow: 'auto', fontSize: 12, fontFamily: 'monospace' }}>
+              {recordedSteps.map((step) => (
+                <div key={step.index} style={{
+                  padding: '4px 8px',
+                  borderBottom: '1px solid #eee',
+                  display: 'flex',
+                  gap: 8
+                }}>
+                  <span style={{ color: '#999' }}>#{step.index}</span>
+                  <span style={{ color: '#0066cc' }}>{step.operation}</span>
+                  <span style={{ color: '#666' }}>
+                    {step.operation === 'type'
+                      ? `"${(step.args.text as string) || ''}"`
+                      : step.operation === 'shortcut'
+                        ? step.args.keys as string
+                        : step.operation === 'click' || step.operation === 'double_click' || step.operation === 'right_click'
+                          ? `(${step.args.x}, ${step.args.y})`
+                          : step.operation === 'scroll'
+                            ? `${step.args.direction} x${step.args.amount}`
+                            : ''}
+                  </span>
+                  {step.note ? <span style={{ color: '#28a745' }}>/ {step.note}</span> : null}
+                  {typeof step.target?.name === 'string' && step.target.name.length > 0 ? (
+                    <span style={{ color: '#999' }}>[{step.target.name}]</span>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 录制结果展示 */}
+        {showResult && recorderResult && (
+          <div style={{ marginTop: 12 }}>
+            <div style={{
+              padding: '12px 16px',
+              borderRadius: 8,
+              background: '#d4edda',
+              marginBottom: 12
+            }}>
+              ✅ 录制完成！
+              <span style={{ marginLeft: 12, color: '#666' }}>
+                应用: {recorderResult.meta.app || '全部'} |
+                步骤: {recorderResult.meta.step_count} |
+                时长: {recorderResult.meta.duration_seconds}秒
+              </span>
+            </div>
+            <div style={{ maxHeight: 300, overflow: 'auto', fontSize: 12, fontFamily: 'monospace', border: '1px solid #ddd', borderRadius: 4 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: '#f5f5f5' }}>
+                    <th style={{ padding: '6px 8px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>#</th>
+                    <th style={{ padding: '6px 8px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>操作</th>
+                    <th style={{ padding: '6px 8px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>参数</th>
+                    <th style={{ padding: '6px 8px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>目标</th>
+                    <th style={{ padding: '6px 8px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>备注</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recorderResult.steps.map((step) => (
+                    <tr key={step.index}>
+                      <td style={{ padding: '4px 8px', borderBottom: '1px solid #eee' }}>{step.index}</td>
+                      <td style={{ padding: '4px 8px', borderBottom: '1px solid #eee', color: '#0066cc' }}>{step.operation}</td>
+                      <td style={{ padding: '4px 8px', borderBottom: '1px solid #eee', color: '#666' }}>
+                        {step.operation === 'type'
+                          ? `"${(step.args.text as string) || ''}"`
+                          : step.operation === 'shortcut'
+                            ? step.args.keys as string
+                            : step.operation === 'click' || step.operation === 'double_click' || step.operation === 'right_click'
+                              ? `(${step.args.x}, ${step.args.y})`
+                              : step.operation === 'scroll'
+                                ? `${step.args.direction} x${step.args.amount}`
+                                : JSON.stringify(step.args)}
+                      </td>
+                      <td style={{ padding: '4px 8px', borderBottom: '1px solid #eee', color: '#999', fontSize: 11 }}>
+                        {typeof step.target?.name === 'string' ? step.target.name : (typeof step.target?.className === 'string' ? step.target.className : '-')}
+                      </td>
+                      <td style={{ padding: '4px 8px', borderBottom: '1px solid #eee', color: '#28a745' }}>{step.note || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="form-actions" style={{ marginTop: 12 }}>
+              <button className="btn btn-secondary" onClick={() => {
+                setShowResult(false);
+                setRecorderResult(null);
+                setRecordedSteps([]);
+                setStepCount(0);
+              }}>
+                重新录制
+              </button>
+              <button className="btn btn-primary" onClick={() => {
+                // TODO: 将录制结果保存为经验（后续 Phase 3 实现）
+                alert('保存为经验功能将在后续版本实现');
+              }}>
+                💾 保存为经验
+              </button>
+            </div>
+          </div>
         )}
       </section>
 
