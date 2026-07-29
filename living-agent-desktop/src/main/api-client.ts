@@ -232,6 +232,27 @@ export interface PhoneLoginResult {
   };
 }
 
+/** 多公司选择时的租户选项 */
+export interface TenantOption {
+  tenantId: string;
+  departmentName: string;
+  employeeName: string;
+  founder: boolean;
+}
+
+/** 需要选择公司时的响应 */
+export interface TenantSelectionResult {
+  status: 'tenant_required';
+  phone: string;
+  tenants: TenantOption[];
+}
+
+/** 手机号+验证码登录结果（可能直接登录成功，也可能需要选择公司） */
+export type PhoneLoginResponse = PhoneLoginResult | TenantSelectionResult;
+
+/** 手机号+密码登录结果（可能直接登录成功，也可能需要选择公司） */
+export type PasswordLoginResponse = PhoneLoginResult | TenantSelectionResult;
+
 /** 发送短信验证码 */
 export async function sendSmsCode(phone: string, type: string = 'login'): Promise<SmsSendResult> {
   return apiRequest<SmsSendResult>('/api/auth/sms/send', {
@@ -240,17 +261,65 @@ export async function sendSmsCode(phone: string, type: string = 'login'): Promis
   });
 }
 
-/** 手机号 + 验证码登录 */
-export async function phoneLogin(phone: string, code: string): Promise<PhoneLoginResult> {
-  const result = apiRequest<PhoneLoginResult>('/api/auth/phone/login', {
+/** 手机号 + 验证码登录（可能需要选择公司） */
+export async function phoneLogin(phone: string, code: string): Promise<PhoneLoginResponse> {
+  const result = apiRequest<PhoneLoginResponse>('/api/auth/phone/login', {
     method: 'POST',
     body: JSON.stringify({ phone, code })
   });
-  // 登录成功后自动保存 token
+  // 登录成功后自动保存 token（仅在直接登录成功时）
+  result.then((res) => {
+    if ('accessToken' in res) {
+      import('./auth').then(m => m.saveToken(res.accessToken)).catch(() => {});
+    }
+  }).catch(() => {});
+  return result;
+}
+
+/** 手机号 + 密码登录（可能需要选择公司） */
+export async function passwordLogin(phone: string, password: string): Promise<PasswordLoginResponse> {
+  const result = apiRequest<PasswordLoginResponse>('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ phone, password })
+  });
+  result.then((res) => {
+    if ('accessToken' in res) {
+      import('./auth').then(m => m.saveToken(res.accessToken)).catch(() => {});
+    }
+  }).catch(() => {});
+  return result;
+}
+
+/** 手机验证码 + 选择公司后登录 */
+export async function phoneLoginWithTenant(phone: string, code: string, tenantId: string): Promise<PhoneLoginResult> {
+  const result = apiRequest<PhoneLoginResult>('/api/auth/phone/login-with-tenant', {
+    method: 'POST',
+    body: JSON.stringify({ phone, code, tenantId })
+  });
   result.then((res) => {
     import('./auth').then(m => m.saveToken(res.accessToken)).catch(() => {});
   }).catch(() => {});
   return result;
+}
+
+/** 密码 + 选择公司后登录 */
+export async function loginWithTenant(phone: string, password: string, tenantId: string): Promise<PhoneLoginResult> {
+  const result = apiRequest<PhoneLoginResult>('/api/auth/login-with-tenant', {
+    method: 'POST',
+    body: JSON.stringify({ phone, password, tenantId })
+  });
+  result.then((res) => {
+    import('./auth').then(m => m.saveToken(res.accessToken)).catch(() => {});
+  }).catch(() => {});
+  return result;
+}
+
+/** 修改当前用户密码（需已登录） */
+export async function changePassword(oldPassword: string, newPassword: string): Promise<{ success: boolean }> {
+  return apiRequest<{ success: boolean }>('/api/auth/change-password', {
+    method: 'POST',
+    body: JSON.stringify({ oldPassword, newPassword })
+  });
 }
 
 /** 声纹登录 - 通过录音Blob进行声纹匹配登录 */
@@ -395,8 +464,20 @@ export async function stopAgent(id: string): Promise<any> {
   return apiRequest<any>(`/api/agents/${encodeURIComponent(id)}/stop`, { method: 'POST' });
 }
 
-export async function createAgent(data: { name: string; role_description?: string; agent_type?: string; department?: string; skill_ids?: string[] }): Promise<any> {
+export async function createAgent(data: { name: string; role_description?: string; agent_type?: string; department?: string; skill_ids?: string[]; primary_model_id?: string; fallback_model_id?: string }): Promise<any> {
   return apiRequest<any>('/api/agents', { method: 'POST', body: JSON.stringify(data) });
+}
+
+export async function updateAgent(id: string, data: { name?: string; role_description?: string; primary_model_id?: string; skill_ids?: string[] }): Promise<any> {
+  return apiRequest<any>(`/api/agents/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) });
+}
+
+export async function deleteAgent(id: string): Promise<any> {
+  return apiRequest<any>(`/api/agents/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+export async function listModels(): Promise<any[]> {
+  return apiRequest<any[]>('/api/model-pool/models');
 }
 
 // ─── Interventions (P1-2) ──────────────────────────────────
@@ -426,8 +507,8 @@ export async function escalateIntervention(id: string, reason: string): Promise<
 }
 
 // ─── Skills (P1-3) ─────────────────────────────────────────
-export async function listSkills(): Promise<any[]> {
-  return apiRequest<any[]>('/api/skills');
+export async function listSkills(personalAssistant = false): Promise<any[]> {
+  return apiRequest<any[]>(`/api/skills${personalAssistant ? '?personalAssistant=true' : ''}`);
 }
 
 export async function browseSkills(section: string, params: Record<string, string> = {}): Promise<any> {

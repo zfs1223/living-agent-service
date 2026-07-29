@@ -25,6 +25,9 @@ public interface SkillRegistry {
 
     /** 按 AccessLevel 过滤可见技能 */
     List<Skill> getVisibleSkills(String userId, AccessLevel accessLevel, String departmentId);
+
+    /** 个人助手视图：只返回 personal(自己的) + personalSafe=true 的 global 技能 */
+    List<Skill> getPersonalAssistantVisibleSkills(String userId);
     
     List<String> getSkillMetadataForBrain(String brain);
     

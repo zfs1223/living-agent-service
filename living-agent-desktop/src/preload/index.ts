@@ -30,7 +30,19 @@ const api = {
     smsSend: (phone: string, type?: string) =>
       ipcRenderer.invoke('auth:sms-send', phone, type || 'login') as Promise<{ success: boolean; message: string; expiresIn: number; code?: string }>,
     phoneLogin: (phone: string, code: string) =>
-      ipcRenderer.invoke('auth:phone-login', phone, code) as Promise<{ accessToken: string; user: DesktopUser }>,
+      ipcRenderer.invoke('auth:phone-login', phone, code) as Promise<any>,
+    // 手机号 + 密码登录（可能需要选择公司）
+    passwordLogin: (phone: string, password: string) =>
+      ipcRenderer.invoke('auth:password-login', phone, password) as Promise<any>,
+    // 手机验证码 + 选择公司后登录
+    phoneLoginWithTenant: (phone: string, code: string, tenantId: string) =>
+      ipcRenderer.invoke('auth:phone-login-with-tenant', phone, code, tenantId) as Promise<{ accessToken: string; user: DesktopUser }>,
+    // 密码 + 选择公司后登录
+    loginWithTenant: (phone: string, password: string, tenantId: string) =>
+      ipcRenderer.invoke('auth:login-with-tenant', phone, password, tenantId) as Promise<{ accessToken: string; user: DesktopUser }>,
+    // 修改当前用户密码
+    changePassword: (oldPassword: string, newPassword: string) =>
+      ipcRenderer.invoke('auth:change-password', oldPassword, newPassword) as Promise<{ success: boolean }>,
     me: () => ipcRenderer.invoke('auth:me') as Promise<DesktopUser>,
     // 声纹登录
     voicePrintLogin: (audioBuffer: ArrayBuffer) =>
@@ -187,7 +199,14 @@ const api = {
     get: (id: string) => ipcRenderer.invoke('agent:get', id) as Promise<any>,
     start: (id: string) => ipcRenderer.invoke('agent:start', id) as Promise<any>,
     stop: (id: string) => ipcRenderer.invoke('agent:stop', id) as Promise<any>,
-    create: (data: { name: string; role_description?: string; agent_type?: string; department?: string; skill_ids?: string[] }) => ipcRenderer.invoke('agent:create', data) as Promise<any>,
+    create: (data: { name: string; role_description?: string; agent_type?: string; department?: string; skill_ids?: string[]; primary_model_id?: string; fallback_model_id?: string }) => ipcRenderer.invoke('agent:create', data) as Promise<any>,
+    update: (id: string, data: { name?: string; role_description?: string; primary_model_id?: string; skill_ids?: string[] }) => ipcRenderer.invoke('agent:update', id, data) as Promise<any>,
+    delete: (id: string) => ipcRenderer.invoke('agent:delete', id) as Promise<any>,
+  },
+
+  /* ============ 模型管理 ============ */
+  model: {
+    list: () => ipcRenderer.invoke('model:list') as Promise<any[]>,
   },
 
   /* ============ 干预决策 (P1-2) ============ */
@@ -199,7 +218,7 @@ const api = {
 
   /* ============ 技能管理 (P1-3) ============ */
   skill: {
-    list: () => ipcRenderer.invoke('skill:list') as Promise<any[]>,
+    list: (personalAssistant?: boolean) => ipcRenderer.invoke('skill:list', personalAssistant) as Promise<any[]>,
     browse: (section: string, params?: Record<string, string>) => ipcRenderer.invoke('skill:browse', section, params) as Promise<any>,
     bind: (agentId: string, skillId: string) => ipcRenderer.invoke('skill:bind', agentId, skillId) as Promise<any>,
     unbind: (agentId: string, skillId: string) => ipcRenderer.invoke('skill:unbind', agentId, skillId) as Promise<any>
@@ -322,6 +341,27 @@ const api = {
       ipcRenderer.invoke('quickview:trigger-screenshot') as Promise<void>,
     openInMainWindow: () =>
       ipcRenderer.invoke('quickview:open-in-main-window') as Promise<void>
+  },
+
+  /* ============ P8: 工作目录管理 (Workspace) ============ */
+  workspace: {
+    list: () => ipcRenderer.invoke('workspace:list') as Promise<Array<{
+      id: string;
+      path: string;
+      name: string;
+      authorizedAt: string;
+      scope: 'read' | 'read-write';
+    }>>,
+    authorize: (data: { path: string; name?: string; scope?: 'read' | 'read-write' }) =>
+      ipcRenderer.invoke('workspace:authorize', data) as Promise<{
+        id: string;
+        path: string;
+        name: string;
+        authorizedAt: string;
+        scope: 'read' | 'read-write';
+      }>,
+    revoke: (id: string) => ipcRenderer.invoke('workspace:revoke', id) as Promise<any[]>,
+    selectDirectory: () => ipcRenderer.invoke('workspace:select-directory') as Promise<string | null>
   }
 };
 

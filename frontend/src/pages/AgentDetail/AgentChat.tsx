@@ -74,6 +74,7 @@ export default function AgentChat({ agentId, agent, supportsVision, llmModels }:
     type SessionRuntimeKey = string;
     const wsMapRef = useRef<Record<SessionRuntimeKey, WebSocket>>({});
     const reconnectTimerRef = useRef<Record<SessionRuntimeKey, ReturnType<typeof setTimeout> | null>>({});
+    const heartbeatTimerRef = useRef<Record<SessionRuntimeKey, ReturnType<typeof setInterval> | null>>({});
     const reconnectDisabledRef = useRef<Record<SessionRuntimeKey, boolean>>({});
     const sessionUiStateRef = useRef<Record<SessionRuntimeKey, { isWaiting: boolean; isStreaming: boolean }>>({});
     const activeSessionIdRef = useRef<string | null>(null);
@@ -88,9 +89,15 @@ export default function AgentChat({ agentId, agent, supportsVision, llmModels }:
         if (timer) { clearTimeout(timer); reconnectTimerRef.current[key] = null; }
     };
 
+    const clearHeartbeatTimer = (key: SessionRuntimeKey) => {
+        const timer = heartbeatTimerRef.current[key];
+        if (timer) { clearInterval(timer); heartbeatTimerRef.current[key] = null; }
+    };
+
     const closeSessionSocket = (key: SessionRuntimeKey, disableReconnect = true) => {
         if (disableReconnect) reconnectDisabledRef.current[key] = true;
         clearReconnectTimer(key);
+        clearHeartbeatTimer(key);
         const ws = wsMapRef.current[key];
         if (ws && ws.readyState !== WebSocket.CLOSED) ws.close();
         delete wsMapRef.current[key];
@@ -239,8 +246,16 @@ export default function AgentChat({ agentId, agent, supportsVision, llmModels }:
         ws.onopen = () => {
             if (reconnectDisabledRef.current[key]) { ws.close(); return; }
             if (currentAgentIdRef.current === aId && activeSessionIdRef.current === sessionId) { wsRef.current = ws; setWsConnected(true); }
+            // 心跳保活：每 25s 发送 ping（小于后端 30s 巡检间隔）
+            clearHeartbeatTimer(key);
+            heartbeatTimerRef.current[key] = setInterval(() => {
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'ping' }));
+                }
+            }, 25000);
         };
         ws.onclose = (e) => {
+            clearHeartbeatTimer(key);
             if (wsMapRef.current[key] === ws) delete wsMapRef.current[key];
             setSessionUiState(key, { isWaiting: false, isStreaming: false });
             const isActiveRuntime = currentAgentIdRef.current === aId && activeSessionIdRef.current === sessionId;
@@ -251,6 +266,8 @@ export default function AgentChat({ agentId, agent, supportsVision, llmModels }:
         ws.onerror = () => { const isActiveRuntime = currentAgentIdRef.current === aId && activeSessionIdRef.current === sessionId; if (isActiveRuntime) setWsConnected(false); };
         ws.onmessage = (e) => {
             const d = JSON.parse(e.data);
+            // 心跳 pong 响应，静默忽略
+            if (d.type === 'pong' || d.type === 'PONG') return;
             const isActiveRuntime = currentAgentIdRef.current === aId && activeSessionIdRef.current === sessionId;
             if (['thinking', 'chunk', 'tool_call', 'done', 'error', 'quota_exceeded'].includes(d.type)) {
                 const nextStreaming = ['thinking', 'chunk', 'tool_call'].includes(d.type);
@@ -317,6 +334,7 @@ export default function AgentChat({ agentId, agent, supportsVision, llmModels }:
             sessionMsgAbortRef.current?.abort();
             Object.keys(reconnectDisabledRef.current).forEach((key) => { reconnectDisabledRef.current[key] = true; });
             Object.keys(reconnectTimerRef.current).forEach((key) => clearReconnectTimer(key));
+            Object.keys(heartbeatTimerRef.current).forEach((key) => clearHeartbeatTimer(key));
             Object.values(wsMapRef.current).forEach((ws) => { if (ws.readyState !== WebSocket.CLOSED) ws.close(); });
             wsMapRef.current = {}; wsRef.current = null;
         };

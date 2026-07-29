@@ -8,7 +8,7 @@ import { existsSync } from 'fs';
 import { writeFile, readFile, mkdir } from 'fs/promises';
 import { join, dirname } from 'path';
 import { loadToken, saveToken, clearToken } from './auth';
-import { getBackendUrl, setBackendUrl, loadBackendUrl, isBackendConfigured, getPublicTasks, claimTask, getMyCredits, listMyVisibleArtifacts, downloadArtifact, sendSmsCode, phoneLogin, getCurrentUser, getApprovalList, getApprovalDetail, approveApproval, rejectApproval, cancelApproval, getMessages, markMessageRead, markAllMessagesRead, getUnreadCount, listAgents, getAgent, startAgent, stopAgent, createAgent, listInterventions, respondIntervention, escalateIntervention, listSkills, browseSkills, bindSkill, unbindSkill, getProactiveDigest, listHabits, listProactiveNotifications, listPosts, createPost, likePost, getPlazaStats } from './api-client';
+import { getBackendUrl, setBackendUrl, loadBackendUrl, isBackendConfigured, getPublicTasks, claimTask, getMyCredits, listMyVisibleArtifacts, downloadArtifact, sendSmsCode, phoneLogin, passwordLogin, changePassword, getCurrentUser, getApprovalList, getApprovalDetail, approveApproval, rejectApproval, cancelApproval, getMessages, markMessageRead, markAllMessagesRead, getUnreadCount, listAgents, getAgent, startAgent, stopAgent, createAgent, listModels, listInterventions, respondIntervention, escalateIntervention, listSkills, browseSkills, bindSkill, unbindSkill, getProactiveDigest, listHabits, listProactiveNotifications, listPosts, createPost, likePost, getPlazaStats } from './api-client';
 import { loadConfig, saveConfig, getCachedConfig, resetCachedConfig } from './local-save-config';
 import { localSaveSync, triggerSync, openLocalSaveFolder, getLocalSaveStats } from './local-save-sync';
 import { refreshPendingCount, claimTopPriorityTask } from './task-board-tray';
@@ -26,7 +26,7 @@ import { forwardMessageToMainWindow, forwardResponseToQuickView, syncDepartmentT
 
 const IPC_CHANNELS: readonly string[] = [
   'backend:check', 'backend:get-url', 'backend:is-configured', 'backend:set-url',
-  'auth:get-token', 'auth:set-token', 'auth:clear-token', 'auth:sms-send', 'auth:phone-login', 'auth:me',
+  'auth:get-token', 'auth:set-token', 'auth:clear-token', 'auth:sms-send', 'auth:phone-login', 'auth:password-login', 'auth:phone-login-with-tenant', 'auth:login-with-tenant', 'auth:change-password', 'auth:me',
   'fs:open-artifact', 'fs:show-in-folder',
   'notify',
   'localsave:get-config', 'localsave:set-config', 'localsave:choose-path', 'localsave:open-folder', 'localsave:sync', 'localsave:stats',
@@ -41,7 +41,8 @@ const IPC_CHANNELS: readonly string[] = [
   'approval:list', 'approval:detail', 'approval:approve', 'approval:reject', 'approval:cancel',
   'message:list', 'message:mark-read', 'message:mark-all-read', 'message:unread-count',
   'ws:connect', 'ws:disconnect', 'ws:switch-channel', 'ws:status', 'ws:send',
-  'agent:list', 'agent:get', 'agent:start', 'agent:stop', 'agent:create',
+  'agent:list', 'agent:get', 'agent:start', 'agent:stop', 'agent:create', 'agent:update', 'agent:delete',
+  'model:list',
   'intervention:list', 'intervention:respond', 'intervention:escalate',
   'skill:list', 'skill:browse', 'skill:bind', 'skill:unbind',
   'proactive:digest', 'proactive:habits', 'proactive:notifications',
@@ -50,8 +51,10 @@ const IPC_CHANNELS: readonly string[] = [
   'screenshot:capture-full', 'screenshot:capture-region', 'screenshot:apply-crop', 'screenshot:save-temp', 'screenshot:open-editor', 'screenshot:close-editor',
   // P7: Quick View 悬浮对话
   'quickview:show', 'quickview:hide', 'quickview:toggle', 'quickview:send', 'quickview:set-typing', 'quickview:switch-department', 'quickview:trigger-screenshot', 'quickview:open-in-main-window',
+  // P8: 工作目录管理 (Workspace)
+  'workspace:list', 'workspace:authorize', 'workspace:revoke', 'workspace:select-directory',
   // P10: 语音输入
-  'voice-input:toggle'
+  'voice:start-recording', 'voice:stop-recording',
 ];
 
 export function registerIpcHandlers(): void {
@@ -94,6 +97,28 @@ export function registerIpcHandlers(): void {
     const result = await phoneLogin(phone, code);
     // 登录成功后通知渲染层
     return result;
+  });
+
+  // 手机号 + 密码登录（可能需要选择公司）
+  ipcMain.handle('auth:password-login', async (_e, phone: string, password: string) => {
+    return passwordLogin(phone, password);
+  });
+
+  // 手机验证码 + 选择公司后登录
+  ipcMain.handle('auth:phone-login-with-tenant', async (_e, phone: string, code: string, tenantId: string) => {
+    const { phoneLoginWithTenant: fn } = await import('./api-client');
+    return fn(phone, code, tenantId);
+  });
+
+  // 密码 + 选择公司后登录
+  ipcMain.handle('auth:login-with-tenant', async (_e, phone: string, password: string, tenantId: string) => {
+    const { loginWithTenant: fn } = await import('./api-client');
+    return fn(phone, password, tenantId);
+  });
+
+  // 修改当前用户密码
+  ipcMain.handle('auth:change-password', async (_e, oldPassword: string, newPassword: string) => {
+    return changePassword(oldPassword, newPassword);
   });
 
   // 声纹登录：接收渲染进程传来的录音Buffer
@@ -470,8 +495,20 @@ export function registerIpcHandlers(): void {
     return stopAgent(id);
   });
 
-  ipcMain.handle('agent:create', async (_e, data: { name: string; description?: string; agent_type?: string; origin?: string }) => {
+  ipcMain.handle('agent:create', async (_e, data: { name: string; role_description?: string; agent_type?: string; department?: string; skill_ids?: string[]; primary_model_id?: string; fallback_model_id?: string }) => {
     return createAgent(data);
+  });
+
+  ipcMain.handle('agent:update', async (_e, id: string, data: { name?: string; role_description?: string; primary_model_id?: string; skill_ids?: string[] }) => {
+    return updateAgent(id, data);
+  });
+
+  ipcMain.handle('agent:delete', async (_e, id: string) => {
+    return deleteAgent(id);
+  });
+
+  ipcMain.handle('model:list', async () => {
+    return listModels();
   });
 
   // ============ 干预决策 (P1-2) ============
@@ -488,8 +525,8 @@ export function registerIpcHandlers(): void {
   });
 
   // ============ 技能管理 (P1-3) ============
-  ipcMain.handle('skill:list', async () => {
-    return listSkills();
+  ipcMain.handle('skill:list', async (_e, personalAssistant?: boolean) => {
+    return listSkills(personalAssistant);
   });
 
   ipcMain.handle('skill:browse', async (_e, section: string, params?: Record<string, string>) => {
@@ -577,6 +614,99 @@ export function registerIpcHandlers(): void {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('navigate', '/chat');
     }
+  });
+
+  // ============ P8: 工作目录管理 (Workspace) ============
+  const WORKSPACES_FILE = join(app.getPath('userData'), 'workspaces.json');
+
+  // 初始化 workspaces.json（使用立即执行函数支持 await）
+  (async () => {
+    try {
+      await mkdir(dirname(WORKSPACES_FILE), { recursive: true });
+      if (!existsSync(WORKSPACES_FILE)) {
+        await writeFile(WORKSPACES_FILE, JSON.stringify([], null, 2));
+      }
+    } catch (e) {
+      console.error('[ipc] Failed to initialize workspaces file:', e);
+    }
+  })();
+
+  ipcMain.handle('workspace:list', async () => {
+    try {
+      const data = await readFile(WORKSPACES_FILE, 'utf-8');
+      return JSON.parse(data) || [];
+    } catch (e) {
+      console.error('[workspace:list] Failed to read workspaces:', e);
+      return [];
+    }
+  });
+
+  ipcMain.handle('workspace:authorize', async (_e, data: { path: string; name?: string; scope?: 'read' | 'read-write' }) => {
+    try {
+      let workspaces: any[] = [];
+      try {
+        const existing = await readFile(WORKSPACES_FILE, 'utf-8');
+        workspaces = JSON.parse(existing) || [];
+      } catch {
+        workspaces = [];
+      }
+
+      // 检查是否已存在
+      if (workspaces.some(w => w.path === data.path)) {
+        throw new Error('该目录已授权');
+      }
+
+      const newWorkspace = {
+        id: `ws-${Date.now()}`,
+        path: data.path,
+        name: data.name || data.path.split(/[\\/]/).pop() || 'workspace',
+        authorizedAt: new Date().toISOString(),
+        scope: data.scope || 'read'
+      };
+
+      workspaces.push(newWorkspace);
+      await writeFile(WORKSPACES_FILE, JSON.stringify(workspaces, null, 2));
+      return newWorkspace;
+    } catch (e: any) {
+      console.error('[workspace:authorize] Failed to authorize workspace:', e);
+      throw e;
+    }
+  });
+
+  ipcMain.handle('workspace:revoke', async (_e, id: string) => {
+    try {
+      let workspaces: any[] = [];
+      try {
+        const existing = await readFile(WORKSPACES_FILE, 'utf-8');
+        workspaces = JSON.parse(existing) || [];
+      } catch {
+        workspaces = [];
+      }
+
+      const filtered = workspaces.filter(w => w.id !== id);
+      await writeFile(WORKSPACES_FILE, JSON.stringify(filtered, null, 2));
+      return filtered;
+    } catch (e: any) {
+      console.error('[workspace:revoke] Failed to revoke workspace:', e);
+      throw e;
+    }
+  });
+
+  ipcMain.handle('workspace:select-directory', async () => {
+    const mainWindow = getMainWindow();
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return null;
+    }
+
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory'],
+      title: '选择工作目录'
+    });
+
+    if (!result.canceled && result.filePaths.length > 0) {
+      return result.filePaths[0];
+    }
+    return null;
   });
 }
 

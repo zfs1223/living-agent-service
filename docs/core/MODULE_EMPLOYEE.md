@@ -4,7 +4,7 @@
 
 ## 员工类型与来源
 
-| EmployeeType | 说明 | EmployeeOrigin | 说明 |
+| EmployeeType | 说明 | Origin | 说明 |
 |---|---|---|--- |
 | `HUMAN` | 人类员工 | `HUMAN` | 人类员工 |
 | `DIGITAL` | 数字员工 | `FIXED` | 固定编制数字员工 |

@@ -2,6 +2,7 @@
 name: mcp-client
 description: MCP 客户端技能 - 连接和使用 MCP (Model Context Protocol) 服务器提供的工具和资源
 metadata: { "brain": "core", "category": "protocol" }
+personalSafe: true
 ---
 
 # MCP 客户端技能

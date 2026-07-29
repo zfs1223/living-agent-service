@@ -24,6 +24,7 @@ import {
   type CreateMeetingResponse,
 } from '../../services/meeting/meeting-api';
 import type { DesktopUser } from '@shared/api-types';
+import CalendarPage from '../Calendar/CalendarPage';
 
 // ─── Props ────────────────────────────────────────────────
 
@@ -38,6 +39,8 @@ interface MeetingPageProps {
   onNavigateToRoom: (roomName: string) => void;
   /** 登录回调 */
   onLogin: () => void;
+  /** 初始视图：会议列表 or 日程（日历） */
+  initialMode?: 'list' | 'schedule';
 }
 
 // ─── 权限判定（对齐 P14 + LIVEKIT_INTEGRATION_PLAN §7.1） ──────
@@ -82,6 +85,7 @@ export function MeetingPage({
   currentUser,
   onNavigateToRoom,
   onLogin,
+  initialMode = 'list',
 }: MeetingPageProps) {
   // ── 状态 ──
   const [meetings, setMeetings] = useState<MeetingInfo[]>([]);
@@ -90,6 +94,9 @@ export function MeetingPage({
 
   // 会议列表 Tab 切换
   const [tab, setTab] = useState<MeetingStatus | 'all'>('all');
+
+  // 顶层视图模式：会议列表 / 日程（日历）。日历与会议预约共用 /api/meeting-schedules
+  const [mode, setMode] = useState<'list' | 'schedule'>(initialMode);
 
   // 创建会议对话框
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -228,14 +235,14 @@ export function MeetingPage({
             {currentUser?.department ? `${getDeptName(currentUser.department)}会议` : '会议管理'}
           </span>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {canCreate && (
             <button
               className="btn btn-primary"
               onClick={() => setShowCreateDialog(true)}
               style={{ fontSize: 13, padding: '6px 16px' }}
             >
-              ➕ 创建会议
+              🎥 即时会议
             </button>
           )}
           <button
@@ -245,9 +252,38 @@ export function MeetingPage({
           >
             🔄 刷新
           </button>
+          {/* 视图模式切换：会议列表 / 日程（日历） */}
+          <div style={{ display: 'flex', gap: 0, marginLeft: 4, border: '1px solid #333', borderRadius: 6, overflow: 'hidden' }}>
+            <button
+              onClick={() => setMode('list')}
+              style={{
+                padding: '6px 12px', border: 'none', cursor: 'pointer', fontSize: 12,
+                background: mode === 'list' ? '#6366f1' : 'transparent',
+                color: mode === 'list' ? '#fff' : '#888', fontWeight: 600,
+              }}
+            >
+              会议列表
+            </button>
+            <button
+              onClick={() => setMode('schedule')}
+              style={{
+                padding: '6px 12px', border: 'none', cursor: 'pointer', fontSize: 12,
+                background: mode === 'schedule' ? '#6366f1' : 'transparent',
+                color: mode === 'schedule' ? '#fff' : '#888', fontWeight: 600,
+                borderLeft: '1px solid #333',
+              }}
+            >
+              📅 日程
+            </button>
+          </div>
         </div>
       </div>
 
+      {/* ── 视图分支：日程（日历，与会议预约共用 /api/meeting-schedules）/ 会议列表 ── */}
+      {mode === 'schedule' ? (
+        <CalendarPage backendUrl={backendUrl} hasToken={hasToken} currentUser={currentUser} />
+      ) : (
+      <>
       {/* ── 错误提示 ── */}
       {error && (
         <div style={{
@@ -326,7 +362,7 @@ export function MeetingPage({
             <div style={{ fontSize: 36, marginBottom: 8 }}>📡</div>
             <p>暂无会议</p>
             {canCreate && (
-              <p style={{ fontSize: 11, color: '#666' }}>点击"创建会议"发起一个新的视频会议</p>
+              <p style={{ fontSize: 11, color: '#666' }}>点击"即时会议"发起一个视频会议，或到「日程」预约未来的会议</p>
             )}
           </div>
         ) : (
@@ -348,7 +384,7 @@ export function MeetingPage({
         )}
       </div>
 
-      {/* ── 创建会议对话框 ── */}
+      {/* ── 即时会议对话框（当场建房间并进入） ── */}
       {showCreateDialog && (
         <div
           className="login-dialog-overlay"
@@ -359,7 +395,7 @@ export function MeetingPage({
             onClick={e => e.stopPropagation()}
             style={{ width: 420 }}
           >
-            <h2 style={{ marginTop: 0 }}>➕ 创建会议</h2>
+            <h2 style={{ marginTop: 0 }}>🎥 创建即时会议</h2>
 
             <form onSubmit={e => void handleCreateMeeting(e)}>
               <div style={{ marginBottom: 12 }}>
@@ -430,6 +466,8 @@ export function MeetingPage({
             </form>
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   );

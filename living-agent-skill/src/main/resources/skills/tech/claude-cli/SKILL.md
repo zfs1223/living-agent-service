@@ -1,6 +1,7 @@
 ---
 name: claude-cli
 description: "Claude CLI工具，代码生成/审查/测试/调试"
+personalSafe: false
 risk: medium
 source: internal
 date_added: '2026-07-09'

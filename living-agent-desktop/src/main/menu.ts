@@ -56,6 +56,20 @@ export function buildApplicationMenu(): void {
       ]
     },
     {
+      label: '沟通',
+      submenu: [
+        {
+          label: '办公室聊天',
+          click: () => showMainWindow('/office-chat')
+        },
+        { type: 'separator' },
+        {
+          label: '历史对话',
+          click: () => showMainWindow('/chat-history')
+        }
+      ]
+    },
+    {
       label: '视图',
       submenu: [
         { role: 'reload', label: '重新加载' },

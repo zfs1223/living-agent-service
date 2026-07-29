@@ -202,6 +202,16 @@ public class SkillLoader {
                     case "author":
                         skill.setAuthor((String) value);
                         break;
+                    case "personalSafe":
+                        if (value instanceof Boolean boolVal) {
+                            skill.setPersonalSafe(boolVal);
+                        } else if (value instanceof String strVal) {
+                            skill.setPersonalSafe(Boolean.parseBoolean(strVal));
+                        }
+                        break;
+                    case "scope":
+                        skill.setScope((String) value);
+                        break;
                     default:
                         metadata.put(key, value);
                 }

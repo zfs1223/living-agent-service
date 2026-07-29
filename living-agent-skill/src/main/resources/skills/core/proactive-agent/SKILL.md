@@ -4,6 +4,7 @@ description: Proactive Agent - 主动代理技能
 risk: low
 source: internal
 date_added: '2026-07-13'
+personalSafe: false
 ---
 
 # Proactive Agent - 主动代理技能

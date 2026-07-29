@@ -16,7 +16,7 @@ const AgentCreate = lazy(() => import('./pages/AgentCreate'));
 const Chat = lazy(() => import('./pages/Chat'));
 const Messages = lazy(() => import('./pages/Messages'));
 const EnterpriseSettings = lazy(() => import('./pages/EnterpriseSettings'));
-const InvitationCodes = lazy(() => import('./pages/InvitationCodes'));
+const PasswordManagement = lazy(() => import('./pages/PasswordManagement'));
 const AdminCompanies = lazy(() => import('./pages/AdminCompanies'));
 const SSOEntry = lazy(() => import('./pages/SSOEntry'));
 const Projects = lazy(() => import('./pages/Projects'));
@@ -250,7 +250,7 @@ export default function App() {
                         <Route path="messages" element={<Messages />} />
                         <Route path="enterprise" element={<EnterpriseSettings />} />
                         <Route path="documents" element={<Navigate to="/enterprise" replace />} />
-                        <Route path="invitations" element={<InvitationCodes />} />
+                        <Route path="password-management" element={<PasswordManagement />} />
                         <Route path="admin/platform-settings" element={<AdminCompanies />} />
                         {/* Projects and Approvals */}
                         <Route path="projects" element={<Projects />} />

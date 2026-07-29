@@ -89,11 +89,15 @@ CREATE TABLE IF NOT EXISTS enterprise_employees (
     roles TEXT,
     tools TEXT,
     responsibility_card_id VARCHAR(64),
+    -- 邀请码改进：密码登录相关字段
+    password_hash VARCHAR(255),
+    password_changed_at TIMESTAMP WITH TIME ZONE,
+    phone_verified BOOLEAN DEFAULT FALSE,
     -- Timestamps
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    
-    CONSTRAINT fk_employee_department FOREIGN KEY (department_id) 
+
+    CONSTRAINT fk_employee_department FOREIGN KEY (department_id)
         REFERENCES enterprise_departments(department_id) ON DELETE SET NULL,
     CONSTRAINT uk_employee_phone UNIQUE (phone),
     CONSTRAINT uk_employee_email UNIQUE (email)
@@ -2521,46 +2525,46 @@ INSERT INTO enterprise_employees (
 )
 VALUES
     -- 技术部 (10人)
-    ('employee://digital/tech/code-reviewer/001', '真砺', 'dept_tech', '技术部', '代码审查员', 'digital_employee', 'DEPARTMENT', '💻', CURRENT_TIMESTAMP, TRUE, 'default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
-    ('employee://digital/tech/architect/001', '真构', 'dept_tech', '技术部', '架构师', 'digital_employee', 'DEPARTMENT', '🧠', CURRENT_TIMESTAMP, TRUE, 'default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
-    ('employee://digital/tech/devops/001', '真捷', 'dept_tech', '技术部', 'DevOps工程师', 'digital_employee', 'DEPARTMENT', '🛠️', CURRENT_TIMESTAMP, TRUE, 'default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
-    ('employee://digital/tech/ops/001', '真稳', 'dept_tech', '技术部', '运维工程师', 'digital_employee', 'DEPARTMENT', '🖥️', CURRENT_TIMESTAMP, TRUE, 'default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
-    ('employee://digital/tech/model-admin/001', '真模', 'dept_tech', '技术部', 'AI模型管理员', 'digital_employee', 'DEPARTMENT', '🤖', CURRENT_TIMESTAMP, TRUE, 'default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
-    ('employee://digital/tech/state-admin/001', '真续', 'dept_tech', '技术部', '状态管理员', 'digital_employee', 'DEPARTMENT', '📡', CURRENT_TIMESTAMP, TRUE, 'default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
-    ('employee://digital/tech/security/001', '真盾', 'dept_tech', '技术部', '安全工程师', 'digital_employee', 'DEPARTMENT', '🛡️', CURRENT_TIMESTAMP, TRUE, 'default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
-    ('employee://digital/tech/config-admin/001', '真策', 'dept_tech', '技术部', '配置管理员', 'digital_employee', 'DEPARTMENT', '⚙️', CURRENT_TIMESTAMP, TRUE, 'default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
-    ('employee://digital/tech/frontend/001', '真绘', 'dept_tech', '技术部', '前端工程师', 'digital_employee', 'DEPARTMENT', '🎨', CURRENT_TIMESTAMP, TRUE, 'default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
-    ('employee://digital/tech/backend/001', '真栈', 'dept_tech', '技术部', '后端工程师', 'digital_employee', 'DEPARTMENT', '🗄️', CURRENT_TIMESTAMP, TRUE, 'default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
+    ('employee://digital/tech/code-reviewer/001', '真砺', 'dept_tech', '技术部', '代码审查员', 'digital_employee', 'DEPARTMENT', '💻', CURRENT_TIMESTAMP, TRUE, 'tenant_default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
+    ('employee://digital/tech/architect/001', '真构', 'dept_tech', '技术部', '架构师', 'digital_employee', 'DEPARTMENT', '🧠', CURRENT_TIMESTAMP, TRUE, 'tenant_default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
+    ('employee://digital/tech/devops/001', '真捷', 'dept_tech', '技术部', 'DevOps工程师', 'digital_employee', 'DEPARTMENT', '🛠️', CURRENT_TIMESTAMP, TRUE, 'tenant_default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
+    ('employee://digital/tech/ops/001', '真稳', 'dept_tech', '技术部', '运维工程师', 'digital_employee', 'DEPARTMENT', '🖥️', CURRENT_TIMESTAMP, TRUE, 'tenant_default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
+    ('employee://digital/tech/model-admin/001', '真模', 'dept_tech', '技术部', 'AI模型管理员', 'digital_employee', 'DEPARTMENT', '🤖', CURRENT_TIMESTAMP, TRUE, 'tenant_default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
+    ('employee://digital/tech/state-admin/001', '真续', 'dept_tech', '技术部', '状态管理员', 'digital_employee', 'DEPARTMENT', '📡', CURRENT_TIMESTAMP, TRUE, 'tenant_default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
+    ('employee://digital/tech/security/001', '真盾', 'dept_tech', '技术部', '安全工程师', 'digital_employee', 'DEPARTMENT', '🛡️', CURRENT_TIMESTAMP, TRUE, 'tenant_default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
+    ('employee://digital/tech/config-admin/001', '真策', 'dept_tech', '技术部', '配置管理员', 'digital_employee', 'DEPARTMENT', '⚙️', CURRENT_TIMESTAMP, TRUE, 'tenant_default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
+    ('employee://digital/tech/frontend/001', '真绘', 'dept_tech', '技术部', '前端工程师', 'digital_employee', 'DEPARTMENT', '🎨', CURRENT_TIMESTAMP, TRUE, 'tenant_default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
+    ('employee://digital/tech/backend/001', '真栈', 'dept_tech', '技术部', '后端工程师', 'digital_employee', 'DEPARTMENT', '🗄️', CURRENT_TIMESTAMP, TRUE, 'tenant_default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
     -- 财务部 (4人)
-    ('employee://digital/finance/accountant/001', '真账', 'dept_finance', '财务部', '财务会计', 'digital_employee', 'DEPARTMENT', '💰', CURRENT_TIMESTAMP, TRUE, 'default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
-    ('employee://digital/finance/auditor/001', '真审', 'dept_finance', '财务部', '报销审核员', 'digital_employee', 'DEPARTMENT', '🧾', CURRENT_TIMESTAMP, TRUE, 'default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
-    ('employee://digital/finance/cost-accountant/001', '真算', 'dept_finance', '财务部', '成本核算员', 'digital_employee', 'DEPARTMENT', '📊', CURRENT_TIMESTAMP, TRUE, 'default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
-    ('employee://digital/finance/budget-admin/001', '真预', 'dept_finance', '财务部', '预算管理员', 'digital_employee', 'DEPARTMENT', '🏦', CURRENT_TIMESTAMP, TRUE, 'default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
+    ('employee://digital/finance/accountant/001', '真账', 'dept_finance', '财务部', '财务会计', 'digital_employee', 'DEPARTMENT', '💰', CURRENT_TIMESTAMP, TRUE, 'tenant_default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
+    ('employee://digital/finance/auditor/001', '真审', 'dept_finance', '财务部', '报销审核员', 'digital_employee', 'DEPARTMENT', '🧾', CURRENT_TIMESTAMP, TRUE, 'tenant_default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
+    ('employee://digital/finance/cost-accountant/001', '真算', 'dept_finance', '财务部', '成本核算员', 'digital_employee', 'DEPARTMENT', '📊', CURRENT_TIMESTAMP, TRUE, 'tenant_default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
+    ('employee://digital/finance/budget-admin/001', '真预', 'dept_finance', '财务部', '预算管理员', 'digital_employee', 'DEPARTMENT', '🏦', CURRENT_TIMESTAMP, TRUE, 'tenant_default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
     -- 运营部 (4人)
-    ('employee://digital/ops/analyst/001', '真析', 'dept_ops', '运营部', '数据分析师', 'digital_employee', 'DEPARTMENT', '📈', CURRENT_TIMESTAMP, TRUE, 'default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
-    ('employee://digital/ops/operator/001', '真营', 'dept_ops', '运营部', '运营专员', 'digital_employee', 'DEPARTMENT', '🚚', CURRENT_TIMESTAMP, TRUE, 'default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
-    ('employee://digital/ops/scheduler/001', '真度', 'dept_ops', '运营部', '任务调度员', 'digital_employee', 'DEPARTMENT', '⏱️', CURRENT_TIMESTAMP, TRUE, 'default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
-    ('employee://digital/ops/process-admin/001', '真流', 'dept_ops', '运营部', '流程管理员', 'digital_employee', 'DEPARTMENT', '🧩', CURRENT_TIMESTAMP, TRUE, 'default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
+    ('employee://digital/ops/analyst/001', '真析', 'dept_ops', '运营部', '数据分析师', 'digital_employee', 'DEPARTMENT', '📈', CURRENT_TIMESTAMP, TRUE, 'tenant_default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
+    ('employee://digital/ops/operator/001', '真营', 'dept_ops', '运营部', '运营专员', 'digital_employee', 'DEPARTMENT', '🚚', CURRENT_TIMESTAMP, TRUE, 'tenant_default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
+    ('employee://digital/ops/scheduler/001', '真度', 'dept_ops', '运营部', '任务调度员', 'digital_employee', 'DEPARTMENT', '⏱️', CURRENT_TIMESTAMP, TRUE, 'tenant_default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
+    ('employee://digital/ops/process-admin/001', '真流', 'dept_ops', '运营部', '流程管理员', 'digital_employee', 'DEPARTMENT', '🧩', CURRENT_TIMESTAMP, TRUE, 'tenant_default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
     -- 销售部 (3人)
-    ('employee://digital/sales/representative/001', '真拓', 'dept_sales', '销售部', '销售代表', 'digital_employee', 'DEPARTMENT', '📣', CURRENT_TIMESTAMP, TRUE, 'default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
-    ('employee://digital/sales/marketer/001', '真宣', 'dept_sales', '销售部', '市场专员', 'digital_employee', 'DEPARTMENT', '🎯', CURRENT_TIMESTAMP, TRUE, 'default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
-    ('employee://digital/sales/channel-manager/001', '真联', 'dept_sales', '销售部', '渠道经理', 'digital_employee', 'DEPARTMENT', '🤝', CURRENT_TIMESTAMP, TRUE, 'default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
+    ('employee://digital/sales/representative/001', '真拓', 'dept_sales', '销售部', '销售代表', 'digital_employee', 'DEPARTMENT', '📣', CURRENT_TIMESTAMP, TRUE, 'tenant_default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
+    ('employee://digital/sales/marketer/001', '真宣', 'dept_sales', '销售部', '市场专员', 'digital_employee', 'DEPARTMENT', '🎯', CURRENT_TIMESTAMP, TRUE, 'tenant_default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
+    ('employee://digital/sales/channel-manager/001', '真联', 'dept_sales', '销售部', '渠道经理', 'digital_employee', 'DEPARTMENT', '🤝', CURRENT_TIMESTAMP, TRUE, 'tenant_default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
     -- 人力资源 (2人)
-    ('employee://digital/hr/recruiter/001', '真才', 'dept_hr', '人力资源部', '招聘专员', 'digital_employee', 'DEPARTMENT', '👥', CURRENT_TIMESTAMP, TRUE, 'default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
-    ('employee://digital/hr/performance/001', '真绩', 'dept_hr', '人力资源部', '绩效管理员', 'digital_employee', 'DEPARTMENT', '📝', CURRENT_TIMESTAMP, TRUE, 'default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
+    ('employee://digital/hr/recruiter/001', '真才', 'dept_hr', '人力资源部', '招聘专员', 'digital_employee', 'DEPARTMENT', '👥', CURRENT_TIMESTAMP, TRUE, 'tenant_default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
+    ('employee://digital/hr/performance/001', '真绩', 'dept_hr', '人力资源部', '绩效管理员', 'digital_employee', 'DEPARTMENT', '📝', CURRENT_TIMESTAMP, TRUE, 'tenant_default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
     -- 客服部 (2人)
-    ('employee://digital/cs/agent/001', '真晴', 'dept_cs', '客服部', '客服专员', 'digital_employee', 'DEPARTMENT', '🎧', CURRENT_TIMESTAMP, TRUE, 'default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
-    ('employee://digital/cs/ticket-handler/001', '真修', 'dept_cs', '客服部', '工单处理员', 'digital_employee', 'DEPARTMENT', '🧰', CURRENT_TIMESTAMP, TRUE, 'default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
+    ('employee://digital/cs/agent/001', '真晴', 'dept_cs', '客服部', '客服专员', 'digital_employee', 'DEPARTMENT', '🎧', CURRENT_TIMESTAMP, TRUE, 'tenant_default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
+    ('employee://digital/cs/ticket-handler/001', '真修', 'dept_cs', '客服部', '工单处理员', 'digital_employee', 'DEPARTMENT', '🧰', CURRENT_TIMESTAMP, TRUE, 'tenant_default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
     -- 行政部 (3人)
-    ('employee://digital/admin/assistant/001', '真序', 'dept_admin', '行政部', '行政助理', 'digital_employee', 'DEPARTMENT', '📋', CURRENT_TIMESTAMP, TRUE, 'default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
-    ('employee://digital/admin/doc-manager/001', '真典', 'dept_admin', '行政部', '文档管理员', 'digital_employee', 'DEPARTMENT', '📚', CURRENT_TIMESTAMP, TRUE, 'default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
-    ('employee://digital/admin/copywriter/001', '真笔', 'dept_admin', '行政部', '文案策划', 'digital_employee', 'DEPARTMENT', '✍️', CURRENT_TIMESTAMP, TRUE, 'default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
+    ('employee://digital/admin/assistant/001', '真序', 'dept_admin', '行政部', '行政助理', 'digital_employee', 'DEPARTMENT', '📋', CURRENT_TIMESTAMP, TRUE, 'tenant_default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
+    ('employee://digital/admin/doc-manager/001', '真典', 'dept_admin', '行政部', '文档管理员', 'digital_employee', 'DEPARTMENT', '📚', CURRENT_TIMESTAMP, TRUE, 'tenant_default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
+    ('employee://digital/admin/copywriter/001', '真笔', 'dept_admin', '行政部', '文案策划', 'digital_employee', 'DEPARTMENT', '✍️', CURRENT_TIMESTAMP, TRUE, 'tenant_default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
     -- 法务部 (2人)
-    ('employee://digital/legal/contract-reviewer/001', '真律', 'dept_legal', '法务部', '合同审查员', 'digital_employee', 'DEPARTMENT', '⚖️', CURRENT_TIMESTAMP, TRUE, 'default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
-    ('employee://digital/legal/compliance/001', '真规', 'dept_legal', '法务部', '合规专员', 'digital_employee', 'DEPARTMENT', '📜', CURRENT_TIMESTAMP, TRUE, 'default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
+    ('employee://digital/legal/contract-reviewer/001', '真律', 'dept_legal', '法务部', '合同审查员', 'digital_employee', 'DEPARTMENT', '⚖️', CURRENT_TIMESTAMP, TRUE, 'tenant_default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
+    ('employee://digital/legal/compliance/001', '真规', 'dept_legal', '法务部', '合规专员', 'digital_employee', 'DEPARTMENT', '📜', CURRENT_TIMESTAMP, TRUE, 'tenant_default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
     -- 综合管理 (2人)
-    ('employee://digital/main/coordinator/001', '真合', 'dept_main', '综合管理', '协调员', 'digital_employee', 'DEPARTMENT', '🎯', CURRENT_TIMESTAMP, TRUE, 'default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
-    ('employee://digital/main/strategist/001', '真略', 'dept_main', '综合管理', '战略规划师', 'digital_employee', 'DEPARTMENT', '🧭', CURRENT_TIMESTAMP, TRUE, 'default', 'fixed_employee_seed', 'DIGITAL', 'FIXED')
+    ('employee://digital/main/coordinator/001', '真合', 'dept_main', '综合管理', '协调员', 'digital_employee', 'DEPARTMENT', '🎯', CURRENT_TIMESTAMP, TRUE, 'tenant_default', 'fixed_employee_seed', 'DIGITAL', 'FIXED'),
+    ('employee://digital/main/strategist/001', '真略', 'dept_main', '综合管理', '战略规划师', 'digital_employee', 'DEPARTMENT', '🧭', CURRENT_TIMESTAMP, TRUE, 'tenant_default', 'fixed_employee_seed', 'DIGITAL', 'FIXED')
 ON CONFLICT (employee_id) DO UPDATE SET
     name = EXCLUDED.name,
     department_id = EXCLUDED.department_id,
@@ -2701,17 +2705,69 @@ CREATE TABLE IF NOT EXISTS messages (
     message_id VARCHAR(64) NOT NULL UNIQUE,
     recipient_id VARCHAR(100) NOT NULL,
     sender_id VARCHAR(100),
-    type VARCHAR(32) NOT NULL,
-    title VARCHAR(255) NOT NULL,
+    type VARCHAR(50) NOT NULL,
+    title VARCHAR(255),
     content TEXT,
-    metadata_json TEXT,
-    created_at TIMESTAMP NOT NULL,
+    metadata_json TEXT,                -- 扩展信息(图片/视频/文件/表情/会议邀请)，复用替代 HuLa extra
+    reply_to_id VARCHAR(64),           -- P89: 回复的消息ID
+    gap_count INT DEFAULT 0,           -- P89: 引用消息与当前消息的间隔数
+    deleted_at TIMESTAMP,              -- P89: 撤回时间(软删除)
+    deleted_by VARCHAR(100),           -- P89: 撤回操作人
+    edited_at TIMESTAMP,               -- P89: 编辑时间
+    edited_by VARCHAR(100),            -- P89: 编辑操作人
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     read_at TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_msg_recipient ON messages (recipient_id);
 CREATE INDEX IF NOT EXISTS idx_msg_recipient_unread ON messages (recipient_id, read_at);
 CREATE INDEX IF NOT EXISTS idx_msg_created_at ON messages (created_at);
+CREATE INDEX IF NOT EXISTS idx_msg_recipient_created ON messages(recipient_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_msg_sender_created ON messages(sender_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_msg_reply_to ON messages(reply_to_id);
+
+-- ============================================
+-- 25-B. IM User Contacts - 会话管理 (P87, 闭环 69)
+-- ============================================
+CREATE TABLE IF NOT EXISTS user_contacts (
+    id BIGSERIAL PRIMARY KEY,
+    user_id VARCHAR(100) NOT NULL,
+    contact_id VARCHAR(100) NOT NULL,
+    contact_type VARCHAR(20) NOT NULL DEFAULT 'PRIVATE',
+    room_id VARCHAR(100),
+    muted BOOLEAN DEFAULT FALSE,
+    pinned BOOLEAN DEFAULT FALSE,
+    hidden BOOLEAN DEFAULT FALSE,
+    shield BOOLEAN DEFAULT FALSE,
+    last_read_at TIMESTAMP,
+    last_message_id VARCHAR(64),
+    last_message_content TEXT,
+    last_message_time TIMESTAMP,
+    unread_count INT DEFAULT 0,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, contact_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_contacts_user ON user_contacts(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_contacts_pinned ON user_contacts(user_id, pinned DESC, last_message_time DESC);
+CREATE INDEX IF NOT EXISTS idx_user_contacts_time ON user_contacts(user_id, last_message_time DESC);
+
+-- ============================================
+-- 25-C. IM Message Marks - 消息标记 (P89, 闭环 69)
+-- ============================================
+CREATE TABLE IF NOT EXISTS message_marks (
+    id BIGSERIAL PRIMARY KEY,
+    message_id VARCHAR(64) NOT NULL,
+    user_id VARCHAR(100) NOT NULL,
+    mark_type VARCHAR(20) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(message_id, user_id, mark_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_message_marks_message ON message_marks(message_id);
+CREATE INDEX IF NOT EXISTS idx_message_marks_type ON message_marks(mark_type, status);
 
 -- ============================================
 -- 26. Meetings - 会议运行时状态 (P81, 闭环 67-C)
@@ -2883,4 +2939,54 @@ CREATE TRIGGER trg_meeting_minutes_updated_at
 DROP TRIGGER IF EXISTS trg_meeting_recordings_updated_at ON meeting_recordings;
 CREATE TRIGGER trg_meeting_recordings_updated_at
     BEFORE UPDATE ON meeting_recordings
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================================
+-- 邀请码表（INVITATION_CODE_IMPROVEMENT_PLAN.md §3.1）
+-- 支持邀请码注册、绑定公司/部门、手机号预绑定、密码初始化
+-- ============================================================
+CREATE TABLE IF NOT EXISTS invitation_codes (
+    id BIGSERIAL PRIMARY KEY,
+    code VARCHAR(64) NOT NULL UNIQUE,
+    tenant_id VARCHAR(64),
+    company_id VARCHAR(64),
+    company_name VARCHAR(128),
+    department_code VARCHAR(32),
+    department_name VARCHAR(128),
+    role VARCHAR(32) DEFAULT 'employee',
+    access_level VARCHAR(16) DEFAULT 'DEPARTMENT',
+    -- 预绑定手机号（注册时校验）；phone_hash 用于隐私保护
+    phone VARCHAR(20),
+    phone_hash VARCHAR(64),
+    -- 初始密码（BCrypt 哈希）；注册成功后写入 enterprise_employees.password_hash
+    initial_password_hash VARCHAR(255),
+    -- 使用统计
+    max_uses INT NOT NULL DEFAULT 1,
+    used_count INT NOT NULL DEFAULT 0,
+    -- 状态：PENDING / USED / EXPIRED / DISABLED
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+    -- 时间
+    expires_at TIMESTAMP WITH TIME ZONE,
+    used_at TIMESTAMP WITH TIME ZONE,
+    used_by_employee_id VARCHAR(100),
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by VARCHAR(100),
+    -- 邀请链接（可选）
+    invite_url VARCHAR(500),
+    -- 备注
+    note TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_invitation_codes_tenant ON invitation_codes(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_invitation_codes_company ON invitation_codes(company_id);
+CREATE INDEX IF NOT EXISTS idx_invitation_codes_department ON invitation_codes(department_code);
+CREATE INDEX IF NOT EXISTS idx_invitation_codes_phone_hash ON invitation_codes(phone_hash);
+CREATE INDEX IF NOT EXISTS idx_invitation_codes_status ON invitation_codes(status);
+CREATE INDEX IF NOT EXISTS idx_invitation_codes_expires_at ON invitation_codes(expires_at);
+CREATE INDEX IF NOT EXISTS idx_invitation_codes_created_by ON invitation_codes(created_by);
+
+-- 触发器：自动更新 enterprise_employees.updated_at
+DROP TRIGGER IF EXISTS trg_enterprise_employees_updated_at ON enterprise_employees;
+CREATE TRIGGER trg_enterprise_employees_updated_at
+    BEFORE UPDATE ON enterprise_employees
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();

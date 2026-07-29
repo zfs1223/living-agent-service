@@ -136,7 +136,8 @@ public interface EmployeeService {
         EmployeeStatus status,
         String nameKeyword,
         int limit,
-        int offset
+        int offset,
+        EmployeeOrigin origin
     ) {
         public EmployeeQuery {
             if (limit <= 0) limit = 100;

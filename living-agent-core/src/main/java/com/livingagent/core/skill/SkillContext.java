@@ -5,25 +5,51 @@ import java.util.HashMap;
 import java.util.List;
 
 public class SkillContext {
-    
+
     private final String skillId;
     private final String sessionId;
     private final String neuronId;
+    private final String origin;  // 员工来源：fixed/personal/human
+    private final String workspaceDir;  // 隔离工作区目录（个人助手指向用户数据目录）
     private final Map<String, Object> attributes;
     private final Map<String, Object> parameters;
-    
+
     public SkillContext(String skillId, String sessionId) {
         this.skillId = skillId;
         this.sessionId = sessionId;
         this.neuronId = null;
+        this.origin = null;
+        this.workspaceDir = null;
         this.attributes = new HashMap<>();
         this.parameters = new HashMap<>();
     }
-    
+
     public SkillContext(String skillId, String sessionId, String neuronId) {
         this.skillId = skillId;
         this.sessionId = sessionId;
         this.neuronId = neuronId;
+        this.origin = null;
+        this.workspaceDir = null;
+        this.attributes = new HashMap<>();
+        this.parameters = new HashMap<>();
+    }
+
+    public SkillContext(String skillId, String sessionId, String neuronId, String origin) {
+        this.skillId = skillId;
+        this.sessionId = sessionId;
+        this.neuronId = neuronId;
+        this.origin = origin;
+        this.workspaceDir = null;
+        this.attributes = new HashMap<>();
+        this.parameters = new HashMap<>();
+    }
+
+    public SkillContext(String skillId, String sessionId, String neuronId, String origin, String workspaceDir) {
+        this.skillId = skillId;
+        this.sessionId = sessionId;
+        this.neuronId = neuronId;
+        this.origin = origin;
+        this.workspaceDir = workspaceDir;
         this.attributes = new HashMap<>();
         this.parameters = new HashMap<>();
     }
@@ -38,6 +64,25 @@ public class SkillContext {
     
     public String getNeuronId() {
         return neuronId;
+    }
+
+    public String getOrigin() {
+        return origin;
+    }
+
+    /** 是否来自个人助手 */
+    public boolean isPersonalAssistant() {
+        return "personal".equals(origin);
+    }
+
+    /** 获取隔离工作区目录（个人助手使用用户数据目录） */
+    public String getWorkspaceDir() {
+        return workspaceDir;
+    }
+
+    /** 是否启用隔离工作区 */
+    public boolean isIsolatedWorkspace() {
+        return workspaceDir != null && !workspaceDir.isBlank();
     }
     
     public Map<String, Object> getAttributes() {
@@ -130,8 +175,21 @@ public class SkillContext {
     public static SkillContext of(String skillId, String sessionId) {
         return new SkillContext(skillId, sessionId);
     }
-    
+
     public static SkillContext of(String skillId, String sessionId, String neuronId) {
         return new SkillContext(skillId, sessionId, neuronId);
+    }
+
+    public static SkillContext of(String skillId, String sessionId, String neuronId, String origin) {
+        return new SkillContext(skillId, sessionId, neuronId, origin);
+    }
+
+    public static SkillContext of(String skillId, String sessionId, String neuronId, String origin, String workspaceDir) {
+        return new SkillContext(skillId, sessionId, neuronId, origin, workspaceDir);
+    }
+
+    /** 创建个人助手隔离上下文 */
+    public static SkillContext personalIsolated(String skillId, String sessionId, String neuronId, String workspaceDir) {
+        return new SkillContext(skillId, sessionId, neuronId, "personal", workspaceDir);
     }
 }

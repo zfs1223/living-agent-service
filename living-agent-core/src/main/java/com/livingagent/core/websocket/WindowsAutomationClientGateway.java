@@ -64,6 +64,19 @@ public interface WindowsAutomationClientGateway {
         String clientId, String operation, Map<String, Object> args);
 
     /**
+     * 向指定客户端发送技能执行请求并等待响应
+     * 个人助手技能采用"大脑在服务器、双手在桌面"的双层架构——服务器只转发，桌面端本地执行
+     *
+     * @param clientId     目标客户端
+     * @param skillId      技能ID
+     * @param args         技能执行参数
+     * @param workspaceDir 隔离工作区目录（个人助手使用用户数据目录）
+     * @return 异步响应 Future
+     */
+    CompletableFuture<WinAutomationResponse> sendSkillExecute(
+        String clientId, String skillId, Map<String, Object> args, String workspaceDir);
+
+    /**
      * 处理来自客户端的响应（WebSocket 收到 WIN_AUTOMATION_RESPONSE 时调用）
      *
      * @param requestId 请求 ID（与 sendOperation 内部生成的一致）

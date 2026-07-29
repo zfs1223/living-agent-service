@@ -10,6 +10,7 @@ import com.livingagent.core.session.EventQueueService;
 import com.livingagent.gateway.service.AgentService;
 import com.livingagent.gateway.service.DepartmentChatService;
 import com.livingagent.gateway.service.DepartmentChatService.DepartmentChatResult;
+import com.livingagent.gateway.service.WorkspaceContext;
 import com.livingagent.gateway.proactive.ProactiveOrchestrator;
 import com.livingagent.gateway.proactive.ProactiveOrchestrator.OrchestrationResult;
 import com.livingagent.core.security.client.ClientDeviceRegistryService;
@@ -22,6 +23,8 @@ import org.springframework.stereotype.Component;
 import com.livingagent.core.security.PermissionChangeEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.web.socket.CloseStatus;
+import org.springframework.web.socket.PingMessage;
+import org.springframework.web.socket.PongMessage;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
@@ -133,16 +136,31 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
             try {
                 Instant now = Instant.now();
                 
-                // 不再主动关闭连接（移除 zombie 检测）
-                // 客户端持续连接不应被切断，连接只在客户端主动断开时关闭
+                // 服务端主动 Ping：向所有活跃连接发送协议层 Ping 帧
+                // 浏览器/Electron 自动回复 Pong，无需应用层配合；产生流量穿透 NAT/防火墙
+                sessionIndex.forEach((sessionId, session) -> {
+                    if (session.isOpen()) {
+                        try {
+                            session.sendMessage(new PingMessage());
+                        } catch (IOException e) {
+                            log.debug("Failed to send ping to dept session {}: {}", sessionId, e.getMessage());
+                        }
+                    }
+                });
                 
-                // 仅清理 expired recentAuthFailures entries
+                // 清理 expired recentAuthFailures entries
                 Instant authFailureThreshold = now.minusSeconds(AUTH_FAILURE_CLEANUP_TTL_SECONDS);
                 recentAuthFailures.entrySet().removeIf(e -> e.getValue().isBefore(authFailureThreshold));
             } catch (Exception e) {
                 log.debug("Heartbeat check error: {}", e.getMessage());
             }
         }, HEARTBEAT_INTERVAL_MS, HEARTBEAT_INTERVAL_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
+    }
+
+    @Override
+    protected void handlePongMessage(WebSocketSession session, PongMessage pongMessage) {
+        // 收到协议层 Pong 响应，更新活跃时间
+        sessionLastActive.put(session.getId(), Instant.now());
     }
 
     @Override
@@ -423,6 +441,7 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
                 case "PING", "ping" -> sendPong(session);
                 case "audio_full" -> handlePublicAudioFullChain(session, department, userId, msg);
                 case "win_automation_response" -> handleWinAutomationResponse(msg);
+                case "skill_execute_response" -> handleSkillExecuteResponse(msg);
                 default -> {
                     if (type.equalsIgnoreCase("CHAT")) {
                         handleChatMessage(session, department, userId, msg);
@@ -432,6 +451,8 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
                         sendPong(session);
                     } else if (type.equalsIgnoreCase("win_automation_response")) {
                         handleWinAutomationResponse(msg);
+                    } else if (type.equalsIgnoreCase("skill_execute_response")) {
+                        handleSkillExecuteResponse(msg);
                     } else {
                         handleChatMessage(session, department, userId, msg);
                     }
@@ -469,17 +490,62 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
         log.debug("WinAutomation response processed: requestId={}, success={}", requestId, success);
     }
 
-    private void handleChatMessage(WebSocketSession session, String department, String userId, 
+    /**
+     * 处理来自桌面端的技能执行响应
+     * 个人助手技能采用"大脑在服务器、双手在桌面"双层架构——桌面端执行完技能后回传结果
+     * 消息格式：{"type":"skill_execute_response","data":{"id":<long>,"success":<bool>,"result":<any>,"error":<string>}}
+     *
+     * 技能执行响应与 win_automation 共用同一个 Gateway 的 handleResponse，
+     * 因为 requestId 在全局唯一（共用 AtomicLong 计数器），不会冲突。
+     */
+    @SuppressWarnings("unchecked")
+    private void handleSkillExecuteResponse(Map<String, Object> msg) {
+        Object dataObj = msg.get("data");
+        if (dataObj == null || !(dataObj instanceof Map)) {
+            log.warn("Invalid skill_execute_response: missing data");
+            return;
+        }
+        Map<String, Object> data = (Map<String, Object>) dataObj;
+        Long requestId = data.get("id") instanceof Number
+            ? ((Number) data.get("id")).longValue() : null;
+        if (requestId == null) {
+            log.warn("Invalid skill_execute_response: missing id");
+            return;
+        }
+        Boolean success = (Boolean) data.getOrDefault("success", false);
+        Object result = data.get("result");
+        String error = (String) data.get("error");
+
+        winAutomationGateway.handleResponse(requestId, success, result, error);
+        log.debug("SkillExecute response processed: requestId={}, success={}", requestId, success);
+    }
+
+    private void handleChatMessage(WebSocketSession session, String department, String userId,
                                    Map<String, Object> msg) throws Exception {
         Optional<AuthContext> ctxOpt = getAuthContext(session);
         String userName = ctxOpt.map(AuthContext::getName).orElse(userId);
         String content = (String) msg.getOrDefault("content", "");
         String conversationId = (String) msg.getOrDefault("conversationId", null);
 
+        // ====== 新增：提取工作目录信息 ======
+        Map<String, Object> workspaceObj = (Map<String, Object>) msg.get("workspace");
+        WorkspaceContext workspace = null;
+        if (workspaceObj != null) {
+            workspace = new WorkspaceContext(
+                (String) workspaceObj.get("id"),
+                (String) workspaceObj.get("name"),
+                (String) workspaceObj.get("path"),
+                (String) workspaceObj.get("scope")
+            );
+            log.info("用户 {} 选择工作目录: {} ({})", userId, workspace.name(), workspace.path());
+        } else {
+            log.info("用户 {} 使用默认工作目录", userId);
+        }
+
         if (conversationId != null) {
             connectionRegistry.bindConversation(session.getId(), conversationId);
         }
-        
+
         ChatMessage chatMessage = new ChatMessage(
             UUID.randomUUID().toString(),
             userId,
@@ -492,10 +558,11 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
 
         broadcast(department, chatMessage);
 
-        processWithBrain(session, department, userId, content, conversationId);
+        // ====== 新增：传递工作目录信息 ======
+        processWithBrain(session, department, userId, content, conversationId, workspace);
     }
 
-    private void processWithBrain(WebSocketSession session, String department, String userId, String content, String conversationId) {
+    private void processWithBrain(WebSocketSession session, String department, String userId, String content, String conversationId, WorkspaceContext workspace) {
         if (content == null || content.isBlank()) return;
         if ("public".equals(department)) {
             processPublicChannel(session, userId, content);
@@ -503,8 +570,9 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
         }
 
         String sessionId = session.getId();
-        log.info("processWithBrain: dept={}, userId={}, sessionId={}, contentLength={}", 
-            department, userId, sessionId, content.length());
+        log.info("processWithBrain: dept={}, userId={}, sessionId={}, contentLength={}, workspace={}",
+            department, userId, sessionId, content.length(),
+            workspace != null ? workspace.name() : "default");
 
         sendThinkingIndicator(session, department);
 
@@ -521,8 +589,9 @@ public class DepartmentWebSocketHandler extends TextWebSocketHandler {
 
         connectionRegistry.updateLastActivity(sessionId);
 
+        // ====== 新增：传递工作目录信息 ======
         departmentChatService.processDepartmentBrainAsync(
-                requestId, department, brainName, brainOpt.get(), content, sessionId, userId, userId, conversationId)
+                requestId, department, brainName, brainOpt.get(), content, sessionId, userId, userId, conversationId, workspace)
             .thenAccept(chatResult -> handleBrainChatResult(session, department, sessionId, requestId, chatResult))
             .exceptionally(e -> {
                 log.error("Brain processing failed for dept={}, user={}: {}", department, userId, e.getMessage());

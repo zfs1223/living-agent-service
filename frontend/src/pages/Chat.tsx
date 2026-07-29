@@ -217,6 +217,7 @@ export default function Chat() {
         if (!token) return;
 
         let cancelled = false;
+        let reconnectAttempts = 0;
 
         const connect = () => {
             if (cancelled) return;
@@ -250,12 +251,25 @@ export default function Chat() {
                     return;
                 }
                 setConnected(true);
+                reconnectAttempts = 0;
                 wsRef.current = ws;
             };
-            ws.onclose = () => {
+            ws.onclose = (event) => {
                 if (!cancelled) {
                     setConnected(false);
-                    setTimeout(() => connect(), 2000);
+                    // Token 过期：服务端关闭码 4001，等待 token 刷新后快速重连
+                    if (event.code === 4001) {
+                        setTimeout(() => connect(), 1000);
+                        return;
+                    }
+                    // Agent 过期/无效：不重连
+                    if (event.code === 4003 || event.code === 4002) {
+                        return;
+                    }
+                    // 其他情况：指数退避重连
+                    reconnectAttempts++;
+                    const delay = Math.min(2000 * Math.pow(2, reconnectAttempts - 1), 30000);
+                    setTimeout(() => connect(), delay);
                 }
             };
             ws.onerror = () => {
@@ -378,7 +392,7 @@ export default function Chat() {
                 wsRef.current = null;
             }
         };
-    }, [id, brainDept, token, user]);
+    }, [id, brainDept, token, user?.id]);
 
     // Auto-focus input when connection is established
     useEffect(() => {
@@ -394,7 +408,7 @@ export default function Chat() {
         }
     }, []);
 
-    usePolling(sendHeartbeat, 30000, connected);
+    usePolling(sendHeartbeat, 25000, connected);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

@@ -14,42 +14,36 @@ interface UserInfo {
     role: string;
     is_active: boolean;
     access_level?: number;
-    quota_message_limit: number;
-    quota_message_period: string;
-    quota_messages_used: number;
-    quota_max_agents: number;
-    quota_agent_ttl_hours: number;
-    agents_count: number;
     feishu_open_id?: string;
     created_at?: string;
     source?: string;
     department?: string;
+    department_name?: string;
     title?: string;
+    position?: string;
+    phone?: string;
+    avatar_url?: string;
+    tenant_id?: string;
+    is_founder?: boolean;
+    join_date?: string;
     employee_type?: string;  // HUMAN / DIGITAL
+    origin?: string;         // fixed / personal / human / evolved
+    identity_raw?: string;   // 原始 identity 值（如 INTERNAL_ENTERPRISE）
     is_digital?: boolean;    // 快速判断字段
 }
-
-const PERIOD_OPTIONS = [
-    { value: 'permanent', label: 'Permanent' },
-    { value: 'daily', label: 'Daily' },
-    { value: 'weekly', label: 'Weekly' },
-    { value: 'monthly', label: 'Monthly' },
-];
 
 const PAGE_SIZE = 15;
 
 export default function UserManagement() {
     const { t, i18n } = useTranslation();
     const { user: currentUser, setUser } = useAuthStore();
+    const isChinese = i18n.language === 'zh' || i18n.language?.startsWith('zh');
 
     const [users, setUsers] = useState<UserInfo[]>([]);
     const [loading, setLoading] = useState(true);
     const [editingUserId, setEditingUserId] = useState<string | null>(null);
     const [editForm, setEditForm] = useState({
-        quota_message_limit: 50,
-        quota_message_period: 'permanent',
-        quota_max_agents: 2,
-        quota_agent_ttl_hours: 48,
+        access_level: 0,
     });
     const [saving, setSaving] = useState(false);
     const [toast, setToast] = useState('');
@@ -59,20 +53,67 @@ export default function UserManagement() {
 
     // ── Add User state ──
     const [showAddUser, setShowAddUser] = useState(false);
-    const [addForm, setAddForm] = useState({ phone: '', display_name: '', email: '', department: 'tech', role: 'member' });
+    const [addForm, setAddForm] = useState({
+        phone: '',
+        name: '',
+        email: '',
+        tenantId: '',
+        department: '',
+        position: '',
+        accessLevel: 'DEPARTMENT',
+        initialPassword: '',
+    });
     const [adding, setAdding] = useState(false);
 
-    // Department options (matching OrgController departments)
-    const DEPARTMENTS = [
-        { value: 'tech', label: t('userMgmt.deptTech', '技术部') },
-        { value: 'hr', label: t('userMgmt.deptHr', '人力资源') },
-        { value: 'finance', label: t('userMgmt.deptFinance', '财务部') },
-        { value: 'sales', label: t('userMgmt.deptSales', '销售部') },
-        { value: 'admin', label: t('userMgmt.deptAdmin', '行政部') },
-        { value: 'cs', label: t('userMgmt.deptCs', '客服部') },
-        { value: 'legal', label: t('userMgmt.deptLegal', '法务部') },
-        { value: 'ops', label: t('userMgmt.deptOps', '运营部') },
-    ];
+    // 公司列表（从数据库获取）
+    const [companies, setCompanies] = useState<any[]>([]);
+    // 部门列表（从 API 获取）
+    const [deptOptions, setDeptOptions] = useState<any[]>([]);
+
+    // 部门代码 → 默认 AccessLevel
+    const DEPT_DEFAULT_ACCESS: Record<string, string> = {
+        tech: 'DEPARTMENT', hr: 'DEPARTMENT', finance: 'DEPARTMENT', sales: 'DEPARTMENT',
+        admin: 'DEPARTMENT', cs: 'LIMITED', legal: 'DEPARTMENT', ops: 'DEPARTMENT',
+        core: 'DEPARTMENT', cross_dept: 'DEPARTMENT',
+    };
+
+    // 加载公司列表
+    useEffect(() => {
+        fetchJson('/tenants/admin/companies')
+            .then((data: any) => {
+                const list = Array.isArray(data.data || data) ? (data.data || data) : [];
+                setCompanies(list);
+                // 默认选中第一个公司
+                if (list.length > 0 && !addForm.tenantId) {
+                    setAddForm(f => ({ ...f, tenantId: list[0].id || list[0].tenantId || '' }));
+                }
+            })
+            .catch(() => setCompanies([]));
+    }, []);
+
+    // 加载部门列表（从 API 获取）
+    useEffect(() => {
+        fetchJson('/departments')
+            .then((data: any) => {
+                const list = Array.isArray(data.data || data) ? (data.data || data) : [];
+                setDeptOptions(list);
+            })
+            .catch(() => setDeptOptions([]));
+    }, []);
+
+    // 部门选项优先从 API 获取，否则用硬编码兜底
+    const DEPARTMENTS = deptOptions.length > 0
+        ? deptOptions.map((d: any) => ({ value: d.id || d.code, label: d.name }))
+        : [
+            { value: 'tech', label: t('userMgmt.deptTech', '技术部') },
+            { value: 'hr', label: t('userMgmt.deptHr', '人力资源') },
+            { value: 'finance', label: t('userMgmt.deptFinance', '财务部') },
+            { value: 'sales', label: t('userMgmt.deptSales', '销售部') },
+            { value: 'admin', label: t('userMgmt.deptAdmin', '行政部') },
+            { value: 'cs', label: t('userMgmt.deptCs', '客服部') },
+            { value: 'legal', label: t('userMgmt.deptLegal', '法务部') },
+            { value: 'ops', label: t('userMgmt.deptOps', '运营部') },
+          ];
 
     // Access level definitions (matching backend: CHAT_ONLY=0, LIMITED=1, DEPARTMENT=2, FULL=3)
     const ACCESS_LEVELS = [
@@ -104,6 +145,7 @@ export default function UserManagement() {
                     // 1) 先判断员工类型:数字员工(由主脑/部门大脑管理)与人类用户分离
                     const employeeType = item.employeeType || item.employee_type || 'HUMAN';
                     const isDigital = employeeType === 'DIGITAL' || employeeType === 'FIXED';
+                    const origin = item.origin || '';
 
                     // 2) 数字员工:统一标记 digital_employee,不参与人类用户角色推断
                     //    数字员工的"管理员"误标问题在此解决
@@ -114,20 +156,23 @@ export default function UserManagement() {
                             email: item.email || '',
                             display_name: item.name || '',
                             role: 'digital_employee',
-                            is_active: item.isActive === true || item.status === 'ACTIVE',
+                            is_active: item.active === true || item.isActive === true,
                             access_level: item.accessLevel === 'FULL' ? 3 : item.accessLevel === 'DEPARTMENT' ? 2 : item.accessLevel === 'LIMITED' ? 1 : 0,
-                            quota_message_limit: 0,
-                            quota_message_period: 'permanent',
-                            quota_messages_used: 0,
-                            quota_max_agents: 0,
-                            quota_agent_ttl_hours: 0,
-                            agents_count: 0,
                             feishu_open_id: undefined,
-                            created_at: item.created_at,
+                            created_at: item.createdAt || item.created_at,
                             source: 'digital',
                             department: item.department || '',
+                            department_name: item.departmentName || '',
                             title: item.title || item.position || '',
+                            position: item.position || '',
+                            phone: item.phone || '',
+                            avatar_url: item.avatarUrl || '',
+                            tenant_id: item.tenantId || '',
+                            is_founder: item.isFounder || false,
+                            join_date: item.joinDate || '',
                             employee_type: 'DIGITAL',
+                            origin: origin,
+                            identity_raw: item.identity || '',
                             is_digital: true,
                         };
                     }
@@ -150,20 +195,23 @@ export default function UserManagement() {
                         email: item.email || '',
                         display_name: item.name || '',
                         role: roleDisplay,
-                        is_active: item.isActive === true || item.status === 'ACTIVE',
+                        is_active: item.active === true || item.isActive === true,
                         access_level: item.accessLevel === 'FULL' ? 3 : item.accessLevel === 'DEPARTMENT' ? 2 : item.accessLevel === 'LIMITED' ? 1 : 0,
-                        quota_message_limit: item.quota_message_limit ?? 50,
-                        quota_message_period: item.quota_message_period ?? 'permanent',
-                        quota_messages_used: item.quota_messages_used ?? 0,
-                        quota_max_agents: item.quota_max_agents ?? 2,
-                        quota_agent_ttl_hours: item.quota_agent_ttl_hours ?? 48,
-                        agents_count: item.agents_count ?? 0,
                         feishu_open_id: item.feishu_open_id,
-                        created_at: item.created_at,
+                        created_at: item.createdAt || item.created_at,
                         source: item.department ? (item.department.includes('feishu') ? 'feishu' : 'registered') : 'registered',
                         department: item.department || '',
+                        department_name: item.departmentName || '',
                         title: item.title || '',
+                        position: item.position || '',
+                        phone: item.phone || '',
+                        avatar_url: item.avatarUrl || '',
+                        tenant_id: item.tenantId || '',
+                        is_founder: item.isFounder || false,
+                        join_date: item.joinDate || '',
                         employee_type: 'HUMAN',
+                        origin: origin,
+                        identity_raw: identity,
                         is_digital: false,
                     };
                 });
@@ -183,10 +231,7 @@ export default function UserManagement() {
     const startEdit = (user: UserInfo) => {
         setEditingUserId(user.id);
         setEditForm({
-            quota_message_limit: user.quota_message_limit,
-            quota_message_period: user.quota_message_period,
-            quota_max_agents: user.quota_max_agents,
-            quota_agent_ttl_hours: user.quota_agent_ttl_hours,
+            access_level: user.access_level ?? 0,
         });
     };
 
@@ -194,11 +239,13 @@ export default function UserManagement() {
         if (!editingUserId) return;
         setSaving(true);
         try {
-            await fetchJson(`/users/${editingUserId}/quota`, {
+            const accessLevelMap: Record<number, string> = { 0: 'CHAT_ONLY', 1: 'LIMITED', 2: 'DEPARTMENT', 3: 'FULL' };
+            const accessLevel = accessLevelMap[editForm.access_level] || 'CHAT_ONLY';
+            await fetchJson(`/agents/${encodeURIComponent(editingUserId)}/access-level`, {
                 method: 'PATCH',
-                body: JSON.stringify(editForm),
+                body: JSON.stringify({ accessLevel }),
             });
-            setToast(t('userMgmt.quotaUpdated'));
+            setToast(isChinese ? '权限已更新' : 'Access level updated');
             setTimeout(() => setToast(''), 2000);
             setEditingUserId(null);
             loadUsers();
@@ -253,6 +300,7 @@ export default function UserManagement() {
     };
 
     // ── Add User handler ──
+    // 合并邀请码功能：添加用户时自动生成邀请码，用户通过邀请码注册
     const handleAddUser = async () => {
         if (!addForm.phone.trim()) {
             setToast(t('userMgmt.phoneRequired', '请输入手机号'));
@@ -265,26 +313,68 @@ export default function UserManagement() {
             setTimeout(() => setToast(''), 2000);
             return;
         }
+        if (!addForm.name.trim()) {
+            setToast('请输入姓名');
+            setTimeout(() => setToast(''), 2000);
+            return;
+        }
+        if (!addForm.tenantId) {
+            setToast('请选择公司');
+            setTimeout(() => setToast(''), 2000);
+            return;
+        }
+        if (!addForm.department) {
+            setToast('请选择部门');
+            setTimeout(() => setToast(''), 2000);
+            return;
+        }
+        if (!addForm.position.trim()) {
+            setToast('请输入职位');
+            setTimeout(() => setToast(''), 2000);
+            return;
+        }
         setAdding(true);
         try {
-            await fetchJson('/org/users', {
+            // 方式1：通过邀请码创建用户（生成邀请码 → 自动注册）
+            const dept = DEPARTMENTS.find(d => d.value === addForm.department);
+            const deptName = dept?.label || addForm.department;
+
+            // 1) 创建邀请码
+            const inviteRes: any = await fetchJson('/invitation-codes/create', {
                 method: 'POST',
                 body: JSON.stringify({
+                    tenantId: addForm.tenantId,
+                    departmentCode: addForm.department,
+                    departmentName: deptName,
                     phone: addForm.phone.trim(),
-                    name: addForm.display_name.trim() || addForm.phone.trim(),
-                    display_name: addForm.display_name.trim() || addForm.phone.trim(),
-                    email: addForm.email.trim() || null,
-                    department: addForm.department,
-                    title: addForm.role === 'org_admin' ? 'Admin' : 'Member',
+                    initialPassword: addForm.initialPassword || undefined,
+                    accessLevel: addForm.accessLevel,
                 }),
             });
+
+            // 2) 使用邀请码注册用户
+            const inviteCode = inviteRes?.data?.code || inviteRes?.code;
+            if (inviteCode) {
+                await fetchJson('/invitation-codes/use', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        code: inviteCode,
+                        phone: addForm.phone.trim(),
+                        name: addForm.name.trim(),
+                        email: addForm.email.trim() || undefined,
+                        password: addForm.initialPassword || undefined,
+                        position: addForm.position.trim(),
+                    }),
+                });
+            }
+
             setToast(t('userMgmt.userCreated', '用户创建成功'));
             setTimeout(() => setToast(''), 2000);
             setShowAddUser(false);
-            setAddForm({ phone: '', display_name: '', email: '', department: 'tech', role: 'member' });
+            setAddForm({ phone: '', name: '', email: '', tenantId: companies[0]?.id || companies[0]?.tenantId || '', department: '', position: '', accessLevel: 'DEPARTMENT', initialPassword: '' });
             loadUsers();
         } catch (e: any) {
-            const detail = (() => { try { return JSON.parse(e.message)?.detail; } catch { return e.message; } })();
+            const detail = (() => { try { return JSON.parse(e.message)?.detail || JSON.parse(e.message)?.errorDescription; } catch { return e.message; } })();
             setToast(`❌ ${detail || e.message}`);
             setTimeout(() => setToast(''), 4000);
         }
@@ -305,16 +395,6 @@ export default function UserManagement() {
             setToast(`❌ ${detail || e.message}`);
             setTimeout(() => setToast(''), 4000);
         }
-    };
-
-    const periodLabel = (period: string) => {
-        const map: Record<string, string> = {
-            permanent: t('userMgmt.periodPermanent'),
-            daily: t('userMgmt.periodDaily'),
-            weekly: t('userMgmt.periodWeekly'),
-            monthly: t('userMgmt.periodMonthly'),
-        };
-        return map[period] || period;
     };
 
     // Role label & styling helpers
@@ -475,12 +555,13 @@ export default function UserManagement() {
 
                     {/* Header */}
                     <div style={{
-                        display: 'grid', gridTemplateColumns: '1.4fr 1.4fr 0.8fr 0.7fr 0.7fr 0.8fr 0.8fr 0.8fr 0.8fr 100px',
+                        display: 'grid', gridTemplateColumns: '1.5fr 1.1fr 0.9fr 0.7fr 0.7fr 0.7fr 100px',
                         gap: '10px', padding: '10px 16px', fontSize: '11px', fontWeight: 600,
                         color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em',
                     }}>
-                        <div>{t('userMgmt.user')}</div>
-                        <div>{t('userMgmt.email')}</div>
+                        <div>{t('userMgmt.user', '用户')}</div>
+                        <div>{isChinese ? '部门' : 'Dept'}</div>
+                        <div>{isChinese ? '职位' : 'Position'}</div>
                         {/* Created At with sort toggle */}
                         <div
                             style={{ cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '3px' }}
@@ -489,23 +570,24 @@ export default function UserManagement() {
                         >
                             {t('userMgmt.joinedAt')} {sortOrder === 'asc' ? '↑' : '↓'}
                         </div>
-                        <div>{t('userMgmt.role')}</div>
-                        <div>{t('userMgmt.source')}</div>
-                        <div>{t('userMgmt.msgQuota')}</div>
-                        <div>{t('userMgmt.period')}</div>
-                        <div>{t('userMgmt.agents')}</div>
-                        <div>{t('userMgmt.ttl')}</div>
+                        <div>{isChinese ? '身份' : 'Identity'}</div>
+                        <div>{isChinese ? '权限' : 'Access'}</div>
                         <div></div>
                     </div>
 
                     {paged.map(user => {
                         const isDigital = user.is_digital === true;
+                        const identityLabel: Record<string, string> = {
+                            INTERNAL_ENTERPRISE: isChinese ? '董事长' : 'Chairman',
+                            INTERNAL_ACTIVE: isChinese ? '在职' : 'Active',
+                            INTERNAL_PROBATION: isChinese ? '试用期' : 'Probation',
+                            INTERNAL_RESIGNED: isChinese ? '离职' : 'Resigned',
+                        };
                         return (
                         <div key={user.id}>
                             <div className="card" style={{
-                                display: 'grid', gridTemplateColumns: '1.4fr 1.4fr 0.8fr 0.7fr 0.7fr 0.8fr 0.8fr 0.8fr 0.8fr 100px',
+                                display: 'grid', gridTemplateColumns: '1.5fr 1.1fr 0.9fr 0.7fr 0.7fr 0.7fr 100px',
                                 gap: '10px', alignItems: 'center', padding: '12px 16px',
-                                // 数字员工特殊样式:淡青色背景区分
                                 background: isDigital
                                     ? 'linear-gradient(180deg, rgba(34,211,238,0.06), rgba(34,211,238,0.02))'
                                     : undefined,
@@ -519,66 +601,31 @@ export default function UserManagement() {
                                         {user.display_name || user.username}
                                         {roleBadge(user.role)}
                                     </div>
-                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>@{user.username}</div>
+                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{user.phone || user.email || `@${user.username}`}</div>
                                 </div>
-                                <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{user.email}</div>
+                                <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                    {user.department_name || user.department || '-'}
+                                </div>
+                                <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{user.position || user.title || '-'}</div>
                                 <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{formatDate(user.created_at)}</div>
-                                {/* Role selector — only for admin users, not for platform_admin targets */}
+                                <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                                    {identityLabel[user.identity_raw || ''] || getRoleLabel(user.role)}
+                                </div>
+                                {/* Access Level display */}
                                 <div>
-                                    {currentUser?.role && ['platform_admin', 'org_admin'].includes(currentUser.role) && user.role !== 'platform_admin' ? (
-                                        <select
-                                            className="form-input"
-                                            value={user.role}
-                                            disabled={changingRoleUserId === user.id}
-                                            onChange={e => {
-                                                const newRole = e.target.value;
-                                                const confirmMsg = t('userMgmt.confirmRoleChange', {
-                                                    name: user.display_name || user.username,
-                                                    role: newRole === 'org_admin' ? t('userMgmt.admin') : t('userMgmt.member')
-                                                });
-                                                if (confirm(confirmMsg)) handleRoleChange(user.id, newRole);
-                                            }}
-                                            style={{ fontSize: '11px', padding: '2px 4px', width: '100%', minWidth: 0 }}
-                                        >
-                                            <option value="member">{t('userMgmt.member')}</option>
-                                            <option value="org_admin">{t('userMgmt.admin')}</option>
-                                        </select>
-                                    ) : (
-                                        <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                                            {getRoleLabel(user.role)}
+                                    {ACCESS_LEVELS.find(l => l.value === (user.access_level ?? 0)) && (
+                                        <span style={{ fontSize: '10px', fontWeight: 500, color: 'var(--text-secondary)' }}>
+                                            {ACCESS_LEVELS.find(l => l.value === (user.access_level ?? 0))?.label}
                                         </span>
                                     )}
                                 </div>
-                                <div>
-                                    {user.source === 'feishu' ? (
-                                        <span style={{ fontSize: '10px', background: 'rgba(58,132,255,0.12)', color: '#3a84ff', borderRadius: '4px', padding: '2px 7px', whiteSpace: 'nowrap' }}>
-                                            飞书
-                                        </span>
-                                    ) : (
-                                        <span style={{ fontSize: '10px', background: 'rgba(0,180,120,0.12)', color: 'var(--success)', borderRadius: '4px', padding: '2px 7px', whiteSpace: 'nowrap' }}>
-                                            {t('userMgmt.registered')}
-                                        </span>
-                                    )}
-                                </div>
-                                <div>
-                                    <span style={{ fontSize: '13px', fontWeight: 500 }}>{user.quota_messages_used}</span>
-                                    <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}> / {user.quota_message_limit}</span>
-                                </div>
-                                <div>
-                                    <span className="badge badge-info" style={{ fontSize: '10px' }}>{periodLabel(user.quota_message_period)}</span>
-                                </div>
-                                <div>
-                                    <span style={{ fontSize: '13px', fontWeight: 500 }}>{user.agents_count}</span>
-                                    <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}> / {user.quota_max_agents}</span>
-                                </div>
-                                <div style={{ fontSize: '12px' }}>{user.quota_agent_ttl_hours}h</div>
                                 <div>
                                     <button
                                         className="btn btn-secondary"
                                         style={{ padding: '4px 10px', fontSize: '11px' }}
                                         onClick={() => editingUserId === user.id ? setEditingUserId(null) : startEdit(user)}
                                     >
-                                        {editingUserId === user.id ? t('common.cancel') : `✏️ ${t('common.edit')}`}
+                                        {editingUserId === user.id ? t('common.cancel') : `✏️`}
                                     </button>
                                 </div>
                             </div>
@@ -590,53 +637,20 @@ export default function UserManagement() {
                                     background: 'var(--bg-secondary)',
                                     borderLeft: '3px solid var(--accent-color)',
                                 }}>
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '16px' }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                                         <div className="form-group">
                                             <label className="form-label" style={{ fontSize: '11px' }}>
-                                                {t('userMgmt.msgLimit')}
-                                            </label>
-                                            <input
-                                                className="form-input"
-                                                type="number" min={0}
-                                                value={editForm.quota_message_limit}
-                                                onChange={e => setEditForm({ ...editForm, quota_message_limit: Number(e.target.value) })}
-                                            />
-                                        </div>
-                                        <div className="form-group">
-                                            <label className="form-label" style={{ fontSize: '11px' }}>
-                                                {t('userMgmt.resetPeriod')}
+                                                {isChinese ? '权限级别' : 'Access Level'}
                                             </label>
                                             <select
                                                 className="form-input"
-                                                value={editForm.quota_message_period}
-                                                onChange={e => setEditForm({ ...editForm, quota_message_period: e.target.value })}
+                                                value={editForm.access_level}
+                                                onChange={e => setEditForm({ ...editForm, access_level: Number(e.target.value) })}
                                             >
-                                                {PERIOD_OPTIONS.map(p => (
-                                                    <option key={p.value} value={p.value}>{periodLabel(p.value)}</option>
+                                                {ACCESS_LEVELS.map(l => (
+                                                    <option key={l.value} value={l.value}>{l.label}</option>
                                                 ))}
                                             </select>
-                                        </div>
-                                        <div className="form-group">
-                                            <label className="form-label" style={{ fontSize: '11px' }}>
-                                                {t('userMgmt.maxAgents')}
-                                            </label>
-                                            <input
-                                                className="form-input"
-                                                type="number" min={0}
-                                                value={editForm.quota_max_agents}
-                                                onChange={e => setEditForm({ ...editForm, quota_max_agents: Number(e.target.value) })}
-                                            />
-                                        </div>
-                                        <div className="form-group">
-                                            <label className="form-label" style={{ fontSize: '11px' }}>
-                                                {t('userMgmt.agentTTL')}
-                                            </label>
-                                            <input
-                                                className="form-input"
-                                                type="number" min={1}
-                                                value={editForm.quota_agent_ttl_hours}
-                                                onChange={e => setEditForm({ ...editForm, quota_agent_ttl_hours: Number(e.target.value) })}
-                                            />
                                         </div>
                                     </div>
                                     <div style={{ marginTop: '12px', display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
@@ -715,14 +729,21 @@ export default function UserManagement() {
                         {/* Info grid */}
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
                             {[
+                                { label: isChinese ? '手机号' : 'Phone', value: detailUser.phone || '-' },
                                 { label: t('userMgmt.email', 'Email'), value: detailUser.email || '-' },
+                                { label: isChinese ? '部门' : 'Department', value: detailUser.department_name || detailUser.department || '-' },
+                                { label: isChinese ? '职位' : 'Position', value: detailUser.position || detailUser.title || '-' },
+                                { label: isChinese ? '来源类型' : 'Origin', value: (() => {
+                                    const m: Record<string, string> = { fixed: '固定员工', evolved: '动态员工', personal: '个人助手', human: '人类' };
+                                    return m[detailUser.origin || 'human'] || detailUser.origin || '-';
+                                })() },
                                 { label: t('userMgmt.role', '角色'), value: getRoleLabel(detailUser.role) },
-                                { label: t('userMgmt.source', '来源'), value: detailUser.source === 'feishu' ? '飞书' : detailUser.source || t('userMgmt.registered', '注册') },
+                                { label: isChinese ? '身份' : 'Identity', value: (() => {
+                                    const m: Record<string, string> = { INTERNAL_ENTERPRISE: '董事长', INTERNAL_ACTIVE: '在职', INTERNAL_PROBATION: '试用期', INTERNAL_RESIGNED: '离职' };
+                                    return m[detailUser.identity_raw || ''] || detailUser.identity_raw || '-';
+                                })() },
+                                { label: isChinese ? '创始人' : 'Founder', value: detailUser.is_founder ? '✓' : '-' },
                                 { label: t('userMgmt.joinedAt', '加入时间'), value: formatDate(detailUser.created_at) },
-                                { label: t('userMgmt.msgQuota', '消息配额'), value: `${detailUser.quota_messages_used} / ${detailUser.quota_message_limit}` },
-                                { label: t('userMgmt.period', '周期'), value: periodLabel(detailUser.quota_message_period) },
-                                { label: t('userMgmt.agents', 'Agent数'), value: `${detailUser.agents_count} / ${detailUser.quota_max_agents}` },
-                                { label: t('userMgmt.ttl', 'TTL'), value: `${detailUser.quota_agent_ttl_hours}h` },
                             ].map(item => (
                                 <div key={item.label} style={{ padding: '8px 12px', borderRadius: '8px', background: 'var(--bg-tertiary)' }}>
                                     <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginBottom: '2px' }}>{item.label}</div>
@@ -829,8 +850,21 @@ export default function UserManagement() {
                             <button onClick={() => setShowAddUser(false)} style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: 'var(--text-secondary)' }}>✕</button>
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                            <div style={{ padding: '10px 12px', borderRadius: '8px', background: 'rgba(34,211,238,0.08)', border: '1px solid rgba(34,211,238,0.25)', fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                                💡 {t('userMgmt.digitalEmployeeHint', '此页面仅管理人类用户。数字员工由主脑/部门大脑管理,基于 documents/ 中的职责卡定义。')}
+                            <div style={{ padding: '10px 12px', borderRadius: '8px', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)', fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                                💡 添加用户将自动生成邀请码并注册。用户可通过手机号+密码登录。
+                            </div>
+                            <div className="form-group">
+                                <label className="form-label" style={{ fontSize: '12px' }}>{t('userMgmt.company', '公司')} *</label>
+                                <select
+                                    className="form-input"
+                                    value={addForm.tenantId}
+                                    onChange={e => setAddForm({ ...addForm, tenantId: e.target.value })}
+                                >
+                                    <option value="">{isChinese ? '选择公司' : 'Select company'}</option>
+                                    {companies.map((c: any) => (
+                                        <option key={c.id || c.tenantId} value={c.id || c.tenantId}>{c.name}</option>
+                                    ))}
+                                </select>
                             </div>
                             <div className="form-group">
                                 <label className="form-label" style={{ fontSize: '12px' }}>{t('userMgmt.phone', '手机号')} *</label>
@@ -845,13 +879,13 @@ export default function UserManagement() {
                                 />
                             </div>
                             <div className="form-group">
-                                <label className="form-label" style={{ fontSize: '12px' }}>{t('userMgmt.displayName', '显示名称')}</label>
+                                <label className="form-label" style={{ fontSize: '12px' }}>{isChinese ? '姓名' : 'Name'} *</label>
                                 <input
                                     className="form-input"
                                     type="text"
-                                    value={addForm.display_name}
-                                    onChange={e => setAddForm({ ...addForm, display_name: e.target.value })}
-                                    placeholder={t('userMgmt.displayNamePlaceholder', '输入显示名称（可选）')}
+                                    value={addForm.name}
+                                    onChange={e => setAddForm({ ...addForm, name: e.target.value })}
+                                    placeholder={isChinese ? '输入姓名' : 'Enter name'}
                                 />
                             </div>
                             <div className="form-group">
@@ -866,27 +900,58 @@ export default function UserManagement() {
                             </div>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
                                 <div className="form-group">
-                                    <label className="form-label" style={{ fontSize: '12px' }}>{t('userMgmt.department', '部门')}</label>
+                                    <label className="form-label" style={{ fontSize: '12px' }}>{t('userMgmt.department', '部门')} *</label>
                                     <select
                                         className="form-input"
                                         value={addForm.department}
-                                        onChange={e => setAddForm({ ...addForm, department: e.target.value })}
+                                        onChange={e => {
+                                            const code = e.target.value;
+                                            setAddForm({ ...addForm, department: code, accessLevel: DEPT_DEFAULT_ACCESS[code] || 'DEPARTMENT' });
+                                        }}
                                     >
+                                        <option value="">{isChinese ? '选择部门' : 'Select department'}</option>
                                         {DEPARTMENTS.map(d => (
                                             <option key={d.value} value={d.value}>{d.label}</option>
                                         ))}
                                     </select>
                                 </div>
                                 <div className="form-group">
-                                    <label className="form-label" style={{ fontSize: '12px' }}>{t('userMgmt.role', '角色')}</label>
+                                    <label className="form-label" style={{ fontSize: '12px' }}>{isChinese ? '职位' : 'Position'} *</label>
+                                    <input
+                                        className="form-input"
+                                        type="text"
+                                        value={addForm.position}
+                                        onChange={e => setAddForm({ ...addForm, position: e.target.value })}
+                                        placeholder={isChinese ? '输入职位' : 'Enter position'}
+                                    />
+                                </div>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                                <div className="form-group">
+                                    <label className="form-label" style={{ fontSize: '12px' }}>
+                                        {isChinese ? '权限级别' : 'Access Level'}
+                                        {addForm.department && <span style={{ marginLeft: 4, fontSize: 10, color: 'var(--accent)' }}>(按部门默认)</span>}
+                                    </label>
                                     <select
                                         className="form-input"
-                                        value={addForm.role}
-                                        onChange={e => setAddForm({ ...addForm, role: e.target.value })}
+                                        value={addForm.accessLevel}
+                                        onChange={e => setAddForm({ ...addForm, accessLevel: e.target.value })}
                                     >
-                                        <option value="member">{t('userMgmt.member', '成员')}</option>
-                                        <option value="org_admin">{t('userMgmt.admin', '管理员')}</option>
+                                        <option value="CHAT_ONLY">CHAT_ONLY (0)</option>
+                                        <option value="LIMITED">LIMITED (1)</option>
+                                        <option value="DEPARTMENT">DEPARTMENT (2)</option>
+                                        <option value="FULL">FULL (3)</option>
                                     </select>
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label" style={{ fontSize: '12px' }}>{isChinese ? '初始密码' : 'Initial Password'}</label>
+                                    <input
+                                        className="form-input"
+                                        type="password"
+                                        value={addForm.initialPassword}
+                                        onChange={e => setAddForm({ ...addForm, initialPassword: e.target.value })}
+                                        placeholder={isChinese ? '至少6位（可选）' : 'Min 6 chars (optional)'}
+                                    />
                                 </div>
                             </div>
                         </div>

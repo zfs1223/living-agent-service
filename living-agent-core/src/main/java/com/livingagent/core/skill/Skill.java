@@ -49,7 +49,16 @@ public interface Skill {
     default String getDepartmentId() { return null; }
     default void setDepartmentId(String departmentId) {}
 
+    /** 个人助手可安全复用：仅处理用户提供的输入，声明无内部能力。默认false，需显式标注 */
+    default boolean isPersonalSafe() { return false; }
+    default void setPersonalSafe(boolean personalSafe) {}
+
     default SkillResult execute(SkillContext context) {
+        // 硬边界：个人助手的技能执行只能在客户端本地，服务器侧不承载
+        if (context != null && context.isPersonalAssistant() && !isPersonalSafe()) {
+            return SkillResult.failure(
+                "技能 '" + getId() + "' 不允许在个人助手上下文中执行（服务器侧不承载个人助手技能执行）");
+        }
         return SkillResult.failure("Skill execution not implemented");
     }
 }

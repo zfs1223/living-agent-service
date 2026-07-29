@@ -121,7 +121,7 @@ public class JpaPerformanceAssessmentService implements PerformanceAssessmentSer
 
     @Override
     public List<PerformanceAssessment> getDepartmentAssessments(String departmentId, PerformanceAssessment.AssessmentPeriod period) {
-        return employeeService.listEmployees(new EmployeeService.EmployeeQuery(null, departmentId, null, null, 1000, 0))
+        return employeeService.listEmployees(new EmployeeService.EmployeeQuery(null, departmentId, null, null, 1000, 0, null))
                 .stream()
                 .map(employee -> assessEmployee(employee.getEmployeeId(), period))
                 .toList();
@@ -209,7 +209,7 @@ public class JpaPerformanceAssessmentService implements PerformanceAssessmentSer
     }
 
     private List<EmployeeRanking> buildRankings(String departmentId, int limit, boolean top) {
-        List<EmployeeRanking> rankings = employeeService.listEmployees(new EmployeeService.EmployeeQuery(null, departmentId, null, null, 1000, 0))
+        List<EmployeeRanking> rankings = employeeService.listEmployees(new EmployeeService.EmployeeQuery(null, departmentId, null, null, 1000, 0, null))
                 .stream()
                 .map(employee -> {
                     PerformanceAssessment assessment = assessEmployee(employee.getEmployeeId(), PerformanceAssessment.AssessmentPeriod.MONTHLY);

@@ -36,6 +36,7 @@ import com.livingagent.core.security.AccessLevel;
 import com.livingagent.core.brain.Brain;
 import com.livingagent.core.brain.BrainRegistry;
 import com.livingagent.core.security.Department;
+import com.livingagent.gateway.service.WorkspaceContext;
 
 @Service
 public class AgentService {
@@ -445,7 +446,7 @@ public class AgentService {
 
         return departmentChatService.processDepartmentBrainAsync(
                 requestId, departmentId, resolvedBrain, brain,
-                text, sessionId, userId != null ? userId : "anonymous", null, null)
+                text, sessionId, userId != null ? userId : "anonymous", null, null, null)
             .thenApply(chatResult -> {
                 Map<String, Object> result = new HashMap<>();
                 result.put("sessionId", sessionId);

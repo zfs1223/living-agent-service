@@ -1,6 +1,7 @@
 ---
 name: browser-automation
 description: "浏览器自动化，网页导航点击截图"
+personalSafe: false
 risk: medium
 source: ClawHub转换
 date_added: '2026-07-09'

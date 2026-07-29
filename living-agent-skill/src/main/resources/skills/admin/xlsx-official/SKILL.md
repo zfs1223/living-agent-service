@@ -4,6 +4,7 @@ description: "Comprehensive spreadsheet creation, editing, and analysis with sup
 risk: unknown
 source: community
 date_added: "2026-02-27"
+personalSafe: true
 ---
 
 # Requirements for Outputs

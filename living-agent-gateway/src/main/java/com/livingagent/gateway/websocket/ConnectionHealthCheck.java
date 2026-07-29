@@ -57,6 +57,17 @@ public class ConnectionHealthCheck implements HealthCheck {
             }
         }
 
+        // 直接清理超过UNHEALTHY阈值（30分钟）的僵死连接
+        // 不依赖自愈编排器，在检测阶段就主动清理
+        if (unhealthyCount > 0) {
+            try {
+                connectionRegistry.cleanupStaleConnections(UNHEALTHY_THRESHOLD.toMillis());
+                log.info("P24-C: Cleaned up {} stale connections (idle>{}m)", unhealthyCount, UNHEALTHY_THRESHOLD.toMinutes());
+            } catch (Exception e) {
+                log.warn("P24-C: Failed to cleanup stale connections: {}", e.getMessage());
+            }
+        }
+
         if (unhealthyCount > 0) {
             publishConnectionIssue(unhealthyCount, "UNHEALTHY");
             return HealthStatus.unhealthy("websocket_connections",

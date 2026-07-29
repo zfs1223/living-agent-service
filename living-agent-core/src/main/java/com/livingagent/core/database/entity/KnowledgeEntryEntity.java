@@ -26,6 +26,9 @@ public class KnowledgeEntryEntity {
     @Column(name = "key", length = 256, nullable = false)
     private String key;
 
+    @Column(name = "title", length = 256, nullable = false)
+    private String title;
+
     @Column(name = "content", columnDefinition = "TEXT", nullable = false)
     private String content;
 
@@ -133,6 +136,9 @@ public class KnowledgeEntryEntity {
 
     public String getKey() { return key; }
     public void setKey(String key) { this.key = key; }
+
+    public String getTitle() { return title; }
+    public void setTitle(String title) { this.title = title; }
 
     public String getContent() { return content; }
     public void setContent(String content) { this.content = content; }

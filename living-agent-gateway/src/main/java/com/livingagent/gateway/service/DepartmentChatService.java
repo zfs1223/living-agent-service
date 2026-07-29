@@ -32,6 +32,7 @@ import com.livingagent.core.security.auth.UnifiedAuthService;
 import com.livingagent.core.security.auth.UnifiedAuthService.AuthSession;
 import com.livingagent.core.work.WorkItemContext;
 import com.livingagent.core.work.WorkItemKeyGenerator;
+import com.livingagent.gateway.service.WorkspaceContext;
 import com.livingagent.gateway.websocket.ConnectionRegistry;
 import com.livingagent.gateway.websocket.DepartmentWebSocketHandler;
 import org.slf4j.Logger;
@@ -434,7 +435,7 @@ public class DepartmentChatService {
         
         try {
             return processDepartmentBrainAsync(requestId, department, resolvedBrain, brainOpt.get(), message,
-                    sessionId, employeeId, ctx.getName(), null).join();
+                    sessionId, employeeId, ctx.getName(), null, null).join();
         } catch (Exception e) {
             log.error("Department chat failed: requestId={}, dept={}, error={}", requestId, department, e.getMessage(), e);
             return DepartmentChatResult.error(requestId, department, "SYSTEM_ERROR", "处理失败: " + e.getMessage(), resolvedBrain);
@@ -448,7 +449,7 @@ public class DepartmentChatService {
     public CompletableFuture<DepartmentChatResult> processDepartmentBrainAsync(
             String requestId, String department, String resolvedBrain, Brain brain,
             String message, String sessionId, String userId, String userName,
-            String clientConversationId) {
+            String clientConversationId, WorkspaceContext workspace) {
         if (brain == null) {
             return CompletableFuture.completedFuture(
                 DepartmentChatResult.error(requestId, department, "NO_BRAIN", "部门大脑未注册", resolvedBrain));
@@ -470,6 +471,11 @@ public class DepartmentChatService {
                 log.debug("Failed to bind conversation to session: {}", e.getMessage());
             }
         }
+
+        // ====== 新增：传递工作目录信息 ======
+        // TODO: 将 workspace 信息传递到 AgentService
+        log.info("processDepartmentBrainAsync: dept={}, userId={}, workspace={}",
+            department, userId, workspace != null ? workspace.name() : "default");
 
         // M-NC: 检查当前会话是否有待处理的 NEEDS_CLARIFICATION 任务
         CompletableFuture<DepartmentChatResult> clarificationResult = handlePendingClarifications(

@@ -183,7 +183,6 @@ autonomy/
     ├── LlmBasedFixedEmployeeDispatcher.java
     ├── RegistryBackedFixedEmployeeDispatcher.java
     ├── ToolBackedEmployeeTaskExecutor.java
-    ├── MinimalEmployeeTaskExecutor.java
     ├── ChannelBackedDepartmentExecutionCoordinator.java
     ├── LlmExecutionReceiptReviewer.java
     ├── LlmBasedExecutionResultAggregator.java
@@ -201,8 +200,7 @@ autonomy/
     ├── DynamicEmployeeTaskConsumerRegistry.java
     ├── InMemoryArtifactRecordService.java
     ├── JpaArtifactRecordService.java
-    ├── InMemoryEmployeeExecutionReceiptService.java
-    ├── FileBasedEmployeeExecutionReceiptService.java
+    ├── JpaEmployeeExecutionReceiptService.java
     └── llm/
         ├── LlmDecisionClient.java
         └── impl/

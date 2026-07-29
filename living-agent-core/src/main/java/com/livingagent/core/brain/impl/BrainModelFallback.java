@@ -249,8 +249,8 @@ public class BrainModelFallback {
         if (modelName == null) return false;
         String lower = modelName.toLowerCase();
         Set<String> embeddingKeywords = Set.of(
-            "bge", "e5", "embedding", "text-embedding", "ada", "gte", "jina",
-            "m3e", "voyage", "cohere-embed", "retrieval", "sentence"
+            "bge", "e5", "embed", "embedding", "text-embedding", "ada", "gte", "jina",
+            "m3e", "voyage", "cohere-embed", "retrieval", "sentence", "nomic"
         );
         for (String kw : embeddingKeywords) {
             if (lower.contains(kw)) return true;

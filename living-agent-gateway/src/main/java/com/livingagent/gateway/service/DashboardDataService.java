@@ -58,8 +58,8 @@ public class DashboardDataService {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("generatedAt", Instant.now().toString());
         payload.put("system", monitoringService.summary());
-        payload.put("employees", employeeService.listEmployees(new EmployeeService.EmployeeQuery(null, null, null, null, 1000, 0)).size());
-        payload.put("activeEmployees", employeeService.listEmployees(new EmployeeService.EmployeeQuery(null, null, EmployeeStatus.ACTIVE, null, 1000, 0)).size());
+        payload.put("employees", employeeService.listEmployees(new EmployeeService.EmployeeQuery(null, null, null, null, 1000, 0, null)).size());
+        payload.put("activeEmployees", employeeService.listEmployees(new EmployeeService.EmployeeQuery(null, null, EmployeeStatus.ACTIVE, null, 1000, 0, null)).size());
         payload.put("brains", brainRegistry != null ? brainRegistry.getAll().size() : 0);
         payload.put("neurons", neuronRegistry != null ? neuronRegistry.getAll().size() : 0);
         payload.put("knowledge", knowledgeManager != null ? knowledgeManager.getStatistics() : Map.of());

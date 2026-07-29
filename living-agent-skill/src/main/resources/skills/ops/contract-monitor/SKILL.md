@@ -1,6 +1,7 @@
 ---
 name: contract-monitor
 description: Contract Monitor - 合同监控器技能
+personalSafe: false
 risk: low
 source: internal
 date_added: '2026-07-13'

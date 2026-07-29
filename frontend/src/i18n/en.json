@@ -1175,6 +1175,8 @@
     "companyName": "Company Name",
     "optional": "Optional",
     "enterCompanyName": "Enter company name",
+    "password": "Password",
+    "enterPassword": "Enter password (at least 6 characters, optional)",
     "register": "Register",
     "registrationFailed": "Registration failed",
     "switchLang": "中文",

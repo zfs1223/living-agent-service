@@ -227,7 +227,7 @@ public class LLMEmployeeCreationServiceImpl implements LLMEmployeeCreationServic
 
     private String findNextInstanceNumber(String department, String role) {
         int maxInstance = employeeService.listEmployees(
-            new EmployeeService.EmployeeQuery(null, null, null, null, 10000, 0)
+            new EmployeeService.EmployeeQuery(null, null, null, null, 10000, 0, null)
         ).stream()
             .filter(Employee::isDigital)
             .mapToInt(e -> {
@@ -284,7 +284,7 @@ public class LLMEmployeeCreationServiceImpl implements LLMEmployeeCreationServic
             .orElse(0);
 
         int maxInDynamic = employeeService.listEmployees(
-            new EmployeeService.EmployeeQuery(null, null, null, null, 10000, 0)
+            new EmployeeService.EmployeeQuery(null, null, null, null, 10000, 0, null)
         ).stream()
             .filter(Employee::isDigital)
             .filter(e -> e.getOrigin() == EmployeeOrigin.EVOLVED)
@@ -316,7 +316,7 @@ public class LLMEmployeeCreationServiceImpl implements LLMEmployeeCreationServic
         sb.append("现有固定员工: ").append(existingEmployees).append("\n");
 
         long dynamicCount = employeeService.listEmployees(
-            new EmployeeService.EmployeeQuery(null, null, null, null, 10000, 0)
+            new EmployeeService.EmployeeQuery(null, null, null, null, 10000, 0, null)
         ).stream()
             .filter(Employee::isDigital)
             .filter(e -> e.getOrigin() == EmployeeOrigin.EVOLVED)
@@ -338,7 +338,7 @@ public class LLMEmployeeCreationServiceImpl implements LLMEmployeeCreationServic
         String expectedPrefix = "employee://digital/" + proposal.department() + "/" + proposal.neuronRoleSegment() + "/";
         
         return employeeService.listEmployees(
-            new EmployeeService.EmployeeQuery(null, null, null, null, 10000, 0)
+            new EmployeeService.EmployeeQuery(null, null, null, null, 10000, 0, null)
         ).stream()
             .filter(Employee::isDigital)
             .anyMatch(e -> e.getName().equals(proposal.name()) ||

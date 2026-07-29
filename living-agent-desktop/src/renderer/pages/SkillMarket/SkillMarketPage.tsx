@@ -21,6 +21,7 @@ const SKILL_CATEGORIES = [
 export interface SkillInfo {
   id: string;
   name: string;
+  displayName?: string;
   description?: string;
   category?: string;
   enabled?: boolean;
@@ -58,8 +59,9 @@ export default function SkillMarketPage({ hasToken, backendUrl }: SkillMarketPag
     setLoading(true);
     setError('');
     try {
+      // 技能浏览页展示所有技能，不限制 personalAssistant
       const [skillList, agentList] = await Promise.all([
-        window.livingAgentAPI.skill.list().catch(() => []),
+        window.livingAgentAPI.skill.list(false).catch(() => []),
         window.livingAgentAPI.agent.list().catch(() => []),
       ]);
       setSkills(Array.isArray(skillList) ? skillList : []);
@@ -175,7 +177,7 @@ export default function SkillMarketPage({ hasToken, backendUrl }: SkillMarketPag
                 onClick={() => setSelectedSkill(skill)}
               >
                 <div className="skill-card__header">
-                  <span className="skill-card__name">{skill.name || skill.id}</span>
+                  <span className="skill-card__name">{skill.displayName || skill.name || skill.id}</span>
                   {skill.version && (
                     <span className="skill-card__version">v{skill.version}</span>
                   )}

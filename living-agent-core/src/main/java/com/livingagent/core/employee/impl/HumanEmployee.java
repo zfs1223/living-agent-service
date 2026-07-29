@@ -310,7 +310,7 @@ public class HumanEmployee implements Employee {
         }
 
         public Builder roles(List<String> roles) {
-            this.roles = new ArrayList<>(roles);
+            this.roles = roles != null ? new ArrayList<>(roles) : new ArrayList<>();
             return this;
         }
 
@@ -325,7 +325,7 @@ public class HumanEmployee implements Employee {
         }
 
         public Builder capabilities(List<String> capabilities) {
-            this.capabilities = new ArrayList<>(capabilities);
+            this.capabilities = capabilities != null ? new ArrayList<>(capabilities) : new ArrayList<>();
             return this;
         }
 
@@ -335,7 +335,7 @@ public class HumanEmployee implements Employee {
         }
 
         public Builder skills(List<String> skills) {
-            this.skills = new ArrayList<>(skills);
+            this.skills = skills != null ? new ArrayList<>(skills) : new ArrayList<>();
             return this;
         }
 
@@ -345,7 +345,7 @@ public class HumanEmployee implements Employee {
         }
 
         public Builder tools(List<String> tools) {
-            this.tools = new ArrayList<>(tools);
+            this.tools = tools != null ? new ArrayList<>(tools) : new ArrayList<>();
             return this;
         }
 

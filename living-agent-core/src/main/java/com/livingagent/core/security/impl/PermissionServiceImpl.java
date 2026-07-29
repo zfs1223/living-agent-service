@@ -90,7 +90,7 @@ public class PermissionServiceImpl implements PermissionService {
         employee.setName(ctx.getName());
         employee.setPhone(ctx.getPhone());
         employee.setEmail(ctx.getEmail());
-        employee.setDepartment(ctx.getDepartment() != null && !ctx.getDepartment().isBlank() ? ctx.getDepartment() : (ctx.isFounder() ? "管理部" : ""));
+        employee.setDepartment(ctx.getDepartment() != null && !ctx.getDepartment().isBlank() ? ctx.getDepartment() : (ctx.isFounder() ? "core" : ""));
         employee.setPosition(ctx.getPosition());
         employee.setIdentity(ctx.getIdentity());
         employee.setAccessLevel(ctx.getAccessLevel());

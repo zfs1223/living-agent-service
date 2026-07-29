@@ -145,7 +145,7 @@ public class BaseWorkerTemplate implements WorkerTemplate {
         }
 
         public Builder requiredCapabilities(Set<String> requiredCapabilities) {
-            this.requiredCapabilities = new HashSet<>(requiredCapabilities);
+            this.requiredCapabilities = requiredCapabilities != null ? new HashSet<>(requiredCapabilities) : new HashSet<>();
             return this;
         }
 
@@ -165,7 +165,7 @@ public class BaseWorkerTemplate implements WorkerTemplate {
         }
 
         public Builder subscribedChannels(List<String> subscribedChannels) {
-            this.subscribedChannels = new ArrayList<>(subscribedChannels);
+            this.subscribedChannels = subscribedChannels != null ? new ArrayList<>(subscribedChannels) : new ArrayList<>();
             return this;
         }
 
@@ -175,7 +175,7 @@ public class BaseWorkerTemplate implements WorkerTemplate {
         }
 
         public Builder publishChannels(List<String> publishChannels) {
-            this.publishChannels = new ArrayList<>(publishChannels);
+            this.publishChannels = publishChannels != null ? new ArrayList<>(publishChannels) : new ArrayList<>();
             return this;
         }
 
@@ -185,7 +185,7 @@ public class BaseWorkerTemplate implements WorkerTemplate {
         }
 
         public Builder defaultConfig(Map<String, Object> defaultConfig) {
-            this.defaultConfig = new HashMap<>(defaultConfig);
+            this.defaultConfig = defaultConfig != null ? new HashMap<>(defaultConfig) : new HashMap<>();
             return this;
         }
 

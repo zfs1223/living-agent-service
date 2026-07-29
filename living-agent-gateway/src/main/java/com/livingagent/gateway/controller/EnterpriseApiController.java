@@ -35,17 +35,20 @@ public class EnterpriseApiController {
     private final DashboardService dashboardService;
     private final DepartmentRepository departmentRepository;
     private final SystemConfigService systemConfigService;
+    private final com.livingagent.core.database.repository.EnterpriseEmployeeRepository enterpriseEmployeeRepository;
 
     public EnterpriseApiController(UnifiedAuthService authService, EmployeeService employeeService,
                                    AccessGateService accessGateService, DashboardService dashboardService,
                                    DepartmentRepository departmentRepository,
-                                   SystemConfigService systemConfigService) {
+                                   SystemConfigService systemConfigService,
+                                   com.livingagent.core.database.repository.EnterpriseEmployeeRepository enterpriseEmployeeRepository) {
         this.authService = authService;
         this.employeeService = employeeService;
         this.accessGateService = accessGateService;
         this.dashboardService = dashboardService;
         this.departmentRepository = departmentRepository;
         this.systemConfigService = systemConfigService;
+        this.enterpriseEmployeeRepository = enterpriseEmployeeRepository;
     }
 
     @GetMapping("/dashboard")
@@ -101,19 +104,60 @@ public class EnterpriseApiController {
         }
 
         List<EmployeeSummary> employees = new ArrayList<>();
-        EmployeeService.EmployeeQuery query = new EmployeeService.EmployeeQuery(null, null, null, null, 100, 0);
-        employeeService.listEmployees(query).forEach(emp -> {
-            employees.add(new EmployeeSummary(
-                emp.getEmployeeId(),
-                emp.getName(),
-                emp.getDepartment(),
-                emp.getTitle(),
-                emp.getIdentity().name(),
-                emp.getAccessLevel().name(),
-                emp.isDigital() ? "DIGITAL" : "HUMAN",
-                emp.getStatus() == com.livingagent.core.employee.EmployeeStatus.ACTIVE
-            ));
-        });
+
+        // 优先从数据库加载所有员工（数据更完整）
+        try {
+            List<com.livingagent.core.database.entity.EnterpriseEmployeeEntity> dbEmployees =
+                enterpriseEmployeeRepository.findByActiveTrue();
+            // 补充非活跃员工（停用/离职的用户也需要管理）
+            dbEmployees = enterpriseEmployeeRepository.findAll();
+            for (var entity : dbEmployees) {
+                employees.add(new EmployeeSummary(
+                    entity.getEmployeeId(),
+                    entity.getName(),
+                    entity.getDepartmentId(),
+                    entity.getDepartmentName(),
+                    entity.getPosition(),
+                    entity.getIdentity(),
+                    entity.getAccessLevel(),
+                    entity.getEmployeeType() != null ? entity.getEmployeeType() : "HUMAN",
+                    entity.getOrigin() != null ? entity.getOrigin().toLowerCase() : "human",
+                    entity.getPhone(),
+                    entity.getEmail(),
+                    entity.getAvatarUrl(),
+                    entity.getTenantId(),
+                    entity.isFounder(),
+                    Boolean.TRUE.equals(entity.isActive()),
+                    entity.getJoinDate(),
+                    entity.getCreatedAt()
+                ));
+            }
+        } catch (Exception e) {
+            log.warn("Failed to load employees from database, falling back to memory store", e);
+            // 降级：从内存获取
+            EmployeeService.EmployeeQuery query = new EmployeeService.EmployeeQuery(null, null, null, null, 100, 0, null);
+            employeeService.listEmployees(query).forEach(emp -> {
+                employees.add(new EmployeeSummary(
+                    emp.getEmployeeId(),
+                    emp.getName(),
+                    emp.getDepartmentId(),
+                    emp.getDepartment(),
+                    emp.getTitle(),
+                    emp.getIdentity().name(),
+                    emp.getAccessLevel().name(),
+                    emp.isDigital() ? "DIGITAL" : "HUMAN",
+                    emp.getOrigin() != null ? emp.getOrigin().name().toLowerCase() : "human",
+                    emp.getPhone().orElse(null),
+                    emp.getEmail().orElse(null),
+                    null,
+                    null,
+                    false,
+                    emp.getStatus() == com.livingagent.core.employee.EmployeeStatus.ACTIVE,
+                    null,
+                    emp.getCreatedAt()
+                ));
+            });
+        }
 
         return ResponseEntity.ok(employees);
     }
@@ -134,6 +178,40 @@ public class EnterpriseApiController {
         if (!accessGateService.canRoute(effectiveEmployeeId, "brain", "AdminBrain")) {
             return ResponseEntity.status(403).build();
         }
+
+        // 优先从数据库获取（数据更完整）
+        try {
+            var entity = enterpriseEmployeeRepository.findByEmployeeId(employeeId);
+            if (entity.isPresent()) {
+                var e = entity.get();
+                return ResponseEntity.ok(new EmployeeDetail(
+                    e.getEmployeeId(),
+                    e.getName(),
+                    e.getDepartmentId(),
+                    e.getDepartmentName(),
+                    e.getPosition(),
+                    e.getIdentity(),
+                    e.getAccessLevel(),
+                    e.getOrigin() != null ? e.getOrigin().toLowerCase() : "human",
+                    e.getPhone(),
+                    e.getEmail(),
+                    e.getAvatarUrl(),
+                    e.getTenantId(),
+                    e.isFounder(),
+                    Boolean.TRUE.equals(e.isActive()),
+                    e.getJoinDate(),
+                    e.getCreatedAt(),
+                    e.getVoicePrintId(),
+                    e.getOauthProvider(),
+                    e.getPermissionScopeType(),
+                    e.getOwnerId()
+                ));
+            }
+        } catch (Exception e) {
+            log.warn("Failed to load employee from database, falling back to memory", e);
+        }
+
+        // 降级：从内存获取
         Optional<Employee> optEmp = employeeService.getEmployee(employeeId);
         if (optEmp.isEmpty()) {
             return ResponseEntity.notFound().build();
@@ -143,17 +221,50 @@ public class EnterpriseApiController {
         return ResponseEntity.ok(new EmployeeDetail(
             emp.getEmployeeId(),
             emp.getName(),
-            emp.getDepartment(),
+            emp.getDepartmentId(),
             emp.getDepartment(),
             emp.getTitle(),
             emp.getIdentity().name(),
             emp.getAccessLevel().name(),
+            emp.getOrigin() != null ? emp.getOrigin().name().toLowerCase() : "human",
+            emp.getPhone().orElse(null),
+            emp.getEmail().orElse(null),
+            null,
+            null,
             false,
             emp.getStatus() == com.livingagent.core.employee.EmployeeStatus.ACTIVE,
+            null,
             emp.getCreatedAt(),
             null,
-            emp.getAuthProvider()
+            emp.getAuthProvider(),
+            emp.getPermissionScopeType(),
+            emp.getOwnerId()
         ));
+    }
+
+    @DeleteMapping("/employees/{employeeId}")
+    public ResponseEntity<ApiResponse<Object>> deleteEmployee(
+            @PathVariable String employeeId,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestHeader(value = "X-Employee-Id", required = false) String headerEmployeeId) {
+
+        Optional<AuthContext> ctxOpt = getAuthContext(authorization);
+        if (ctxOpt.isEmpty() || !isEnterpriseAdmin(ctxOpt.get())) {
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "需要董事长权限"));
+        }
+
+        AuthContext ctx = ctxOpt.get();
+        String effectiveEmployeeId = headerEmployeeId != null && !headerEmployeeId.isBlank() ? headerEmployeeId : ctx.getEmployeeId();
+        if (!accessGateService.canRoute(effectiveEmployeeId, "brain", "AdminBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "需要 AdminBrain 路由权限"));
+        }
+
+        // 按当前 schema，每条公司任职是独立行（employeeId 唯一），删除仅移除该公司的任职记录，
+        // 不影响该人类员工在其他公司的任职（符合“可跨公司任职”模型）。
+        employeeService.deleteEmployee(employeeId);
+        log.info("Enterprise admin {} deleted employee {}", ctx.getEmployeeId(), employeeId);
+
+        return ResponseEntity.ok(ApiResponse.ok(Map.of("employeeId", employeeId)));
     }
 
     @PostMapping("/employees/{employeeId}/access-level")
@@ -573,11 +684,20 @@ public class EnterpriseApiController {
         String employeeId,
         String name,
         String department,
+        String departmentName,
         String position,
         String identity,
         String accessLevel,
         String employeeType,  // HUMAN / DIGITAL
-        boolean active
+        String origin,        // FIXED / PERSONAL / HUMAN / EVOLVED
+        String phone,
+        String email,
+        String avatarUrl,
+        String tenantId,
+        boolean isFounder,
+        boolean active,
+        Object joinDate,
+        Object createdAt
     ) {}
 
     public record EmployeeDetail(
@@ -588,11 +708,19 @@ public class EnterpriseApiController {
         String position,
         String identity,
         String accessLevel,
+        String origin,
+        String phone,
+        String email,
+        String avatarUrl,
+        String tenantId,
         boolean founder,
         boolean active,
         Object joinDate,
+        Object createdAt,
         String voicePrintId,
-        String oauthProvider
+        String oauthProvider,
+        String permissionScopeType,
+        String ownerId
     ) {}
 
     public record DepartmentSummary(

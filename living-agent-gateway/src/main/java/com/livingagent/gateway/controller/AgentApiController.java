@@ -153,6 +153,7 @@ public class AgentApiController {
             @RequestParam(required = false) String department,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String tenant_id,
+            @RequestParam(required = false) String origin,
             @RequestParam(defaultValue = "100") int limit,
             @RequestParam(defaultValue = "0") int offset,
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
@@ -160,7 +161,7 @@ public class AgentApiController {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "MainBrain")) {
             return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
-        log.debug("Listing agents, type: {}, department: {}, status: {}, tenant_id: {}", type, department, status, tenant_id);
+        log.debug("Listing agents, type: {}, department: {}, status: {}, tenant_id: {}, origin: {}", type, department, status, tenant_id, origin);
 
         EmployeeService.EmployeeQuery query = new EmployeeService.EmployeeQuery(
                 type != null ? parseType(type) : null,
@@ -168,7 +169,8 @@ public class AgentApiController {
                 status != null ? EmployeeStatus.valueOf(status.toUpperCase()) : null,
                 null,
                 limit,
-                offset
+                offset,
+                origin != null ? EmployeeOrigin.valueOf(origin.toUpperCase()) : null
         );
 
         List<Employee> employees = employeeService.listEmployees(query);

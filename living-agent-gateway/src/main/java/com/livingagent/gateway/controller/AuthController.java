@@ -10,7 +10,10 @@ import com.livingagent.core.security.auth.UnifiedAuthService.AuthResult;
 import com.livingagent.core.security.auth.UnifiedAuthService.AuthSession;
 import com.livingagent.core.security.client.ClientUserBindingService;
 import com.livingagent.core.security.service.EnterpriseEmployeeService;
+import com.livingagent.core.database.entity.EnterpriseEmployeeEntity;
+import com.livingagent.core.database.repository.EnterpriseEmployeeRepository;
 import com.livingagent.gateway.controller.common.ApiResponse;
+import com.livingagent.gateway.service.InvitationCodeService;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -56,6 +59,8 @@ public class AuthController {
     private final ClientUserBindingService clientUserBindingService;
     private final TenantController tenantController;
     private final AuthMetricsService authMetricsService;
+    private final InvitationCodeService invitationCodeService;
+    private final EnterpriseEmployeeRepository employeeRepository;
 
     /** 是否启用 Cookie 的 Secure 标志（生产环境 true，开发环境 false） */
     @Value("${auth.cookie.secure:true}")
@@ -68,7 +73,9 @@ public class AuthController {
             EnterpriseEmployeeService employeeService,
             ClientUserBindingService clientUserBindingService,
             TenantController tenantController,
-            AuthMetricsService authMetricsService
+            AuthMetricsService authMetricsService,
+            InvitationCodeService invitationCodeService,
+            EnterpriseEmployeeRepository employeeRepository
     ) {
         this.unifiedAuthService = unifiedAuthService;
         this.oauthServices = new HashMap<>();
@@ -82,6 +89,8 @@ public class AuthController {
         this.clientUserBindingService = clientUserBindingService;
         this.tenantController = tenantController;
         this.authMetricsService = authMetricsService;
+        this.invitationCodeService = invitationCodeService;
+        this.employeeRepository = employeeRepository;
     }
 
     @GetMapping("/oauth/{provider}/url")
@@ -458,6 +467,304 @@ public class AuthController {
         return ResponseEntity.ok(ApiResponse.ok(result));
     }
 
+    // ===== 邀请码改进：密码登录 / 注册 / 修改密码 端点 =====
+
+    /**
+     * 密码登录（INVITATION_CODE_IMPROVEMENT_PLAN.md §3.2）
+     * POST /api/auth/login
+     * 适用于离线环境或短信服务不可用时
+     *
+     * 多租户支持：同一手机号可能存在于多个公司（tenantId），
+     * - 只有1个公司 → 直接登录
+     * - 多个公司 → 返回 tenant_required + 公司列表，前端让用户选择后调用 /api/auth/login-with-tenant
+     */
+    @PostMapping("/login")
+    public ResponseEntity<ApiResponse<?>> passwordLogin(
+            @RequestBody PasswordLoginRequest request,
+            HttpServletResponse httpResponse
+    ) {
+        log.info("Password login attempt: {}", maskPhone(request.phone()));
+
+        // 1. 校验手机号格式
+        if (request.phone() == null || request.phone().isBlank()) {
+            authMetricsService.recordFailure("password_login", "AuthController", "invalid_phone");
+            return ResponseEntity.status(401)
+                    .body(ApiResponse.err("invalid_phone", "手机号不能为空"));
+        }
+        if (request.password() == null || request.password().isBlank()) {
+            authMetricsService.recordFailure("password_login", "AuthController", "invalid_password");
+            return ResponseEntity.status(401)
+                    .body(ApiResponse.err("invalid_password", "密码不能为空"));
+        }
+
+        // 2. 查找该手机号所有员工记录
+        List<EnterpriseEmployeeEntity> employees = employeeRepository.findAllByPhone(request.phone());
+        if (employees.isEmpty()) {
+            authMetricsService.recordFailure("password_login", "AuthController", "employee_not_found");
+            return ResponseEntity.status(401)
+                    .body(ApiResponse.err("employee_not_found", "员工记录不存在"));
+        }
+
+        // 3. 校验密码（至少有一条记录密码匹配即可）
+        boolean passwordValid = invitationCodeService.verifyPassword(request.phone(), request.password());
+        if (!passwordValid) {
+            authMetricsService.recordFailure("password_login", "AuthController", "invalid_credentials");
+            return ResponseEntity.status(401)
+                    .body(ApiResponse.err("invalid_credentials", "手机号或密码错误"));
+        }
+
+        // 4. 过滤出活跃的员工记录
+        List<EnterpriseEmployeeEntity> activeEmployees = employees.stream()
+                .filter(EnterpriseEmployeeEntity::isActive)
+                .toList();
+        if (activeEmployees.isEmpty()) {
+            authMetricsService.recordFailure("password_login", "AuthController", "employee_inactive");
+            return ResponseEntity.status(401)
+                    .body(ApiResponse.err("employee_inactive", "员工账号已停用"));
+        }
+
+        // 5. 判断是否有多个公司（不同 tenantId）
+        List<String> tenantIds = activeEmployees.stream()
+                .map(EnterpriseEmployeeEntity::getTenantId)
+                .distinct()
+                .toList();
+
+        if (tenantIds.size() > 1) {
+            // 多个公司：返回公司列表，让前端让用户选择
+            List<TenantOption> tenantOptions = activeEmployees.stream()
+                    .map(e -> new TenantOption(
+                            e.getTenantId(),
+                            e.getDepartmentName() != null ? e.getDepartmentName() : e.getTenantId(),
+                            e.getName(),
+                            e.isFounder()
+                    ))
+                    .toList();
+            log.info("Password login: {} has {} tenants, requiring selection", maskPhone(request.phone()), tenantIds.size());
+            return ResponseEntity.ok(ApiResponse.ok(new TenantSelectionResponse(
+                    "tenant_required", maskPhone(request.phone()), tenantOptions
+            )));
+        }
+
+        // 6. 只有一个公司：直接登录
+        EnterpriseEmployeeEntity employee = activeEmployees.get(0);
+
+        if (!employee.isActive()) {
+            authMetricsService.recordFailure("password_login", "AuthController", "employee_inactive");
+            return ResponseEntity.status(401)
+                    .body(ApiResponse.err("employee_inactive", "员工账号已停用"));
+        }
+
+        return (ResponseEntity) completeLogin(employee, request.phone(), "password_login", httpResponse);
+    }
+
+    /**
+     * 多公司选择后登录
+     * POST /api/auth/login-with-tenant
+     */
+    @PostMapping("/login-with-tenant")
+    public ResponseEntity<ApiResponse<LoginResponse>> loginWithTenant(
+            @RequestBody LoginWithTenantRequest request,
+            HttpServletResponse httpResponse
+    ) {
+        log.info("Login with tenant: phone={}, tenantId={}", maskPhone(request.phone()), request.tenantId());
+
+        if (request.phone() == null || request.phone().isBlank() ||
+            request.tenantId() == null || request.tenantId().isBlank() ||
+            request.password() == null || request.password().isBlank()) {
+            return ResponseEntity.status(401)
+                    .body(ApiResponse.err("invalid_request", "手机号、密码和公司ID不能为空"));
+        }
+
+        // 校验密码
+        boolean passwordValid = invitationCodeService.verifyPassword(request.phone(), request.password());
+        if (!passwordValid) {
+            return ResponseEntity.status(401)
+                    .body(ApiResponse.err("invalid_credentials", "手机号或密码错误"));
+        }
+
+        // 查找指定手机号+租户的员工
+        List<EnterpriseEmployeeEntity> employees = employeeRepository.findAllByPhone(request.phone());
+        Optional<EnterpriseEmployeeEntity> empOpt = employees.stream()
+                .filter(e -> request.tenantId().equals(e.getTenantId()) && e.isActive())
+                .findFirst();
+
+        if (empOpt.isEmpty()) {
+            return ResponseEntity.status(401)
+                    .body(ApiResponse.err("employee_not_found", "在该公司下未找到员工记录"));
+        }
+
+        return completeLogin(empOpt.get(), request.phone(), "password_login_tenant", httpResponse);
+    }
+
+    /**
+     * 完成登录流程（创建 AuthContext + Session + Cookie）
+     */
+    private ResponseEntity<ApiResponse<LoginResponse>> completeLogin(
+            EnterpriseEmployeeEntity employee, String phone, String loginMethod,
+            HttpServletResponse httpResponse
+    ) {
+        AuthContext authContext = new AuthContext();
+        authContext.setEmployeeId(employee.getEmployeeId());
+        authContext.setName(employee.getName());
+        authContext.setPhone(phone);
+        authContext.setEmail(employee.getEmail());
+        authContext.setDepartment(employee.getDepartmentName());
+        authContext.setPosition(employee.getPosition());
+        try {
+            if (employee.getIdentity() != null) {
+                authContext.setIdentity(com.livingagent.core.security.UserIdentity.valueOf(employee.getIdentity()));
+            }
+        } catch (Exception ignored) {}
+        try {
+            if (employee.getAccessLevel() != null) {
+                authContext.setAccessLevel(AccessLevel.valueOf(employee.getAccessLevel()));
+            }
+        } catch (Exception ignored) {}
+        authContext.setFounder(employee.isFounder());
+        authContext.setActive(employee.isActive());
+        authContext.setTenantId(employee.getTenantId());
+        authContext.setLastSyncTime(java.time.Instant.now());
+        authContext.setSyncSource(loginMethod);
+
+        AuthResult authResult = unifiedAuthService.createInternalSession(authContext);
+        AuthSession session = authResult.session();
+
+        setTokenCookies(httpResponse, session.sessionId(), session.sessionId());
+
+        UserInfo userInfo = convertToUserInfo(authContext);
+        LoginResponse response = new LoginResponse(
+                session.sessionId(),
+                null,
+                userInfo
+        );
+
+        log.info("{} successful: {} ({}), tenantId: {}, identity: {}, accessLevel: {}",
+                loginMethod, employee.getName(), maskPhone(phone),
+                employee.getTenantId(), authContext.getIdentity(), authContext.getAccessLevel());
+        authMetricsService.recordSuccess(loginMethod, "AuthController");
+        return ResponseEntity.ok(ApiResponse.ok(response));
+    }
+
+    /**
+     * 使用邀请码注册（INVITATION_CODE_IMPROVEMENT_PLAN.md §3.2）
+     * POST /api/auth/register
+     */
+    @PostMapping("/register")
+    public ResponseEntity<ApiResponse<RegisterResponse>> register(
+            @RequestBody InvitationCodeService.RegisterRequest request
+    ) {
+        log.info("Register attempt: code={}, phone={}", request.getCode(), maskPhone(request.getPhone()));
+
+        InvitationCodeService.RegisterResult result = invitationCodeService.registerWithInvitation(request);
+        if (!result.isSuccess()) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.err(result.error(), result.errorDescription()));
+        }
+
+        EnterpriseEmployeeEntity employee = result.employee();
+        RegisterResponse response = new RegisterResponse(
+                true,
+                "注册成功，请使用手机号+密码登录",
+                employee.getEmployeeId(),
+                employee.getName(),
+                result.invitation().getCompanyName(),
+                result.invitation().getDepartmentName()
+        );
+        log.info("Register successful: {} -> {}", request.getCode(), employee.getEmployeeId());
+        return ResponseEntity.ok(ApiResponse.ok(response));
+    }
+
+    /**
+     * 修改密码（INVITATION_CODE_IMPROVEMENT_PLAN.md §3.2）
+     * POST /api/auth/change-password
+     */
+    @PostMapping("/change-password")
+    public ResponseEntity<ApiResponse<Void>> changePassword(
+            @RequestBody ChangePasswordRequest request,
+            @RequestHeader("Authorization") String authorization
+    ) {
+        if (authorization == null || !authorization.startsWith("Bearer ")) {
+            return ResponseEntity.status(401)
+                    .body(ApiResponse.err("unauthorized", "请先登录"));
+        }
+
+        String sessionId = authorization.substring(7);
+        Optional<AuthSession> sessionOpt = unifiedAuthService.validateSession(sessionId);
+        if (sessionOpt.isEmpty()) {
+            return ResponseEntity.status(401)
+                    .body(ApiResponse.err("session_expired", "会话已过期"));
+        }
+
+        AuthContext authContext = sessionOpt.get().authContext();
+        String employeeId = authContext.getEmployeeId();
+
+        // 校验新密码长度
+        if (request.newPassword() == null || request.newPassword().length() < 6) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.err("invalid_password", "新密码长度至少 6 位"));
+        }
+
+        boolean success = invitationCodeService.changePassword(
+                employeeId, request.oldPassword(), request.newPassword()
+        );
+        if (!success) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.err("change_failed", "旧密码错误或员工不存在"));
+        }
+
+        log.info("Password changed for: {} ({})", authContext.getName(), employeeId);
+        return ResponseEntity.ok(ApiResponse.ok(null));
+    }
+
+    /**
+     * 管理员重置用户密码（INVITATION_CODE_IMPROVEMENT_PLAN.md §3.3）
+     * POST /api/auth/admin/reset-password
+     * 需要 FULL 权限
+     */
+    @PostMapping("/admin/reset-password")
+    public ResponseEntity<ApiResponse<Void>> adminResetPassword(
+            @RequestBody AdminResetPasswordRequest request,
+            @RequestHeader("Authorization") String authorization
+    ) {
+        if (authorization == null || !authorization.startsWith("Bearer ")) {
+            return ResponseEntity.status(401)
+                    .body(ApiResponse.err("unauthorized", "请先登录"));
+        }
+
+        String sessionId = authorization.substring(7);
+        Optional<AuthSession> sessionOpt = unifiedAuthService.validateSession(sessionId);
+        if (sessionOpt.isEmpty()) {
+            return ResponseEntity.status(401)
+                    .body(ApiResponse.err("session_expired", "会话已过期"));
+        }
+
+        AuthContext authContext = sessionOpt.get().authContext();
+        // 仅董事长/FULL 权限可重置
+        if (!authContext.isFounder() && authContext.getAccessLevel() != AccessLevel.FULL) {
+            return ResponseEntity.status(403)
+                    .body(ApiResponse.err("forbidden", "需要董事长权限"));
+        }
+
+        if (request.newPassword() == null || request.newPassword().length() < 6) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.err("invalid_password", "密码长度至少 6 位"));
+        }
+
+        try {
+            invitationCodeService.resetPasswordByAdmin(request.employeeId(), request.newPassword());
+            log.info("Admin {} reset password for employee: {}", authContext.getEmployeeId(), request.employeeId());
+            return ResponseEntity.ok(ApiResponse.ok(null));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.err("not_found", e.getMessage()));
+        }
+    }
+
+    private String maskPhone(String phone) {
+        if (phone == null || phone.length() < 7) return phone;
+        return phone.substring(0, 3) + "****" + phone.substring(phone.length() - 4);
+    }
+
     private UserInfo convertToUserInfo(AuthContext authContext) {
         // 根据 accessLevel 推断 role
         String role = "member";
@@ -492,6 +799,43 @@ public class AuthController {
             String refreshToken,
             UserInfo user
     ) {}
+
+    /** 密码登录请求（INVITATION_CODE_IMPROVEMENT_PLAN.md §3.2） */
+    public record PasswordLoginRequest(String phone, String password) {}
+
+    /** 多公司选择后登录请求 */
+    public record LoginWithTenantRequest(String phone, String password, String tenantId) {}
+
+    /** 公司选择项 */
+    public record TenantOption(
+            String tenantId,
+            String departmentName,
+            String employeeName,
+            boolean founder
+    ) {}
+
+    /** 需要选择公司时的响应 */
+    public record TenantSelectionResponse(
+            String status,
+            String phone,
+            List<TenantOption> tenants
+    ) {}
+
+    /** 注册响应 */
+    public record RegisterResponse(
+            boolean success,
+            String message,
+            String employeeId,
+            String name,
+            String companyName,
+            String departmentName
+    ) {}
+
+    /** 修改密码请求 */
+    public record ChangePasswordRequest(String oldPassword, String newPassword) {}
+
+    /** 管理员重置密码请求 */
+    public record AdminResetPasswordRequest(String employeeId, String newPassword) {}
 
     public record UserInfo(
             String id,

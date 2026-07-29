@@ -116,6 +116,16 @@ public class EnterpriseEmployeeEntity {
     @Column(name = "owner_id", length = 100)
     private String ownerId;
 
+    // 邀请码改进：密码登录相关字段
+    @Column(name = "password_hash", length = 255)
+    private String passwordHash;
+
+    @Column(name = "phone_verified")
+    private Boolean phoneVerified;
+
+    @Column(name = "password_changed_at")
+    private Instant passwordChangedAt;
+
     @Column(name = "created_at")
     private Instant createdAt;
 
@@ -242,4 +252,13 @@ public class EnterpriseEmployeeEntity {
 
     public String getOwnerId() { return ownerId; }
     public void setOwnerId(String ownerId) { this.ownerId = ownerId; }
+
+    public String getPasswordHash() { return passwordHash; }
+    public void setPasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
+
+    public Boolean getPhoneVerified() { return phoneVerified; }
+    public void setPhoneVerified(Boolean phoneVerified) { this.phoneVerified = phoneVerified; }
+
+    public Instant getPasswordChangedAt() { return passwordChangedAt; }
+    public void setPasswordChangedAt(Instant passwordChangedAt) { this.passwordChangedAt = passwordChangedAt; }
 }

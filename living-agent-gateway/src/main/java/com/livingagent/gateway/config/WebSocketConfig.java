@@ -10,6 +10,7 @@ import org.springframework.web.socket.server.standard.ServletServerContainerFact
 import com.livingagent.gateway.websocket.AgentWebSocketHandler;
 import com.livingagent.gateway.websocket.AuthHandshakeInterceptor;
 import com.livingagent.gateway.websocket.DepartmentWebSocketHandler;
+import com.livingagent.gateway.websocket.IMWebSocketHandler;
 
 @Configuration
 @EnableWebSocket
@@ -20,13 +21,16 @@ public class WebSocketConfig implements WebSocketConfigurer {
 
     private final AgentWebSocketHandler agentWebSocketHandler;
     private final DepartmentWebSocketHandler departmentWebSocketHandler;
+    private final IMWebSocketHandler imWebSocketHandler;
     private final AuthHandshakeInterceptor authHandshakeInterceptor;
 
     public WebSocketConfig(AgentWebSocketHandler agentWebSocketHandler,
                           DepartmentWebSocketHandler departmentWebSocketHandler,
+                          IMWebSocketHandler imWebSocketHandler,
                           AuthHandshakeInterceptor authHandshakeInterceptor) {
         this.agentWebSocketHandler = agentWebSocketHandler;
         this.departmentWebSocketHandler = departmentWebSocketHandler;
+        this.imWebSocketHandler = imWebSocketHandler;
         this.authHandshakeInterceptor = authHandshakeInterceptor;
     }
 
@@ -52,6 +56,10 @@ public class WebSocketConfig implements WebSocketConfigurer {
             .setAllowedOriginPatterns(origins);
 
         registry.addHandler(departmentWebSocketHandler, "/ws/public")
+            .addInterceptors(authHandshakeInterceptor)
+            .setAllowedOriginPatterns(origins);
+
+        registry.addHandler(imWebSocketHandler, "/ws/im")
             .addInterceptors(authHandshakeInterceptor)
             .setAllowedOriginPatterns(origins);
     }

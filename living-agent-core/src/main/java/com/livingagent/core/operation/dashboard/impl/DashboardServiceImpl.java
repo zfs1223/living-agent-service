@@ -166,8 +166,8 @@ public class DashboardServiceImpl implements DashboardService {
     }
 
     private DashboardDTOs.EmployeeMetrics buildEmployeeMetrics() {
-        var allEmployees = employeeService.listEmployees(new EmployeeService.EmployeeQuery(null, null, null, null, 1000, 0));
-        var activeEmployees = employeeService.listEmployees(new EmployeeService.EmployeeQuery(null, null, EmployeeStatus.ACTIVE, null, 1000, 0));
+        var allEmployees = employeeService.listEmployees(new EmployeeService.EmployeeQuery(null, null, null, null, 1000, 0, null));
+        var activeEmployees = employeeService.listEmployees(new EmployeeService.EmployeeQuery(null, null, EmployeeStatus.ACTIVE, null, 1000, 0, null));
 
         int total = allEmployees.size();
         int active = activeEmployees.size();
@@ -287,11 +287,11 @@ public class DashboardServiceImpl implements DashboardService {
                     
                     // 从员工服务获取该部门的实际成员
                     var allDeptEmployees = employeeService.listEmployees(
-                            new EmployeeService.EmployeeQuery(null, code, null, null, 1000, 0));
+                            new EmployeeService.EmployeeQuery(null, code, null, null, 1000, 0, null));
                     int memberCount = allDeptEmployees.size();
                     
                     var activeMembers = employeeService.listEmployees(
-                            new EmployeeService.EmployeeQuery(null, code, EmployeeStatus.ACTIVE, null, 1000, 0));
+                            new EmployeeService.EmployeeQuery(null, code, EmployeeStatus.ACTIVE, null, 1000, 0, null));
 
                     var todayTasks = taskCheckout.getCompletedTasks(100).stream()
                             .filter(t -> t.completedAt() != null &&
@@ -441,8 +441,8 @@ public class DashboardServiceImpl implements DashboardService {
     private List<DashboardDTOs.StrategicSuggestion> buildStrategicSuggestions() {
         List<DashboardDTOs.StrategicSuggestion> suggestions = new ArrayList<>();
         
-        var allEmployees = employeeService.listEmployees(new EmployeeService.EmployeeQuery(null, null, null, null, 1000, 0));
-        var activeEmployees = employeeService.listEmployees(new EmployeeService.EmployeeQuery(null, null, EmployeeStatus.ACTIVE, null, 1000, 0));
+        var allEmployees = employeeService.listEmployees(new EmployeeService.EmployeeQuery(null, null, null, null, 1000, 0, null));
+        var activeEmployees = employeeService.listEmployees(new EmployeeService.EmployeeQuery(null, null, EmployeeStatus.ACTIVE, null, 1000, 0, null));
         TaskStatistics taskStats = taskCheckout.getStatistics();
         var issues = healthMonitor.detectIssues();
 
@@ -522,11 +522,11 @@ public class DashboardServiceImpl implements DashboardService {
         
         // 从员工服务获取该部门的实际成员
         var allDeptEmployees = employeeService.listEmployees(
-                new EmployeeService.EmployeeQuery(null, code, null, null, 1000, 0));
+                new EmployeeService.EmployeeQuery(null, code, null, null, 1000, 0, null));
         int memberCount = allDeptEmployees.size();
         
         var activeMembers = employeeService.listEmployees(
-                new EmployeeService.EmployeeQuery(null, code, EmployeeStatus.ACTIVE, null, 1000, 0));
+                new EmployeeService.EmployeeQuery(null, code, EmployeeStatus.ACTIVE, null, 1000, 0, null));
 
         // 健康分数计算（与 buildDepartmentHealth 保持一致）
         double healthScore;

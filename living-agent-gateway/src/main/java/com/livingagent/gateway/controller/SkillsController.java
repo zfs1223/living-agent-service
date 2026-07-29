@@ -1,6 +1,8 @@
 package com.livingagent.gateway.controller;
 
 import com.livingagent.core.security.AccessGateService;
+import com.livingagent.core.skill.Skill;
+import com.livingagent.core.skill.SkillRegistry;
 import com.livingagent.core.skill.feedback.SkillEffectivenessTracker;
 import com.livingagent.gateway.controller.common.ApiResponse;
 import org.slf4j.Logger;
@@ -20,34 +22,57 @@ public class SkillsController {
     private static final Logger log = LoggerFactory.getLogger(SkillsController.class);
     private final AccessGateService accessGateService;
     private final SkillEffectivenessTracker skillEffectivenessTracker;
+    private final SkillRegistry skillRegistry;
 
-    public SkillsController(AccessGateService accessGateService, SkillEffectivenessTracker skillEffectivenessTracker) {
+    public SkillsController(AccessGateService accessGateService, 
+                           SkillEffectivenessTracker skillEffectivenessTracker,
+                           SkillRegistry skillRegistry) {
         this.accessGateService = accessGateService;
         this.skillEffectivenessTracker = skillEffectivenessTracker;
+        this.skillRegistry = skillRegistry;
     }
 
     @GetMapping
     public ResponseEntity<ApiResponse<List<SkillInfo>>> listSkills(
             @RequestParam(required = false) String brain,
             @RequestParam(required = false) String department,
+            @RequestParam(required = false, defaultValue = "false") boolean personalAssistant,
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId
     ) {
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
             return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
-        log.debug("Listing skills, brain: {}, department: {}", brain, department);
+        log.debug("Listing skills, brain: {}, department: {}, personalAssistant: {}", brain, department, personalAssistant);
+
+        // 个人助手视图：只返回 personalSafe 的技能
+        List<Skill> skillsToReturn;
+        if (personalAssistant) {
+            skillsToReturn = skillRegistry.getPersonalAssistantVisibleSkills(employeeId);
+        } else {
+            skillsToReturn = skillRegistry.getAllSkills();
+        }
 
         List<SkillInfo> skills = new ArrayList<>();
-        skills.add(new SkillInfo(
-                "skill_001",
-                "代码审查",
-                "自动审查代码质量",
-                "tech",
-                List.of("code-review", "quality"),
-                "1.0.0",
-                Instant.now()
-        ));
+        for (Skill skill : skillsToReturn) {
+            @SuppressWarnings("unchecked")
+            List<String> tags = (List<String>) skill.getMetadata().getOrDefault("tags", new ArrayList<>());
+            String version = (String) skill.getMetadata().getOrDefault("version", "1.0.0");
+            String displayName = buildDisplayName(skill.getName(), skill.getDescription());
 
+            skills.add(new SkillInfo(
+                    skill.getName(),
+                    skill.getName(),
+                    displayName,
+                    skill.getDescription() != null ? skill.getDescription() : "",
+                    skill.getTargetBrain() != null ? skill.getTargetBrain() : "global",
+                    tags,
+                    version,
+                    skill.isPersonalSafe(),
+                    Instant.now()
+            ));
+        }
+
+        log.info("Loaded {} skills (personalAssistant={})", skills.size(), personalAssistant);
         return ResponseEntity.ok(ApiResponse.ok(skills));
     }
 
@@ -60,17 +85,28 @@ public class SkillsController {
         }
         log.debug("Getting skill: {}", id);
 
-        SkillInfo skill = new SkillInfo(
-                id,
-                "代码审查",
-                "自动审查代码质量",
-                "tech",
-                List.of("code-review", "quality"),
-                "1.0.0",
-                Instant.now()
-        );
+        // 从 SkillRegistry 查找技能
+        return skillRegistry.getSkill(id)
+                .map(skill -> {
+                    @SuppressWarnings("unchecked")
+                    List<String> tags = (List<String>) skill.getMetadata().getOrDefault("tags", new ArrayList<>());
+                    String version = (String) skill.getMetadata().getOrDefault("version", "1.0.0");
 
-        return ResponseEntity.ok(ApiResponse.ok(skill));
+                    String displayName = buildDisplayName(skill.getName(), skill.getDescription());
+                    SkillInfo skillInfo = new SkillInfo(
+                            skill.getName(),
+                            skill.getName(),
+                            displayName,
+                            skill.getDescription() != null ? skill.getDescription() : "",
+                            skill.getTargetBrain() != null ? skill.getTargetBrain() : "global",
+                            tags,
+                            version,
+                            skill.isPersonalSafe(),
+                            Instant.now()
+                    );
+                    return ResponseEntity.ok(ApiResponse.ok(skillInfo));
+                })
+                .orElse(ResponseEntity.status(404).body(ApiResponse.err("not_found", "Skill not found: " + id)));
     }
 
     @PostMapping
@@ -85,10 +121,12 @@ public class SkillsController {
         SkillInfo skill = new SkillInfo(
                 "skill_" + System.currentTimeMillis(),
                 request.name(),
+                request.name(),
                 request.description(),
                 request.department(),
                 request.tags(),
                 request.version(),
+                false,
                 Instant.now()
         );
 
@@ -110,10 +148,12 @@ public class SkillsController {
         SkillInfo skill = new SkillInfo(
                 id,
                 request.name(),
+                request.name(),
                 request.description(),
                 request.department(),
                 request.tags(),
                 request.version(),
+                false,
                 Instant.now()
         );
 
@@ -301,13 +341,52 @@ public class SkillsController {
         return ResponseEntity.ok(ApiResponse.ok(settings));
     }
 
+    /**
+     * 构建技能展示名称：优先取描述中的中文部分（逗号前），否则返回 name。
+     * 例如：description="代码审查技能，自动化代码质量检查" → "代码审查技能"
+     *       description="Summarize or extract..." → name
+     */
+    private String buildDisplayName(String name, String description) {
+        if (description == null || description.isBlank()) {
+            return name;
+        }
+        // 中文描述通常以逗号、顿号分隔，取第一部分作为简洁名称
+        String desc = description.trim();
+        // 去掉引号包裹
+        if ((desc.startsWith("\"") && desc.endsWith("\"")) || (desc.startsWith("'") && desc.endsWith("'"))) {
+            desc = desc.substring(1, desc.length() - 1).trim();
+        }
+        // 如果包含中文，取逗号前部分作为展示名
+        if (desc.matches(".*[\\u4e00-\\u9fff].*")) {
+            int commaIdx = desc.indexOf('，');
+            if (commaIdx < 0) commaIdx = desc.indexOf(',');
+            if (commaIdx > 0) {
+                return desc.substring(0, commaIdx).trim();
+            }
+            // 无逗号，截取前20个字符
+            if (desc.length() > 20) {
+                return desc.substring(0, 20) + "...";
+            }
+            return desc;
+        }
+        // 英文描述，取逗号前部分
+        int commaIdx = desc.indexOf(',');
+        if (commaIdx > 0 && commaIdx <= 30) {
+            return desc.substring(0, commaIdx).trim();
+        }
+        // 无合适的截取点，返回 name
+        return name;
+    }
+
     public record SkillInfo(
             String id,
             String name,
+            String displayName,
             String description,
             String department,
             List<String> tags,
             String version,
+            boolean personalSafe,
             Instant created_at
     ) {}
 

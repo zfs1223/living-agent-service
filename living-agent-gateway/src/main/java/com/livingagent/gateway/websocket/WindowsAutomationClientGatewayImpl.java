@@ -24,10 +24,13 @@ import java.util.concurrent.atomic.AtomicLong;
  * 1. 在 WebSocket 连接建立/关闭时注册/注销客户端
  * 2. 将后端的 Windows 自动化操作通过 WebSocket 转发到桌面端
  * 3. 接收桌面端的响应并完成等待中的 Future
+ * 4. 将个人助手技能执行请求转发到桌面端（"大脑在服务器、双手在桌面"双层架构）
  *
  * 通信协议（与桌面端 ws-client.ts 对齐）：
- * - 后端 → 桌面端：{"type":"win_automation_call","data":{"id":<long>,"operation":<string>,"args":<object>}}
- * - 桌面端 → 后端：{"type":"win_automation_response","data":{"id":<long>,"success":<bool>,"result":<any>,"error":<string>}}
+ * - 后端 → 桌面端（自动化）：{"type":"win_automation_call","data":{"id":<long>,"operation":<string>,"args":<object>}}
+ * - 后端 → 桌面端（技能）：  {"type":"skill_execute_request","data":{"id":<long>,"skillId":<string>,"args":<object>,"workspaceDir":<string>}}
+ * - 桌面端 → 后端（自动化响应）：{"type":"win_automation_response","data":{"id":<long>,"success":<bool>,"result":<any>,"error":<string>}}
+ * - 桌面端 → 后端（技能响应）：  {"type":"skill_execute_response","data":{"id":<long>,"success":<bool>,"result":<any>,"error":<string>}}
  *
  * 详细设计：docs/WINDOWS_MCP_INTEGRATION_PLAN.md §3.2、§5.1
  */
@@ -36,6 +39,8 @@ public class WindowsAutomationClientGatewayImpl implements WindowsAutomationClie
 
     private static final Logger log = LoggerFactory.getLogger(WindowsAutomationClientGatewayImpl.class);
     private static final long DEFAULT_TIMEOUT_MS = 30_000L;
+    /** 技能执行超时：60秒（技能脚本可能比简单自动化操作更耗时） */
+    private static final long SKILL_EXECUTE_TIMEOUT_MS = 60_000L;
 
     /** clientId → WebSocketSession 映射 */
     private final Map<String, WebSocketSession> clientSessions = new ConcurrentHashMap<>();
@@ -161,6 +166,65 @@ public class WindowsAutomationClientGatewayImpl implements WindowsAutomationClie
                     pendingRequests.remove(requestId);
                     log.warn("[WinAutomationGateway] Request timeout: requestId={}, clientId={}",
                         requestId, clientId);
+                }
+            });
+
+        return future;
+    }
+
+    @Override
+    public CompletableFuture<WinAutomationResponse> sendSkillExecute(
+        String clientId, String skillId, Map<String, Object> args, String workspaceDir) {
+
+        CompletableFuture<WinAutomationResponse> future = new CompletableFuture<>();
+
+        // 1. 查找客户端 session
+        WebSocketSession session = clientSessions.get(clientId);
+        if (session == null || !session.isOpen()) {
+            future.complete(WinAutomationResponse.fail("客户端未连接: " + clientId));
+            return future;
+        }
+
+        // 2. 生成唯一 requestId（与 win_automation 共用同一计数器，保证全局唯一）
+        long requestId = requestIdCounter.incrementAndGet();
+        pendingRequests.put(requestId, future);
+
+        // 3. 构造技能执行请求消息
+        Map<String, Object> data = new HashMap<>();
+        data.put("id", requestId);
+        data.put("skillId", skillId);
+        data.put("args", args != null ? args : Map.of());
+        data.put("workspaceDir", workspaceDir != null ? workspaceDir : "");
+
+        Map<String, Object> message = new HashMap<>();
+        message.put("type", "skill_execute_request");
+        message.put("data", data);
+        message.put("timestamp", System.currentTimeMillis());
+
+        // 4. 发送到桌面端
+        try {
+            String json = objectMapper.writeValueAsString(message);
+            session.sendMessage(new TextMessage(json));
+            log.info("[SkillExecuteGateway] Sent skill execute: requestId={}, clientId={}, skillId={}, workspaceDir={}",
+                requestId, clientId, skillId, workspaceDir);
+        } catch (JsonProcessingException e) {
+            pendingRequests.remove(requestId);
+            future.complete(WinAutomationResponse.fail("消息序列化失败: " + e.getMessage()));
+            return future;
+        } catch (IOException e) {
+            pendingRequests.remove(requestId);
+            log.error("[SkillExecuteGateway] Failed to send message: clientId={}", clientId, e);
+            future.complete(WinAutomationResponse.fail("发送消息失败: " + e.getMessage()));
+            return future;
+        }
+
+        // 5. 超时处理（技能执行使用更长的超时时间）
+        future.orTimeout(SKILL_EXECUTE_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+            .whenComplete((resp, ex) -> {
+                if (ex != null) {
+                    pendingRequests.remove(requestId);
+                    log.warn("[SkillExecuteGateway] Request timeout: requestId={}, clientId={}, skillId={}, timeout={}ms",
+                        requestId, clientId, skillId, SKILL_EXECUTE_TIMEOUT_MS);
                 }
             });
 

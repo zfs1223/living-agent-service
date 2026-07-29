@@ -8,6 +8,8 @@ import com.livingagent.core.security.service.EnterpriseEmployeeService;
 import com.livingagent.core.security.auth.UnifiedAuthService;
 import com.livingagent.core.security.auth.UnifiedAuthService.AuthResult;
 import com.livingagent.core.security.auth.UnifiedAuthService.AuthSession;
+import com.livingagent.core.database.entity.TenantEntity;
+import com.livingagent.core.database.service.TenantService;
 import com.livingagent.gateway.service.SystemConfigService;
 import com.livingagent.gateway.service.SystemConfigService.TenantInfo;
 import com.livingagent.gateway.controller.common.ApiResponse;  // 添加 import
@@ -31,6 +33,7 @@ public class TenantController {
     private final UnifiedAuthService authService;
     private final SystemConfigService configService;
     private final AccessGateService accessGateService;
+    private final TenantService tenantService;
 
     @Autowired(required = false)
     private TenantHealthMonitor tenantHealthMonitor;
@@ -39,12 +42,14 @@ public class TenantController {
             EnterpriseEmployeeService employeeService,
             UnifiedAuthService authService,
             SystemConfigService configService,
-            AccessGateService accessGateService
+            AccessGateService accessGateService,
+            TenantService tenantService
     ) {
         this.employeeService = employeeService;
         this.authService = authService;
         this.configService = configService;
         this.accessGateService = accessGateService;
+        this.tenantService = tenantService;
     }
 
     @GetMapping("/registration-config")
@@ -341,19 +346,48 @@ public class TenantController {
     @GetMapping("/admin/companies")
     public ResponseEntity<ApiResponse<List<CompanyInfo>>> listCompanies(
             @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
-        log.debug("Listing all companies (admin)");
+        log.debug("Listing all companies from database");
 
         if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
             return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
 
-        List<CompanyInfo> companies = List.of(
-                new CompanyInfo("tenant_001", "示例公司1", true),
-                new CompanyInfo("tenant_002", "示例公司2", true),
-                new CompanyInfo("tenant_003", "示例公司3", false)
-        );
+        // 从数据库获取真实公司列表
+        List<TenantEntity> tenants = tenantService.findAllActive();
+        List<CompanyInfo> companies = tenants.stream()
+                .map(t -> new CompanyInfo(t.getTenantId(), t.getTenantId(), t.getName(), t.isActive()))
+                .toList();
+
+        // 如果数据库无数据，返回默认租户
+        if (companies.isEmpty()) {
+            companies = List.of(new CompanyInfo("tenant_default", "tenant_default", "Living Agent", true));
+        }
 
         return ResponseEntity.ok(ApiResponse.ok(companies));
+    }
+
+    /**
+     * 新建公司（董事长可创建多个公司）
+     * POST /api/tenants/admin/companies
+     */
+    @PostMapping("/admin/companies")
+    public ResponseEntity<ApiResponse<CompanyInfo>> createCompany(
+            @RequestBody TenantCreateRequest request,
+            @RequestHeader(value = "X-Employee-Id", required = false) String employeeId) {
+        log.info("Creating new company: {}", request.name());
+
+        if (employeeId != null && !employeeId.isBlank() && !accessGateService.canRoute(employeeId, "brain", "AdminBrain")) {
+            return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "需要董事长权限"));
+        }
+
+        if (request.name() == null || request.name().isBlank()) {
+            return ResponseEntity.badRequest().body(ApiResponse.err("invalid_name", "公司名称不能为空"));
+        }
+
+        String tenantId = "tenant_" + UUID.randomUUID().toString().substring(0, 8);
+        TenantEntity entity = tenantService.createTenant(tenantId, request.name(), employeeId);
+        CompanyInfo company = new CompanyInfo(entity.getTenantId(), entity.getTenantId(), entity.getName(), entity.isActive());
+        return ResponseEntity.ok(ApiResponse.ok(company));
     }
 
     @PostMapping("/admin/companies/{id}/toggle")
@@ -366,7 +400,11 @@ public class TenantController {
             return ResponseEntity.status(403).body(ApiResponse.err("forbidden", "Access denied before routing"));
         }
 
-        CompanyInfo company = new CompanyInfo(id, "示例公司", true);
+        TenantEntity saved = tenantService.toggleActive(id);
+        if (saved == null) {
+            return ResponseEntity.badRequest().body(ApiResponse.err("not_found", "公司不存在"));
+        }
+        CompanyInfo company = new CompanyInfo(saved.getTenantId(), saved.getTenantId(), saved.getName(), saved.isActive());
         return ResponseEntity.ok(ApiResponse.ok(company));
     }
 
@@ -419,6 +457,7 @@ public class TenantController {
 
     public record CompanyInfo(
             String id,
+            String tenantId,
             String name,
             boolean active
     ) {}

@@ -19,6 +19,7 @@ import RememberButton from '../../components/MemoryControls/RememberButton';
 import MemoryPanel from '../../components/MemoryControls/MemoryPanel';
 import DeptQuickActions from '../../components/DeptQuickActions/DeptQuickActions';
 import VoiceInputButton from '../../components/VoiceInput/VoiceInputButton';
+import { imClient } from '../../services/im/im-ws-client';
 import '../../components/DeptQuickActions/DeptQuickActions.css';
 import '../../components/VoiceInput/VoiceInputButton.css';
 
@@ -81,6 +82,113 @@ interface Conversation {
   status: string;
   lastActivityAt: string;
   createdAt: string;
+}
+
+// ====== IM 即时通讯类型定义（从 IMPage.tsx 复用） ======
+
+/** 后端返回的会话联系人数据 */
+interface IMContactAPI {
+  userId: string;
+  contactId: string;
+  contactType: string;
+  muted: boolean;
+  pinned: boolean;
+  hidden: boolean;
+  lastMessageContent: string | null;
+  lastMessageTime: string | null;
+  unreadCount: number;
+}
+
+/** 后端返回的消息数据 */
+interface IMMessageAPI {
+  messageId: string;
+  senderId: string;
+  recipientId: string;
+  content: string;
+  type: string;
+  replyToId: string | null;
+  createdAt: string;
+  readAt: string | null;
+  deletedAt: string | null;
+}
+
+/** 组件内部使用的消息数据 */
+interface IMMessage {
+  messageId: string;
+  senderId: string;
+  recipientId: string;
+  content: string;
+  type: string;
+  replyToId: string | null;
+  createdAt: string;
+  readAt: string | null;
+  deletedAt: string | null;
+  self: boolean;
+}
+
+/** 聊天目标类型：部门大脑对话 或 IM 即时通讯 */
+type ChatTarget =
+  | { type: 'dept'; id: string }
+  | { type: 'im'; id: string; name: string; origin?: string };
+
+/** 右键菜单状态 */
+interface IMContextMenuState {
+  visible: boolean;
+  x: number;
+  y: number;
+  messageId: string | null;
+  isSelf: boolean;
+}
+
+// ====== IM API 调用函数 ======
+
+const IM_API_BASE = '/api';
+
+async function getImAuthHeaders(): Promise<HeadersInit> {
+  const token = await window.livingAgentAPI.auth.getToken();
+  return { Authorization: `Bearer ${token || ''}`, 'Content-Type': 'application/json' };
+}
+
+async function fetchImContacts(includeHidden = false): Promise<IMContactAPI[]> {
+  const headers = await getImAuthHeaders();
+  const res = await fetch(`${IM_API_BASE}/im/contacts?includeHidden=${includeHidden}`, { headers });
+  if (!res.ok) throw new Error(`fetchImContacts failed: ${res.status}`);
+  const json = await res.json();
+  return json.data || json || [];
+}
+
+async function fetchImMessages(contactId: string, before?: string, limit = 20): Promise<IMMessageAPI[]> {
+  const headers = await getImAuthHeaders();
+  const params = new URLSearchParams({ contactId, limit: String(limit) });
+  if (before) params.set('before', before);
+  const res = await fetch(`${IM_API_BASE}/im/messages?${params.toString()}`, { headers });
+  if (!res.ok) throw new Error(`fetchImMessages failed: ${res.status}`);
+  const json = await res.json();
+  return json.data || json || [];
+}
+
+async function setContactMuted(contactId: string, muted: boolean): Promise<void> {
+  const headers = await getImAuthHeaders();
+  const res = await fetch(`${IM_API_BASE}/im/contacts/${encodeURIComponent(contactId)}/muted`, {
+    method: 'PUT', headers, body: JSON.stringify({ muted }),
+  });
+  if (!res.ok) throw new Error(`setContactMuted failed: ${res.status}`);
+}
+
+async function setContactPinned(contactId: string, pinned: boolean): Promise<void> {
+  const headers = await getImAuthHeaders();
+  const res = await fetch(`${IM_API_BASE}/im/contacts/${encodeURIComponent(contactId)}/pinned`, {
+    method: 'PUT', headers, body: JSON.stringify({ pinned }),
+  });
+  if (!res.ok) throw new Error(`setContactPinned failed: ${res.status}`);
+}
+
+async function recallMessageAPI(messageId: string): Promise<void> {
+  const headers = await getImAuthHeaders();
+  const res = await fetch(`${IM_API_BASE}/im/messages/${encodeURIComponent(messageId)}/recall`, {
+    method: 'POST', headers,
+  });
+  if (!res.ok) throw new Error(`recallMessage failed: ${res.status}`);
 }
 
 // 区域类型：只有两个区域
@@ -164,6 +272,26 @@ export function OfficeChatPage({
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
+  // ====== 新增：会话类型管理（类似微信）======
+  const [activeTab, setActiveTab] = useState<'department' | 'contacts' | 'ai'>('department'); // 当前选中的标签
+  
+  // 个人 AI 助手列表（从后端动态加载）
+  const [aiAssistants, setAiAssistants] = useState<Array<{
+    id: string;
+    name: string;
+    type: 'ai';
+    icon: string;
+  }>>([]);
+
+  // ====== 新增：工作目录选择器 ======
+  const [selectedWorkspace, setSelectedWorkspace] = useState<string>(''); // 当前选择的工作目录ID
+  const [authorizedWorkspaces, setAuthorizedWorkspaces] = useState<Array<{
+    id: string;
+    name: string;
+    path: string;
+    scope: 'read' | 'read-write';
+  }>>([]);
+
   // P8: Trace 可视化
   const [traceSteps, setTraceSteps] = useState<TraceStepData[]>([]);
   const [showTrace, setShowTrace] = useState(false);
@@ -205,8 +333,20 @@ export function OfficeChatPage({
 
   // WebSocket 引用
   const wsRef = useRef<WebSocket | null>(null);
+  // conversationId ref：供 WebSocket 连接读取最新值，避免将 conversationId 放入 useEffect 依赖
+  // （原实现中 conversationId 在依赖数组里，每次 done 消息更新 conversationId 都会销毁重建连接）
+  const conversationIdRef = useRef<string | null>(null);
+  conversationIdRef.current = conversationId;
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement | null>(null); // P6: 输入框引用（用于快捷键聚焦）
+
+  // ====== 新增：selectedWorkspace ref，避免循环依赖 ======
+  const selectedWorkspaceRef = useRef<string>(selectedWorkspace);
+
+  // 同步更新 selectedWorkspaceRef
+  useEffect(() => {
+    selectedWorkspaceRef.current = selectedWorkspace;
+  }, [selectedWorkspace]);
 
   // P2-5: 区域导航
   const floorRef = useRef<HTMLDivElement>(null);
@@ -214,6 +354,15 @@ export function OfficeChatPage({
 
   // P14: 当前部门初始化——优先 lockedDepartment，其次 props.department
   const [currentDept, setCurrentDept] = useState(lockedDepartment || department);
+
+  // ====== IM 即时通讯状态 ======
+  const [chatTarget, setChatTarget] = useState<ChatTarget>({ type: 'dept', id: lockedDepartment || department });
+  const [imMessages, setImMessages] = useState<IMMessage[]>([]);
+  const [imContacts, setImContacts] = useState<IMContactAPI[]>([]);
+  const [imInputText, setImInputText] = useState('');
+  const [imWsConnected, setImWsConnected] = useState(false);
+  const [imContextMenu, setImContextMenu] = useState<IMContextMenuState>({ visible: false, x: 0, y: 0, messageId: null, isSelf: false });
+  const imMessagesEndRef = useRef<HTMLDivElement>(null);
 
   // P14: lockedDepartment 变化时（重新登录切换身份）同步 currentDept
   useEffect(() => {
@@ -237,6 +386,7 @@ export function OfficeChatPage({
 
   // 部门列表
   const DEPARTMENTS = [
+    { code: 'core', name: '核心层', icon: '🏢' },
     { code: 'tech', name: '技术部', icon: '🧠' },
     { code: 'hr', name: '人力资源', icon: '👥' },
     { code: 'finance', name: '财务部', icon: '💰' },
@@ -330,35 +480,45 @@ export function OfficeChatPage({
         };
       });
 
-      // 如果固定员工为空，直接使用 agents（按当前部门过滤）
-      if (list.length === 0 && baseAgents.length > 0) {
-        baseAgents.forEach((agent: any, i: number) => {
-          // 按部门过滤：只显示当前部门的 agent
-          const agentDept = agent.department || agent.dept || '';
-          if (currentDept && agentDept && agentDept !== currentDept) {
-            return; // 跳过非当前部门的 agent
-          }
-          // P28: 从 agent.origin 字段读取来源；后端 AgentSummary 已暴露 origin（fixed/personal/human）
-          const rawOrigin = (agent.origin || '').toLowerCase();
-          const empOrigin: EmployeeOrigin =
-            rawOrigin === 'personal' ? 'personal' :
-            rawOrigin === 'human' ? 'human' :
-            'fixed'; // 兜底按 fixed 处理（最严格）
-          list.push({
-            id: agent.id || agent.agent_id || agent.code || `emp-${i}`,
-            name: agent.name || agent.display_name || agent.title || '未知员工',
-            title: agent.title || agent.role_description || '',
-            status: (agent.status || 'idle').toLowerCase(),
-            currentTask: agent.current_task || agent.currentTask || '',
-            lastActiveAt: agent.last_active_at || agent.lastActiveAt || '',
-            department: agentDept || currentDept,
-            instanceNum: i,
-            origin: empOrigin,
-          });
-        });
-      }
+      // 补充 baseAgents 中的员工（人类员工、动态创建员工等）
+      // 注意：固定员工已在上面从定义加载，这里只补充其他类型
+      baseAgents.forEach((agent: any, i: number) => {
+        const agentDept = agent.department || agent.dept || '';
+        if (currentDept && agentDept && agentDept !== currentDept) {
+          return; // 跳过非当前部门的 agent
+        }
+        // P28: 从 agent.origin 字段读取来源
+        const rawOrigin = (agent.origin || '').toLowerCase();
+        const empOrigin: EmployeeOrigin =
+          rawOrigin === 'personal' ? 'personal' :
+          rawOrigin === 'human' ? 'human' :
+          rawOrigin === 'evolved' ? 'evolved' :
+          'fixed';
 
-      setEmployees(list);
+        // 检查是否已在固定员工列表中（避免重复）
+        // 注意：def.code 是简化 ID（如 code-reviewer），agent.id 是完整 ID（如 employee://digital/tech/code-reviewer/001）
+        const agentId = agent.id || agent.agent_id || agent.code;
+        const existsInList = list.some(e => {
+          // 精确匹配或后缀匹配
+          return e.id === agentId || agentId.endsWith('/' + e.id) || agentId.includes(e.id);
+        });
+        if (existsInList) return;
+
+        list.push({
+          id: agentId || `emp-${i}`,
+          name: agent.name || agent.display_name || agent.title || '未知员工',
+          title: agent.title || agent.role_description || '',
+          status: (agent.status || 'idle').toLowerCase(),
+          currentTask: agent.current_task || agent.currentTask || '',
+          lastActiveAt: agent.last_active_at || agent.lastActiveAt || '',
+          department: agentDept || currentDept,
+          instanceNum: i,
+          origin: empOrigin,
+        });
+      });
+
+      // AGENTS.md §0: 办公室布局显示 FIXED + EVOLVED + HUMAN，不显示 PERSONAL（个人助理不是员工）
+      setEmployees(list.filter(emp => emp.origin !== 'personal'));
     } catch (e) {
       console.warn('[OfficeChat] 加载员工失败:', e);
       setEmployees([]);
@@ -421,15 +581,18 @@ export function OfficeChatPage({
     setMessages([]);
     setConversationId(null);
     setShowSidebar(false);
-  }, []);
+    // 重置到部门大脑模式
+    setChatTarget({ type: 'dept', id: currentDept });
+  }, [currentDept]);
 
   // WebSocket 连接（带断线重连）
   useEffect(() => {
     if (!hasToken || !backendUrl) return;
 
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
     let reconnectAttempts = 0;
-    const MAX_RECONNECT_ATTEMPTS = 5;
+    const MAX_RECONNECT_ATTEMPTS = 100; // 企业长连接：不轻易放弃（退避上限 60s）
     let isManualClose = false;
 
     /**
@@ -479,7 +642,7 @@ export function OfficeChatPage({
       // forceChannel 模式：使用主进程 ws-client（支持 /ws/public 和 /ws/enterprise）
       if (forceChannel) {
         const params: Record<string, string> = {};
-        if (conversationId) params.conversationId = conversationId;
+        if (conversationIdRef.current) params.conversationId = conversationIdRef.current;
         const result = await window.livingAgentAPI.ws.connect(forceChannel, params);
         if (result.success) {
           setConnected(true);
@@ -499,7 +662,7 @@ export function OfficeChatPage({
       // 匹配是严格相等，bearer.<token> 无法匹配注册的 bearer，导致 400 错误）
       const params = new URLSearchParams();
       params.set('token', token);
-      if (conversationId) params.set('conversationId', conversationId);
+      if (conversationIdRef.current) params.set('conversationId', conversationIdRef.current);
       if (clientId) params.set('clientId', clientId);
       const ws = new WebSocket(`${wsUrl}/ws/dept/${currentDept}?${params.toString()}`);
 
@@ -507,11 +670,21 @@ export function OfficeChatPage({
         setConnected(true);
         wsRef.current = ws;
         reconnectAttempts = 0; // 重置重连计数
+        // 心跳保活：每 25s 发送 ping，防止 NAT/防火墙清除空闲连接
+        if (heartbeatTimer) clearInterval(heartbeatTimer);
+        heartbeatTimer = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'ping' }));
+          }
+        }, 25000);
       };
 
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+
+          // 心跳 pong 响应，静默忽略
+          if (data.type === 'pong' || data.type === 'PONG') return;
 
           // 处理 win_automation_call：转发到本地 Python 服务执行后回传结果
           if (data.type === 'win_automation_call') {
@@ -714,12 +887,19 @@ export function OfficeChatPage({
         }
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         setConnected(false);
         wsRef.current = null;
-        // 自动重连（指数退避）
+        if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+        // Token 过期：服务端关闭码 4001，等待 token 刷新后快速重连
+        if (!isManualClose && event.code === 4001) {
+          reconnectAttempts = 0;
+          reconnectTimer = setTimeout(() => connectWebSocket(), 1000);
+          return;
+        }
+        // 自动重连（指数退避，上限 60s）
         if (!isManualClose && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-          const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
+          const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 60000);
           reconnectAttempts++;
           console.log(`[OfficeChat] WebSocket 断开，${delay}ms 后重连 (尝试 ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
           reconnectTimer = setTimeout(() => connectWebSocket(), delay);
@@ -740,9 +920,10 @@ export function OfficeChatPage({
     return () => {
       isManualClose = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
       if (ws) ws.close();
     };
-  }, [backendUrl, currentDept, hasToken, currentUser, conversationId]);
+  }, [backendUrl, currentDept, hasToken, currentUser]);
 
   // forceChannel 模式下监听主进程转发的消息
   useEffect(() => {
@@ -775,6 +956,144 @@ export function OfficeChatPage({
     return () => off();
   }, [forceChannel]);
 
+  // ====== IM WebSocket 连接与事件监听 ======
+  useEffect(() => {
+    if (!backendUrl || !hasToken) return;
+
+    void (async () => {
+      const token = await window.livingAgentAPI.auth.getToken();
+      if (token) {
+        imClient.connect(backendUrl, token);
+      }
+    })();
+
+    const offConnect = imClient.on('connected', () => setImWsConnected(true));
+    const offDisconnect = imClient.on('disconnected', () => setImWsConnected(false));
+
+    // 监听新消息
+    const offNewMessage = imClient.on('NEW_MESSAGE', (data: any) => {
+      const senderId = data.senderId || '';
+      const recipientId = data.recipientId || '';
+      const contactId = senderId === currentUser?.id ? recipientId : senderId;
+      const msg: IMMessage = {
+        messageId: data.messageId || Date.now().toString(),
+        senderId,
+        recipientId,
+        content: data.content || '',
+        type: data.type || 'TEXT',
+        replyToId: data.replyToId || null,
+        createdAt: data.createdAt || new Date().toISOString(),
+        readAt: null,
+        deletedAt: null,
+        self: senderId === currentUser?.id,
+      };
+      // 如果消息属于当前 IM 选中会话，追加到消息列表
+      if (chatTarget.type === 'im' && contactId === chatTarget.id) {
+        setImMessages(prev => [...prev, msg]);
+        // 收到对方消息时发送 ACK
+        if (!msg.self) {
+          imClient.send({ type: 'ACK', messageId: msg.messageId });
+        }
+      }
+      // 更新 IM 联系人列表的最后消息和未读数
+      setImContacts(prev => prev.map(c =>
+        c.contactId === contactId
+          ? {
+              ...c,
+              lastMessageContent: msg.content,
+              lastMessageTime: msg.createdAt,
+              unreadCount: (chatTarget.type === 'im' && chatTarget.id === contactId) ? c.unreadCount : c.unreadCount + 1,
+            }
+          : c
+      ));
+    });
+
+    // 监听消息撤回
+    const offMessageRecalled = imClient.on('MESSAGE_RECALLED', (data: any) => {
+      const recalledId = data.messageId;
+      if (!recalledId) return;
+      setImMessages(prev => prev.map(m =>
+        m.messageId === recalledId ? { ...m, deletedAt: new Date().toISOString(), content: '[消息已撤回]' } : m
+      ));
+    });
+
+    // 监听消息已读回执
+    const offMessageAck = imClient.on('MESSAGE_ACK', (data: any) => {
+      const ackedId = data.messageId;
+      if (!ackedId) return;
+      setImMessages(prev => prev.map(m =>
+        m.messageId === ackedId ? { ...m, readAt: new Date().toISOString() } : m
+      ));
+    });
+
+    return () => {
+      offConnect();
+      offDisconnect();
+      offNewMessage();
+      offMessageRecalled();
+      offMessageAck();
+    };
+  }, [backendUrl, hasToken, currentUser?.id, chatTarget]);
+
+  // 加载 IM 联系人列表
+  useEffect(() => {
+    if (!backendUrl || !hasToken) return;
+    void (async () => {
+      try {
+        const apiList = await fetchImContacts(false);
+        setImContacts(apiList);
+      } catch (e) {
+        console.warn('[OfficeChat] 加载 IM 联系人失败:', e);
+      }
+    })();
+  }, [backendUrl, hasToken]);
+
+  // 选中 IM 联系人时加载消息并发送 MARK_READ
+  useEffect(() => {
+    if (chatTarget.type !== 'im' || !backendUrl || !hasToken) return;
+    void (async () => {
+      try {
+        const apiList = await fetchImMessages(chatTarget.id, undefined, 50);
+        const list: IMMessage[] = apiList.map((m: IMMessageAPI) => ({
+          messageId: m.messageId,
+          senderId: m.senderId,
+          recipientId: m.recipientId,
+          content: m.content || '',
+          type: m.type || 'TEXT',
+          replyToId: m.replyToId,
+          createdAt: m.createdAt,
+          readAt: m.readAt,
+          deletedAt: m.deletedAt,
+          self: m.senderId === currentUser?.id,
+        }));
+        setImMessages(list);
+      } catch (e) {
+        console.warn('[OfficeChat] 加载 IM 消息失败:', e);
+      }
+    })();
+    // 通过 WebSocket 标记已读
+    imClient.send({ type: 'MARK_READ', contactId: chatTarget.id });
+    // 清除本地未读计数
+    setImContacts(prev => prev.map(c =>
+      c.contactId === chatTarget.id ? { ...c, unreadCount: 0 } : c
+    ));
+  }, [chatTarget, backendUrl, hasToken, currentUser?.id]);
+
+  // IM 消息自动滚动到底部
+  useEffect(() => {
+    if (chatTarget.type === 'im') {
+      imMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [imMessages, chatTarget.type]);
+
+  // IM 右键菜单：点击任意位置关闭
+  useEffect(() => {
+    if (!imContextMenu.visible) return;
+    const handleClick = () => setImContextMenu(prev => ({ ...prev, visible: false }));
+    document.addEventListener('click', handleClick);
+    return () => document.removeEventListener('click', handleClick);
+  }, [imContextMenu.visible]);
+
   // P6: AI 唤起快捷键 — 聚焦输入框
   useEffect(() => {
     const off = window.livingAgentAPI.onFocusChatInput(() => {
@@ -800,24 +1119,94 @@ export function OfficeChatPage({
     return () => off();
   }, []);
 
-  // P7: Quick View 消息转发 — 接收 Quick View 发来的消息，通过现有 handleSend 发送
+  // ====== 新增：加载个人 AI 助手列表 ======
+  const loadAiAssistants = useCallback(async () => {
+    if (!backendUrl || !hasToken) return;
+    try {
+      const token = await window.livingAgentAPI.auth.getToken();
+      
+      // 从后端获取当前用户的个人 AI 助手列表
+      const res = await fetch(`${backendUrl}/api/agents?origin=personal`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        // 双保险：后端 listEmployees 已按 origin 过滤，这里再按 origin 二次过滤，
+        // 即使后端某次返回了非 personal（如 fixed/evolved/human），也不会误显到聊天对象选择区。
+        const assistants = (data.data || data || [])
+          .filter((agent: any) => agent.origin === 'personal')
+          .map((agent: any) => ({
+            id: agent.id,
+            name: agent.name,
+            type: 'ai' as const,
+            icon: agent.icon || '🤖'
+          }));
+        setAiAssistants(assistants);
+      }
+    } catch (e) {
+      console.warn('[OfficeChat] 加载个人 AI 助手列表失败:', e);
+    }
+  }, [backendUrl, hasToken]);
+
+  // ====== 新增：加载已授权的工作空间列表 ======
+  const loadAuthorizedWorkspaces = useCallback(async () => {
+    try {
+      // 从桌面端获取已授权的工作空间列表
+      const workspaces = await window.livingAgentAPI.workspace.list();
+      
+      // 转换为前端需要的格式
+      const formattedWorkspaces = workspaces.map((ws: any) => ({
+        id: ws.id,
+        name: ws.name,
+        path: ws.path,
+        scope: ws.scope || 'read'
+      }));
+      
+      setAuthorizedWorkspaces(formattedWorkspaces);
+      
+      // 默认选择第一个工作空间（如果有）
+      if (formattedWorkspaces.length > 0 && !selectedWorkspaceRef.current) {
+        // 尝试恢复上次选择的 workspace
+        const lastSelected = localStorage.getItem('office-chat-selected-workspace');
+        if (lastSelected && formattedWorkspaces.some(w => w.id === lastSelected)) {
+          setSelectedWorkspace(lastSelected);
+        } else {
+          setSelectedWorkspace(formattedWorkspaces[0].id);
+        }
+      }
+    } catch (e) {
+      console.warn('[OfficeChat] 加载工作空间列表失败:', e);
+      // Fallback: 使用默认工作目录
+      const defaultWorkspace = {
+        id: 'default',
+        name: '默认目录',
+        path: process.env.HOME || process.env.USERPROFILE || '',
+        scope: 'read-write' as const
+      };
+      setAuthorizedWorkspaces([defaultWorkspace]);
+      if (!selectedWorkspaceRef.current) {
+        setSelectedWorkspace('default');
+      }
+    }
+  }, []);
+
+  // P7: Quick View 消息转发 — 接收 Quick View 发来的消息，直接以显式 content 发送
+  // 用 ref 持有最新 sendMessage，避免 useEffect([]) 捕获首帧闭包（connected/input 过期）
+  const sendMessageRef = useRef(sendMessage);
+  sendMessageRef.current = sendMessage;
   useEffect(() => {
     const off = window.livingAgentAPI.on('quickview:forward-message', (data: { content: string; attachments?: any[]; metadata?: any }) => {
-      // 使用 Quick View 传来的内容直接通过 handleSend 发送
       const qvMetadata: ChatMetadata = {
         source: 'quickview',
         clientTimestamp: Date.now(),
         ...data.metadata,
       };
-      setInput(data.content);
-      // 延迟一帧执行 handleSend，确保 setInput 已生效
-      setTimeout(() => {
-        handleSend(
-          data.attachments && data.attachments.length > 0 ? data.attachments as ChatAttachment[] : undefined,
-          qvMetadata
-        );
-        setInput('');
-      }, 0);
+      sendMessageRef.current(
+        data.content,
+        data.attachments && data.attachments.length > 0 ? (data.attachments as ChatAttachment[]) : undefined,
+        qvMetadata
+      );
     });
     return () => off();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -826,14 +1215,36 @@ export function OfficeChatPage({
   useEffect(() => {
     loadEmployees();
     loadConversations();
-  }, [loadEmployees, loadConversations]);
+    loadAiAssistants(); // 加载个人 AI 助手列表
+    loadAuthorizedWorkspaces();
+  }, [loadEmployees, loadConversations, loadAiAssistants, loadAuthorizedWorkspaces]);
+
+  // ====== 新增：持久化用户选择的工作目录 ======
+  useEffect(() => {
+    if (selectedWorkspace) {
+      localStorage.setItem('office-chat-selected-workspace', selectedWorkspace);
+      
+      // 更新最近使用的目录列表
+      const workspace = authorizedWorkspaces.find(w => w.id === selectedWorkspace);
+      if (workspace) {
+        let recentWorkspaces: any[] = JSON.parse(localStorage.getItem('office-chat-recent-workspaces') || '[]');
+        // 移除已有的相同目录，放到开头
+        recentWorkspaces = recentWorkspaces.filter(w => w.id !== workspace.id);
+        recentWorkspaces.unshift(workspace);
+        // 保持最多 10 个最近使用的目录
+        recentWorkspaces = recentWorkspaces.slice(0, 10);
+        localStorage.setItem('office-chat-recent-workspaces', JSON.stringify(recentWorkspaces));
+      }
+    }
+  }, [selectedWorkspace, authorizedWorkspaces]);
 
   // 发送消息
   // P5: 支持 attachments 和 metadata 字段（WebSocket 协议扩展）
   //   - attachments: 附件列表（P1 文件上传/P2 截图/P3 剪贴板会填充）
   //   - metadata: 元数据（source 标记消息来源，便于后端 Trace 和统计）
-  function handleSend(attachments?: ChatAttachment[], metadata?: ChatMetadata) {
-    const trimmedInput = input.trim();
+  // P7: 抽取 sendMessage，支持显式传入 content（Quick View 转发用，避免依赖 input 状态的闭包）
+  function sendMessage(content: string, attachments?: ChatAttachment[], metadata?: ChatMetadata) {
+    const trimmedInput = content.trim();
     if (!trimmedInput && (!attachments || attachments.length === 0)) return;
     if (!connected) return;
 
@@ -856,28 +1267,52 @@ export function OfficeChatPage({
     }]);
     setIsWaiting(true);
 
+    // ====== 新增：包含工作目录信息 ======
+    const workspace = authorizedWorkspaces.find(w => w.id === selectedWorkspace);
+
     if (forceChannel) {
       // forceChannel 模式：通过主进程 ws-client 发送
       window.livingAgentAPI.ws.send('CHAT', {
         content: trimmedInput,
         conversationId: conversationId,
+        recipientId: `brain_${lockedDepartment || currentDept}`, // 默认发送给部门大脑
         // P5: 协议扩展字段（后端兼容忽略未知字段）
         attachments: attachments && attachments.length > 0 ? attachments : undefined,
         metadata: finalMetadata,
+        // ====== 新增：工作目录信息 ======
+        workspace: workspace ? {
+          id: workspace.id,
+          path: workspace.path,
+          name: workspace.name,
+          scope: workspace.scope
+        } : null,
       });
     } else if (wsRef.current) {
       wsRef.current.send(JSON.stringify({
         type: 'CHAT',
         content: trimmedInput,
         conversationId: conversationId,
+        recipientId: `brain_${lockedDepartment || currentDept}`, // 默认发送给部门大脑
         // P5: 协议扩展字段（后端兼容忽略未知字段）
         attachments: attachments && attachments.length > 0 ? attachments : undefined,
         metadata: finalMetadata,
+        // ====== 新增：工作目录信息 ======
+        workspace: workspace ? {
+          id: workspace.id,
+          path: workspace.path,
+          name: workspace.name,
+          scope: workspace.scope
+        } : null,
       }));
     }
     setInput('');
     // P1: 清空待发送附件
     setPendingAttachments([]);
+  }
+
+  // UI 发送入口：读取输入框内容
+  function handleSend(attachments?: ChatAttachment[], metadata?: ChatMetadata) {
+    sendMessage(input, attachments, metadata);
   }
 
   // P3: 剪贴板智能识别（图片/文件/URL）
@@ -940,6 +1375,96 @@ export function OfficeChatPage({
       // 默认粘贴行为继续
     }
   }, [setEmployeeToast]);
+
+  // ====== IM 消息发送 ======
+  const handleImSend = useCallback(() => {
+    if (!imInputText.trim() || chatTarget.type !== 'im') return;
+    const content = imInputText.trim();
+    imClient.send({
+      type: 'SEND_MESSAGE',
+      recipientId: chatTarget.id,
+      content,
+      messageType: 'TEXT',
+    });
+    // 乐观更新
+    const optimisticMsg: IMMessage = {
+      messageId: `local_${Date.now()}`,
+      senderId: currentUser?.id || '',
+      recipientId: chatTarget.id,
+      content,
+      type: 'TEXT',
+      replyToId: null,
+      createdAt: new Date().toISOString(),
+      readAt: null,
+      deletedAt: null,
+      self: true,
+    };
+    setImMessages(prev => [...prev, optimisticMsg]);
+    // 更新 IM 联系人列表最后消息
+    setImContacts(prev => prev.map(c =>
+      c.contactId === chatTarget.id
+        ? { ...c, lastMessageContent: content, lastMessageTime: optimisticMsg.createdAt }
+        : c
+    ));
+    setImInputText('');
+  }, [imInputText, chatTarget, currentUser?.id]);
+
+  const handleImKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleImSend();
+    }
+  }, [handleImSend]);
+
+  // IM 右键菜单 — 撤回消息
+  const handleImContextMenu = useCallback((e: React.MouseEvent, msg: IMMessage) => {
+    e.preventDefault();
+    setImContextMenu({
+      visible: true,
+      x: e.clientX,
+      y: e.clientY,
+      messageId: msg.messageId,
+      isSelf: msg.self,
+    });
+  }, []);
+
+  const handleImRecallMessage = useCallback(async () => {
+    if (!imContextMenu.messageId) return;
+    const msgId = imContextMenu.messageId;
+    try {
+      await recallMessageAPI(msgId);
+      imClient.send({ type: 'RECALL_MESSAGE', messageId: msgId });
+      setImMessages(prev => prev.map(m =>
+        m.messageId === msgId ? { ...m, deletedAt: new Date().toISOString(), content: '[消息已撤回]' } : m
+      ));
+    } catch (e) {
+      console.warn('[OfficeChat] IM 撤回消息失败:', e);
+    }
+    setImContextMenu(prev => ({ ...prev, visible: false }));
+  }, [imContextMenu.messageId]);
+
+  // IM 联系人操作
+  const handleToggleImMuted = useCallback(async (contactId: string, muted: boolean) => {
+    try {
+      await setContactMuted(contactId, !muted);
+      setImContacts(prev => prev.map(c =>
+        c.contactId === contactId ? { ...c, muted: !muted } : c
+      ));
+    } catch (e) {
+      console.warn('[OfficeChat] IM 设置免打扰失败:', e);
+    }
+  }, []);
+
+  const handleToggleImPinned = useCallback(async (contactId: string, pinned: boolean) => {
+    try {
+      await setContactPinned(contactId, !pinned);
+      setImContacts(prev => prev.map(c =>
+        c.contactId === contactId ? { ...c, pinned: !pinned } : c
+      ));
+    } catch (e) {
+      console.warn('[OfficeChat] IM 设置置顶失败:', e);
+    }
+  }, []);
 
   // 未登录提示
   if (!hasToken) {
@@ -1119,259 +1644,567 @@ export function OfficeChatPage({
         </footer>
       </section>
 
-      {/* ========== 右侧：聊天区域 ========== */}
-      <section className="chat-section">
-        {/* 聊天工具栏 */}
-        <header className="chat-toolbar">
-          <div className="chat-toolbar__left">
-            <button
-              className="btn btn-icon"
-              onClick={() => setShowSidebar(!showSidebar)}
-              title="历史对话"
-            >
-              📜
-            </button>
-            <button
-              className="btn btn-icon"
-              onClick={createNewConversation}
-              title="新建对话"
-            >
-              ➕
-            </button>
-            <span className="chat-toolbar__title">
-              {conversationId ? '对话' : '新对话'}
-            </span>
-          </div>
-          <div className="chat-toolbar__right">
-            <span className={`connection-status ${connected ? 'connected' : 'disconnected'}`}>
-              {connected ? '● 已连接' : '○ 未连接'}
-            </span>
-          </div>
+      {/* ====== 中间：会话列表（脱离消息框，与办公室房间并列）====== */}
+      <section className="conversation-list-panel">
+        <header className="conversation-list-header">
+          <h3>对话对象</h3>
+          <span className={`im-status-dot ${imWsConnected ? 'im-status-dot--online' : 'im-status-dot--offline'}`} title={imWsConnected ? 'IM 在线' : 'IM 离线'}>●</span>
         </header>
 
-        {/* 历史对话侧边栏 */}
-        {showSidebar && (
-          <aside className="chat-sidebar">
-            <header className="chat-sidebar__header">
-              <h3>历史对话</h3>
-              <button className="btn btn-icon" onClick={() => setShowSidebar(false)}>✕</button>
+        {/* 会话列表内容（可滚动） */}
+        <div className="conversation-list">
+          {/* 工作 AI - 部门大脑 */}
+          <div
+            className={`conversation-item ${chatTarget.type === 'dept' && chatTarget.id === currentDept ? 'conversation-item--active' : ''}`}
+            onClick={() => setChatTarget({ type: 'dept', id: currentDept })}
+            style={{ cursor: 'pointer' }}
+          >
+            <div className="conversation-item__icon">🏢</div>
+            <div className="conversation-item__content">
+              <div className="conversation-item__name">{DEPARTMENTS.find(d => d.code === (lockedDepartment || currentDept))?.name || ''} Brain</div>
+              <div className="conversation-item__subtitle">部门大脑</div>
+            </div>
+          </div>
+
+          {/* 同事列表（人类员工 origin='human'，通过 IM 对话） */}
+          {employees.filter(emp => emp.origin === 'human').map(employee => {
+            const imContact = imContacts.find(c => c.contactId === employee.id);
+            const unreadCount = imContact?.unreadCount || 0;
+            const lastMsg = imContact?.lastMessageContent || '';
+            const lastTime = imContact?.lastMessageTime || '';
+            const isPinned = imContact?.pinned || false;
+            return (
+              <div
+                key={employee.id}
+                className={`conversation-item ${chatTarget.type === 'im' && chatTarget.id === employee.id ? 'conversation-item--active' : ''}${isPinned ? ' conversation-item--pinned' : ''}`}
+                onClick={() => setChatTarget({ type: 'im', id: employee.id, name: employee.name, origin: 'human' })}
+                style={{ cursor: 'pointer' }}
+              >
+                <div className="conversation-item__icon">👤</div>
+                <div className="conversation-item__content">
+                  <div className="conversation-item__name">{employee.name}</div>
+                  <div className="conversation-item__subtitle">{lastMsg ? (lastMsg.length > 20 ? lastMsg.slice(0, 20) + '...' : lastMsg) : '人类同事'}</div>
+                </div>
+                {lastTime && (
+                  <span className="conversation-item__time">{new Date(lastTime).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>
+                )}
+                {unreadCount > 0 && (
+                  <span className="conversation-item__unread">{unreadCount > 99 ? '99+' : unreadCount}</span>
+                )}
+              </div>
+            );
+          })}
+
+          {/* AI 助手列表（个人助理 origin='personal'，通过 IM 对话） */}
+          {aiAssistants.map(assistant => {
+            const imContact = imContacts.find(c => c.contactId === assistant.id);
+            const unreadCount = imContact?.unreadCount || 0;
+            const lastMsg = imContact?.lastMessageContent || '';
+            const lastTime = imContact?.lastMessageTime || '';
+            const isPinned = imContact?.pinned || false;
+            return (
+              <div
+                key={assistant.id}
+                className={`conversation-item ${chatTarget.type === 'im' && chatTarget.id === assistant.id ? 'conversation-item--active' : ''}${isPinned ? ' conversation-item--pinned' : ''}`}
+                onClick={() => setChatTarget({ type: 'im', id: assistant.id, name: assistant.name, origin: 'personal' })}
+                style={{ cursor: 'pointer' }}
+              >
+                <div className="conversation-item__icon">{assistant.icon}</div>
+                <div className="conversation-item__content">
+                  <div className="conversation-item__name">{assistant.name}</div>
+                  <div className="conversation-item__subtitle">{lastMsg ? (lastMsg.length > 20 ? lastMsg.slice(0, 20) + '...' : lastMsg) : 'AI 助手'}</div>
+                </div>
+                {lastTime && (
+                  <span className="conversation-item__time">{new Date(lastTime).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>
+                )}
+                {unreadCount > 0 && (
+                  <span className="conversation-item__unread">{unreadCount > 99 ? '99+' : unreadCount}</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* 底部统计信息 */}
+        <div className="conversation-list-footer">
+          <span className="conversation-list__count">
+            {employees.filter(emp => emp.origin === 'human').length} 位人类 · {aiAssistants.length} 个 AI
+          </span>
+        </div>
+      </section>
+
+      {/* ========== 右侧：聊天区域 ========== */}
+      <section className="chat-section">
+        {chatTarget.type === 'dept' ? (
+          <>
+            {/* === 部门大脑对话模式（原有逻辑不变） === */}
+            {/* 聊天工具栏 */}
+            <header className="chat-toolbar">
+              <div className="chat-toolbar__left">
+                <button
+                  className="btn btn-icon"
+                  onClick={() => setShowSidebar(!showSidebar)}
+                  title="历史对话"
+                >
+                  📜
+                </button>
+                <button
+                  className="btn btn-icon"
+                  onClick={createNewConversation}
+                  title="新建对话"
+                >
+                  ➕
+                </button>
+                <span className="chat-toolbar__title">
+                  {conversationId ? '对话' : '新对话'}
+                </span>
+              </div>
+              <div className="chat-toolbar__right">
+                <span className={`connection-status ${connected ? 'connected' : 'disconnected'}`}>
+                  {connected ? '● 已连接' : '○ 未连接'}
+                </span>
+              </div>
             </header>
-            <div className="chat-sidebar__list">
-              {loadingHistory ? (
-                <div className="chat-sidebar__loading">加载中...</div>
-              ) : conversations.length === 0 ? (
-                <div className="chat-sidebar__empty">暂无历史对话</div>
+
+            {/* 历史对话侧边栏 */}
+            {showSidebar && (
+              <aside className="chat-sidebar">
+                <header className="chat-sidebar__header">
+                  <h3>历史对话</h3>
+                  <button className="btn btn-icon" onClick={() => setShowSidebar(false)}>✕</button>
+                </header>
+                <div className="chat-sidebar__list">
+                  {loadingHistory ? (
+                    <div className="chat-sidebar__loading">加载中...</div>
+                  ) : conversations.length === 0 ? (
+                    <div className="chat-sidebar__empty">暂无历史对话</div>
+                  ) : (
+                    conversations.map(conv => (
+                      <button
+                        key={conv.conversationId}
+                        className={`chat-sidebar__item ${conversationId === conv.conversationId ? 'active' : ''}`}
+                        onClick={() => loadConversationMessages(conv.conversationId)}
+                      >
+                        <span className="chat-sidebar__item-title">{conv.title || '未命名对话'}</span>
+                        <span className="chat-sidebar__item-time">
+                          {conv.lastActivityAt ? new Date(conv.lastActivityAt).toLocaleDateString() : ''}
+                        </span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </aside>
+            )}
+
+            {/* 消息列表 */}
+            <div className="chat-messages">
+              {messages.length === 0 ? (
+                <div className="chat-messages__empty">
+                  <p>开始与 {DEPARTMENTS.find(d => d.code === currentDept)?.name} Brain 对话</p>
+                  <p className="hint">输入消息后按 Enter 发送</p>
+                </div>
               ) : (
-                conversations.map(conv => (
-                  <button
-                    key={conv.conversationId}
-                    className={`chat-sidebar__item ${conversationId === conv.conversationId ? 'active' : ''}`}
-                    onClick={() => loadConversationMessages(conv.conversationId)}
+                messages.map((msg, i) => (
+                  <div
+                    key={i}
+                    className={`chat-message ${msg.isSelf ? 'chat-message--self' : 'chat-message--other'} ${msg.role === 'assistant' ? 'chat-message--brain' : ''}`}
                   >
-                    <span className="chat-sidebar__item-title">{conv.title || '未命名对话'}</span>
-                    <span className="chat-sidebar__item-time">
-                      {conv.lastActivityAt ? new Date(conv.lastActivityAt).toLocaleDateString() : ''}
-                    </span>
-                  </button>
+                    {!msg.isSelf && msg.userName && (
+                      <span className="chat-message__author">{msg.userName}</span>
+                    )}
+                    {/* P4: 富文本消息渲染（Markdown + 代码块 + 表格 + 附件） */}
+                    <div className="chat-message__content">
+                      <MessageRenderer
+                        content={msg.content}
+                        attachments={msg.attachments}
+                        isSelf={msg.isSelf}
+                        maskSensitive={['finance', 'legal', 'hr'].includes(currentDept)}
+                      />
+                    </div>
+                    {msg.timestamp && (
+                      <span className="chat-message__time">
+                        {new Date(msg.timestamp).toLocaleTimeString()}
+                      </span>
+                    )}
+                    {/* P12: AI 回复消息上显示"记住这个"按钮 */}
+                    {!msg.isSelf && (
+                      <div className="chat-message__actions">
+                        <RememberButton
+                          messageContent={msg.content}
+                          messageId={msg.messageId}
+                          onRemember={handleRemember}
+                        />
+                      </div>
+                    )}
+                  </div>
                 ))
               )}
-            </div>
-          </aside>
-        )}
-
-        {/* 消息列表 */}
-        <div className="chat-messages">
-          {messages.length === 0 ? (
-            <div className="chat-messages__empty">
-              <p>开始与 {DEPARTMENTS.find(d => d.code === currentDept)?.name} Brain 对话</p>
-              <p className="hint">输入消息后按 Enter 发送</p>
-            </div>
-          ) : (
-            messages.map((msg, i) => (
-              <div
-                key={i}
-                className={`chat-message ${msg.isSelf ? 'chat-message--self' : 'chat-message--other'} ${msg.role === 'assistant' ? 'chat-message--brain' : ''}`}
-              >
-                {!msg.isSelf && msg.userName && (
-                  <span className="chat-message__author">{msg.userName}</span>
-                )}
-                {/* P4: 富文本消息渲染（Markdown + 代码块 + 表格 + 附件） */}
-                <div className="chat-message__content">
-                  <MessageRenderer
-                    content={msg.content}
-                    attachments={msg.attachments}
-                    isSelf={msg.isSelf}
-                    maskSensitive={['finance', 'legal', 'hr'].includes(currentDept)}
-                  />
+              {isWaiting && (
+                <div className="chat-message chat-message--waiting">
+                  <span className="chat-message__author">Brain</span>
+                  <div className="chat-message__content chat-message__content--waiting">
+                    <span className="typing-indicator">●●●</span>
+                    <span>正在思考...</span>
+                  </div>
                 </div>
-                {msg.timestamp && (
-                  <span className="chat-message__time">
-                    {new Date(msg.timestamp).toLocaleTimeString()}
-                  </span>
+              )}
+              <div ref={messagesEndRef} />
+            </div>
+
+            {/* P8: Trace 可视化 */}
+            {showTrace && traceSteps.length > 0 && (
+              <div style={{ padding: '0 16px 12px' }}>
+                <TraceVisualizer
+                  steps={traceSteps}
+                  onClose={() => setShowTrace(false)}
+                />
+              </div>
+            )}
+
+            {/* P9: 多 Agent 并行卡片 */}
+            {agentCards.length > 0 && (
+              <div style={{ padding: '0 16px 12px' }}>
+                <AgentProgressCards
+                  agents={agentCards}
+                  onClose={() => setAgentCards([])}
+                />
+              </div>
+            )}
+
+            {/* P11: 部门路由推荐 */}
+            {deptRecommendation && (
+              <div style={{ padding: '0 16px 12px' }}>
+                <DeptRecommendBanner
+                  recommendation={deptRecommendation}
+                  currentDept={currentDept}
+                  onAccept={() => {
+                    setCurrentDept(deptRecommendation.department);
+                    setDeptRecommendation(null);
+                  }}
+                  onDismiss={() => setDeptRecommendation(null)}
+                />
+              </div>
+            )}
+
+            {/* P12: Memory 面板 */}
+            {showMemoryPanel && hasToken && (
+              <div style={{ position: 'absolute', right: 16, bottom: 80, zIndex: 1000 }}>
+                <MemoryPanel
+                  onClose={() => setShowMemoryPanel(false)}
+                  onDelete={handleDeleteMemory}
+                  backendUrl={backendUrl}
+                  token={currentUser?.token}
+                />
+              </div>
+            )}
+
+            {/* P30: 部门特色快捷功能入口栏 */}
+            <DeptQuickActions
+              department={currentDept}
+              onAction={({ prompt }) => {
+                setInput(prompt);
+                inputRef.current?.focus();
+              }}
+            />
+
+            {/* 输入区域 */}
+            <footer className="chat-input">
+              {/* P10: 语音输入按钮（预留，登录态校验） */}
+              <button
+                className="btn btn-icon chat-input__voice"
+                onClick={() => {
+                  if (!hasToken) {
+                    setEmployeeToast({ msg: '🎤 语音输入需要先登录', type: 'warn' });
+                  } else if (currentUser?.accessLevel === 'CHAT_ONLY') {
+                    setEmployeeToast({ msg: '🎤 当前身份（CHAT_ONLY）无语音权限', type: 'warn' });
+                  } else {
+                    setEmployeeToast({ msg: '🎤 语音输入功能开发中（P10）', type: 'info' });
+                  }
+                }}
+                disabled={!connected || isWaiting}
+                title={
+                  !hasToken ? '语音输入需要先登录' :
+                  currentUser?.accessLevel === 'CHAT_ONLY' ? '当前身份无语音权限' :
+                  '语音输入（开发中）'
+                }
+                aria-label="语音输入"
+              >
+                🎤
+              </button>
+              {/* P12: 记忆库按钮 */}
+              <button
+                className="btn btn-icon chat-input__memory"
+                onClick={() => setShowMemoryPanel(!showMemoryPanel)}
+                disabled={!hasToken}
+                title={hasToken ? '打开记忆库' : '记忆库需要先登录'}
+                aria-label="记忆库"
+              >
+                🧠
+              </button>
+              {/* P1: 文件上传组件 */}
+              <FileUploader
+                backendUrl={backendUrl}
+                onFilesSelected={(attachments) => {
+                  setPendingAttachments(prev => [...prev, ...attachments]);
+                }}
+                onUploadError={(fileName, error) => {
+                  setEmployeeToast({ msg: `📎 ${fileName}: ${error}`, type: 'warn' });
+                }}
+                disabled={!connected || isWaiting}
+              />
+              {/* P1: 待发送附件预览 */}
+              <FilePreview
+                attachments={pendingAttachments}
+                onRemove={(index) => {
+                  setPendingAttachments(prev => prev.filter((_, idx) => idx !== index));
+                }}
+              />
+              <input
+                ref={inputRef}
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend(pendingAttachments.length > 0 ? pendingAttachments : undefined)}
+                onPaste={handlePaste}
+                placeholder="输入消息...（Enter 发送，Ctrl+V 粘贴图片/文件）"
+                disabled={!connected || isWaiting}
+                className="chat-input__field"
+              />
+              <button
+                className="btn btn-primary chat-input__send"
+                onClick={() => handleSend(pendingAttachments.length > 0 ? pendingAttachments : undefined)}
+                disabled={!connected || (!input.trim() && pendingAttachments.length === 0) || isWaiting}
+              >
+                发送
+              </button>
+              {/* P10: 语音输入按钮 */}
+              <VoiceInputButton
+                onTranscript={(text) => {
+                  setInput(prev => prev ? `${prev} ${text}` : text);
+                  inputRef.current?.focus();
+                }}
+                hasToken={hasToken}
+                accessLevel={currentUser?.accessLevel}
+                disabled={!connected}
+              />
+            </footer>
+
+            {/* ====== 工作目录选择器 ====== */}
+            <div className="workspace-selector-container">
+              <select
+                className="workspace-selector"
+                value={selectedWorkspace || ''}
+                onChange={async (e) => {
+                  const value = e.target.value;
+                  if (value === 'select') {
+                    try {
+                      const path = await window.livingAgentAPI.workspace.selectDirectory();
+                      if (path) {
+                        const workspaces = await window.livingAgentAPI.workspace.list();
+                        const existing = workspaces.find((w: any) => w.path === path);
+                        if (existing) {
+                          setSelectedWorkspace(existing.id);
+                        } else {
+                          const newWorkspace = await window.livingAgentAPI.workspace.authorize({ path, scope: 'read-write' });
+                          setSelectedWorkspace(newWorkspace.id);
+                          loadAuthorizedWorkspaces();
+                        }
+                      }
+                    } catch (err: any) {
+                      console.error('[OfficeChat] 选择工作目录失败:', err);
+                      alert(err.message || '选择工作目录失败');
+                    }
+                  } else if (value === 'cancel') {
+                    setSelectedWorkspace('');
+                  } else if (value.startsWith('recent-')) {
+                    const workspaceId = value.replace('recent-', '');
+                    const recentWorkspaces = JSON.parse(localStorage.getItem('office-chat-recent-workspaces') || '[]');
+                    const workspace = recentWorkspaces.find((w: any) => w.id === workspaceId);
+                    if (workspace) setSelectedWorkspace(workspace.id);
+                  } else if (value === 'change') {
+                    const path = await window.livingAgentAPI.workspace.selectDirectory();
+                    if (path) {
+                      const workspaces = await window.livingAgentAPI.workspace.list();
+                      const existing = workspaces.find((w: any) => w.path === path);
+                      if (existing) {
+                        setSelectedWorkspace(existing.id);
+                      } else {
+                        const newWorkspace = await window.livingAgentAPI.workspace.authorize({ path, scope: 'read-write' });
+                        setSelectedWorkspace(newWorkspace.id);
+                        loadAuthorizedWorkspaces();
+                      }
+                    }
+                  } else if (value === 'remove') {
+                    try {
+                      if (selectedWorkspace) {
+                        await window.livingAgentAPI.workspace.revoke(selectedWorkspace);
+                        setSelectedWorkspace('');
+                        loadAuthorizedWorkspaces();
+                      }
+                    } catch (err: any) {
+                      console.error('[OfficeChat] 移除工作目录失败:', err);
+                      alert(err.message || '移除工作目录失败');
+                    }
+                  } else {
+                    setSelectedWorkspace(value);
+                  }
+                }}
+              >
+                <option value="" disabled>请选择工作目录</option>
+                <option value="select">📁 选择目录</option>
+                {(() => {
+                  const recentWorkspaces = JSON.parse(localStorage.getItem('office-chat-recent-workspaces') || '[]');
+                  if (recentWorkspaces.length === 0) return null;
+                  return (
+                    <optgroup label="🕐 最近使用">
+                      {recentWorkspaces.slice(0, 5).map((ws: any) => (
+                        <option key={`recent-${ws.id}`} value={`recent-${ws.id}`}>
+                          {ws.name} ({ws.scope === 'read-write' ? '读写' : '只读'})
+                        </option>
+                      ))}
+                    </optgroup>
+                  );
+                })()}
+                {authorizedWorkspaces.length === 0 && (
+                  <option value="" disabled>暂无授权目录，请点击"选择目录"</option>
                 )}
-                {/* P12: AI 回复消息上显示"记住这个"按钮 */}
-                {!msg.isSelf && (
-                  <div className="chat-message__actions">
-                    <RememberButton
-                      messageContent={msg.content}
-                      messageId={msg.messageId}
-                      onRemember={handleRemember}
-                    />
+                {authorizedWorkspaces.map((workspace) => (
+                  <option key={workspace.id} value={workspace.id}>
+                    📂 {workspace.name} ({workspace.scope === 'read-write' ? '读写' : '只读'}) - {workspace.path}
+                  </option>
+                ))}
+                {selectedWorkspace && (
+                  <>
+                    <optgroup label="⚙️ 操作">
+                      <option value="change">🔄 更换目录</option>
+                      <option value="remove">❌ 移除目录</option>
+                      <option value="cancel">🚫 取消目录（使用默认目录）</option>
+                    </optgroup>
+                  </>
+                )}
+              </select>
+            </div>
+          </>
+        ) : (
+          <>
+            {/* === IM 即时通讯对话模式 === */}
+            {/* 顶栏：对话对象名称 + 置顶/免打扰按钮 */}
+            <header className="chat-toolbar">
+              <div className="chat-toolbar__left">
+                <button
+                  className="btn btn-icon"
+                  onClick={() => setChatTarget({ type: 'dept', id: currentDept })}
+                  title="返回部门大脑对话"
+                >
+                  ◀
+                </button>
+                <span className="chat-toolbar__title">
+                  {chatTarget.name}
+                </span>
+              </div>
+              <div className="chat-toolbar__right">
+                {(() => {
+                  const imContact = imContacts.find(c => c.contactId === chatTarget.id);
+                  if (!imContact) return null;
+                  return (
+                    <>
+                      <button
+                        className="btn btn-icon"
+                        title={imContact.pinned ? '取消置顶' : '置顶'}
+                        onClick={() => handleToggleImPinned(imContact.contactId, imContact.pinned)}
+                        style={{ fontSize: 12 }}
+                      >
+                        {imContact.pinned ? '📌' : '📍'}
+                      </button>
+                      <button
+                        className="btn btn-icon"
+                        title={imContact.muted ? '取消免打扰' : '免打扰'}
+                        onClick={() => handleToggleImMuted(imContact.contactId, imContact.muted)}
+                        style={{ fontSize: 12 }}
+                      >
+                        {imContact.muted ? '🔔' : '🔕'}
+                      </button>
+                    </>
+                  );
+                })()}
+                <span className={`connection-status ${imWsConnected ? 'connected' : 'disconnected'}`}>
+                  {imWsConnected ? '● IM在线' : '○ IM离线'}
+                </span>
+              </div>
+            </header>
+
+            {/* IM 消息列表 */}
+            <div className="chat-messages">
+              {imMessages.length === 0 ? (
+                <div className="chat-messages__empty">
+                  <p>开始与 {chatTarget.name} 对话</p>
+                  <p className="hint">输入消息后按 Enter 发送</p>
+                </div>
+              ) : (
+                imMessages.map(msg => (
+                  <div
+                    key={msg.messageId}
+                    className={`chat-message ${msg.self ? 'chat-message--self' : 'chat-message--other'}${msg.deletedAt ? ' chat-message--recalled' : ''}`}
+                    onContextMenu={(e) => handleImContextMenu(e, msg)}
+                  >
+                    <div className="chat-message__content">
+                      {msg.deletedAt ? (
+                        <span style={{ color: '#999', fontStyle: 'italic' }}>[消息已撤回]</span>
+                      ) : (
+                        msg.content
+                      )}
+                    </div>
+                    <span className="chat-message__time">
+                      {msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : ''}
+                      {msg.self && msg.readAt && <span style={{ marginLeft: 4, fontSize: 10, color: '#4caf50' }}>已读</span>}
+                    </span>
+                  </div>
+                ))
+              )}
+              <div ref={imMessagesEndRef} />
+            </div>
+
+            {/* IM 输入区域 */}
+            <footer className="chat-input">
+              <textarea
+                className="chat-input__field"
+                placeholder="输入消息，Enter 发送，Shift+Enter 换行"
+                value={imInputText}
+                onChange={e => setImInputText(e.target.value)}
+                onKeyDown={handleImKeyDown}
+                rows={1}
+                disabled={!imWsConnected}
+                style={{ resize: 'none', minHeight: 36, maxHeight: 120 }}
+              />
+              <button
+                className="btn btn-primary chat-input__send"
+                disabled={!imInputText.trim() || !imWsConnected}
+                onClick={handleImSend}
+              >
+                发送
+              </button>
+            </footer>
+
+            {/* IM 右键菜单 */}
+            {imContextMenu.visible && (
+              <div
+                className="message-panel__context-menu"
+                style={{ position: 'fixed', left: imContextMenu.x, top: imContextMenu.y, zIndex: 1000, background: '#fff', border: '1px solid #ddd', borderRadius: 4, boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}
+              >
+                {imContextMenu.isSelf && (
+                  <div
+                    style={{ padding: '8px 16px', cursor: 'pointer', fontSize: 13, whiteSpace: 'nowrap' }}
+                    onClick={handleImRecallMessage}
+                    onMouseEnter={e => (e.currentTarget.style.background = '#f5f5f5')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                  >
+                    撤回消息
                   </div>
                 )}
               </div>
-            ))
-          )}
-          {isWaiting && (
-            <div className="chat-message chat-message--waiting">
-              <span className="chat-message__author">Brain</span>
-              <div className="chat-message__content chat-message__content--waiting">
-                <span className="typing-indicator">●●●</span>
-                <span>正在思考...</span>
-              </div>
-            </div>
-          )}
-          <div ref={messagesEndRef} />
-        </div>
-
-        {/* P8: Trace 可视化 */}
-        {showTrace && traceSteps.length > 0 && (
-          <div style={{ padding: '0 16px 12px' }}>
-            <TraceVisualizer
-              steps={traceSteps}
-              onClose={() => setShowTrace(false)}
-            />
-          </div>
+            )}
+          </>
         )}
-
-        {/* P9: 多 Agent 并行卡片 */}
-        {agentCards.length > 0 && (
-          <div style={{ padding: '0 16px 12px' }}>
-            <AgentProgressCards
-              agents={agentCards}
-              onClose={() => setAgentCards([])}
-            />
-          </div>
-        )}
-
-        {/* P11: 部门路由推荐 */}
-        {deptRecommendation && (
-          <div style={{ padding: '0 16px 12px' }}>
-            <DeptRecommendBanner
-              recommendation={deptRecommendation}
-              currentDept={currentDept}
-              onAccept={() => {
-                setCurrentDept(deptRecommendation.department);
-                setDeptRecommendation(null);
-              }}
-              onDismiss={() => setDeptRecommendation(null)}
-            />
-          </div>
-        )}
-
-        {/* P12: Memory 面板 */}
-        {showMemoryPanel && hasToken && (
-          <div style={{ position: 'absolute', right: 16, bottom: 80, zIndex: 1000 }}>
-            <MemoryPanel
-              onClose={() => setShowMemoryPanel(false)}
-              onDelete={handleDeleteMemory}
-              backendUrl={backendUrl}
-              token={currentUser?.token}
-            />
-          </div>
-        )}
-
-        {/* P30: 部门特色快捷功能入口栏 */}
-        <DeptQuickActions
-          department={currentDept}
-          onAction={({ prompt }) => {
-            setInput(prompt);
-            inputRef.current?.focus();
-          }}
-        />
-
-        {/* 输入区域 */}
-        <footer className="chat-input">
-          {/* P10: 语音输入按钮（预留，登录态校验） */}
-          <button
-            className="btn btn-icon chat-input__voice"
-            onClick={() => {
-              // P10: 登录态校验（CHAT_ONLY 身份禁用语音）
-              if (!hasToken) {
-                setEmployeeToast({ msg: '🎤 语音输入需要先登录', type: 'warn' });
-              } else if (currentUser?.accessLevel === 'CHAT_ONLY') {
-                setEmployeeToast({ msg: '🎤 当前身份（CHAT_ONLY）无语音权限', type: 'warn' });
-              } else {
-                setEmployeeToast({ msg: '🎤 语音输入功能开发中（P10）', type: 'info' });
-              }
-            }}
-            disabled={!connected || isWaiting}
-            title={
-              !hasToken ? '语音输入需要先登录' :
-              currentUser?.accessLevel === 'CHAT_ONLY' ? '当前身份无语音权限' :
-              '语音输入（开发中）'
-            }
-            aria-label="语音输入"
-          >
-            🎤
-          </button>
-          {/* P12: 记忆库按钮 */}
-          <button
-            className="btn btn-icon chat-input__memory"
-            onClick={() => setShowMemoryPanel(!showMemoryPanel)}
-            disabled={!hasToken}
-            title={hasToken ? '打开记忆库' : '记忆库需要先登录'}
-            aria-label="记忆库"
-          >
-            🧠
-          </button>
-          {/* P1: 文件上传组件 */}
-          <FileUploader
-            backendUrl={backendUrl}
-            onFilesSelected={(attachments) => {
-              setPendingAttachments(prev => [...prev, ...attachments]);
-            }}
-            onUploadError={(fileName, error) => {
-              setEmployeeToast({ msg: `📎 ${fileName}: ${error}`, type: 'warn' });
-            }}
-            disabled={!connected || isWaiting}
-          />
-          {/* P1: 待发送附件预览 */}
-          <FilePreview
-            attachments={pendingAttachments}
-            onRemove={(index) => {
-              setPendingAttachments(prev => prev.filter((_, idx) => idx !== index));
-            }}
-          />
-          <input
-            ref={inputRef}
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend(pendingAttachments.length > 0 ? pendingAttachments : undefined)}
-            onPaste={handlePaste}
-            placeholder="输入消息...（Enter 发送，Ctrl+V 粘贴图片/文件）"
-            disabled={!connected || isWaiting}
-            className="chat-input__field"
-          />
-          <button
-            className="btn btn-primary chat-input__send"
-            onClick={() => handleSend(pendingAttachments.length > 0 ? pendingAttachments : undefined)}
-            disabled={!connected || (!input.trim() && pendingAttachments.length === 0) || isWaiting}
-          >
-            发送
-          </button>
-          {/* P10: 语音输入按钮 */}
-          <VoiceInputButton
-            onTranscript={(text) => {
-              setInput(prev => prev ? `${prev} ${text}` : text);
-              inputRef.current?.focus();
-            }}
-            hasToken={hasToken}
-            accessLevel={currentUser?.accessLevel}
-            disabled={!connected}
-          />
-        </footer>
       </section>
     </div>
   );

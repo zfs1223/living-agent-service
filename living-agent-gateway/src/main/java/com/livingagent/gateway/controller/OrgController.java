@@ -38,7 +38,7 @@ public class OrgController {
 
         List<UserInfo> users = new ArrayList<>();
 
-        EmployeeService.EmployeeQuery query = new EmployeeService.EmployeeQuery(null, null, null, null, 100, 0);
+        EmployeeService.EmployeeQuery query = new EmployeeService.EmployeeQuery(null, null, null, null, 100, 0, null);
         List<Employee> employees = employeeService.listEmployees(query);
 
         for (Employee emp : employees) {

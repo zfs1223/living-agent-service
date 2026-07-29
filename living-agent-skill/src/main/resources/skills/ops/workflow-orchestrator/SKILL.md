@@ -1,6 +1,7 @@
 ---
 name: workflow-orchestrator
 description: "工作流编排，多阶段业务流程自动化"
+personalSafe: false
 risk: medium
 source: internal
 date_added: '2026-07-09'

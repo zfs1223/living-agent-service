@@ -3,6 +3,7 @@ name: crm-integration
 description: "CRM系统集成，连接Salesforce/HubSpot等"
 risk: medium
 source: ClawHub转换
+personalSafe: false
 date_added: '2026-07-09'
 ---
 

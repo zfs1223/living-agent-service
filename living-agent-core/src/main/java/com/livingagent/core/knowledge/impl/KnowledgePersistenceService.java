@@ -54,6 +54,10 @@ public class KnowledgePersistenceService {
                                        String scopeIdentifier, Map<String, String> metadata) {
         KnowledgeEntryEntity entity = new KnowledgeEntryEntity();
         entity.setKey(key);
+        // title 字段：优先取 metadata.title，否则截取 key 的最后一段
+        String title = (metadata != null && metadata.containsKey("title"))
+                ? metadata.get("title") : extractBaseKey(key);
+        entity.setTitle(title.length() > 256 ? title.substring(0, 256) : title);
         entity.setContent(content != null ? content.toString() : "");
         entity.setScope(scope.name());
         entity.setScopeIdentifier(scopeIdentifier);

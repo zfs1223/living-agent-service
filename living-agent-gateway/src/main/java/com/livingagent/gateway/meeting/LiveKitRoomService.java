@@ -273,14 +273,10 @@ public class LiveKitRoomService {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
 
-        // 生成服务端管理 token（roomList 权限，可管理所有房间）
-        String adminToken = tokenService.generateToken(
-                "las-server-admin",  // 服务端内部身份
-                "",                  // 空 roomName 表示管理所有房间
-                true,               // canPublish
-                true,               // canSubscribe
-                Map.of("role", "server-admin")  // 元数据
-        );
+        // 生成服务端管理 token（roomAdmin + roomList 权限，可管理所有房间）
+        // 注意：必须使用 generateServerAdminToken()，普通参会 token 缺少 roomAdmin/roomList
+        // 会导致 LiveKit RoomService 管理接口返回 401 Unauthorized。
+        String adminToken = tokenService.generateServerAdminToken();
         headers.setBearerAuth(adminToken);
 
         return new HttpEntity<>(body, headers);

@@ -67,14 +67,17 @@ export function getMainWindow(): BrowserWindow | null {
   return mainWindow;
 }
 
-export function showMainWindow(): void {
+export function showMainWindow(route?: string): void {
   if (!mainWindow) {
     mainWindow = createMainWindow();
-    return;
   }
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
+  // 支持导航到指定路由
+  if (route && mainWindow.webContents) {
+    mainWindow.webContents.send('navigate', route);
+  }
 }
 
 export function hideMainWindow(): void {

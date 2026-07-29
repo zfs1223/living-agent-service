@@ -4,6 +4,7 @@ description: Find Skills - 技能发现与推荐技能
 risk: low
 source: internal
 date_added: '2026-07-13'
+personalSafe: false
 ---
 
 # Find Skills - 技能发现与推荐技能

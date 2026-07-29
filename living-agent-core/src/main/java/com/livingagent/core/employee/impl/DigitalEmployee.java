@@ -313,7 +313,7 @@ public class DigitalEmployee implements Employee {
         }
 
         public Builder roles(List<String> roles) {
-            this.roles = new ArrayList<>(roles);
+            this.roles = roles != null ? new ArrayList<>(roles) : new ArrayList<>();
             return this;
         }
 
@@ -343,7 +343,7 @@ public class DigitalEmployee implements Employee {
         }
 
         public Builder capabilities(List<String> capabilities) {
-            this.capabilities = new ArrayList<>(capabilities);
+            this.capabilities = capabilities != null ? new ArrayList<>(capabilities) : new ArrayList<>();
             return this;
         }
 
@@ -353,7 +353,7 @@ public class DigitalEmployee implements Employee {
         }
 
         public Builder skills(List<String> skills) {
-            this.skills = new ArrayList<>(skills);
+            this.skills = skills != null ? new ArrayList<>(skills) : new ArrayList<>();
             return this;
         }
 
@@ -363,7 +363,7 @@ public class DigitalEmployee implements Employee {
         }
 
         public Builder tools(List<String> tools) {
-            this.tools = new ArrayList<>(tools);
+            this.tools = tools != null ? new ArrayList<>(tools) : new ArrayList<>();
             return this;
         }
 
@@ -404,7 +404,7 @@ public class DigitalEmployee implements Employee {
         }
 
         public Builder subscribeChannels(List<String> channels) {
-            this.subscribeChannels = new ArrayList<>(channels);
+            this.subscribeChannels = channels != null ? new ArrayList<>(channels) : new ArrayList<>();
             return this;
         }
 
@@ -414,7 +414,7 @@ public class DigitalEmployee implements Employee {
         }
 
         public Builder publishChannels(List<String> channels) {
-            this.publishChannels = new ArrayList<>(channels);
+            this.publishChannels = channels != null ? new ArrayList<>(channels) : new ArrayList<>();
             return this;
         }
 
@@ -424,7 +424,7 @@ public class DigitalEmployee implements Employee {
         }
 
         public Builder workflowBindings(List<WorkflowBinding> bindings) {
-            this.workflowBindings = new ArrayList<>(bindings);
+            this.workflowBindings = bindings != null ? new ArrayList<>(bindings) : new ArrayList<>();
             return this;
         }
 

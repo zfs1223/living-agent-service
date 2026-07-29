@@ -151,7 +151,7 @@ public class InMemoryPerformanceAssessmentService implements PerformanceAssessme
     }
 
     private List<EmployeeRanking> buildRankings(String departmentId, int limit, boolean top) {
-        List<EmployeeRanking> rankings = employeeService.listEmployees(new EmployeeService.EmployeeQuery(null, departmentId, null, null, 1000, 0))
+        List<EmployeeRanking> rankings = employeeService.listEmployees(new EmployeeService.EmployeeQuery(null, departmentId, null, null, 1000, 0, null))
                 .stream()
                 .map(employee -> {
                     PerformanceAssessment assessment = assessEmployee(employee.getEmployeeId(), PerformanceAssessment.AssessmentPeriod.MONTHLY);

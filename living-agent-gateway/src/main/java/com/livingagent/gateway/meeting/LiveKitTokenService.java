@@ -109,6 +109,53 @@ public class LiveKitTokenService {
     }
 
     /**
+     * 生成服务端管理 token（用于 LAS 后端调用 LiveKit RoomService 管理 API）
+     *
+     * <p>具有 roomAdmin + roomList 权限，可列出/创建/删除/查询所有房间。
+     * 仅限 LAS 后端内部服务调用使用，切勿下发给普通用户（否则任意用户可接管会议）。</p>
+     *
+     * @return 服务端管理 LiveKit JWT token
+     */
+    public String generateServerAdminToken() {
+        try {
+            long now = System.currentTimeMillis() / 1000;
+
+            // 构建 Header
+            Map<String, Object> header = new LinkedHashMap<>();
+            header.put("alg", "HS256");
+            header.put("typ", "JWT");
+
+            // 构建 Payload
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("iss", liveKitConfig.getApiKey());
+            payload.put("sub", liveKitConfig.getApiKey());
+            payload.put("jti", java.util.UUID.randomUUID().toString());
+            payload.put("nbf", now);
+            payload.put("exp", now + TOKEN_TTL_SECONDS);
+
+            // 构建 video 权限声明：服务端管理需 roomAdmin + roomList
+            Map<String, Object> video = new LinkedHashMap<>();
+            video.put("roomAdmin", true);
+            video.put("roomList", true);
+            video.put("roomJoin", true);
+            video.put("canPublish", true);
+            video.put("canSubscribe", true);
+            video.put("canPublishData", true);
+            video.put("canRecord", true);
+            payload.put("video", video);
+
+            payload.put("identity", "las-server-admin");
+
+            log.debug("[P81] 生成服务端管理 token - identity=las-server-admin, ttl={}s", TOKEN_TTL_SECONDS);
+            return encodeJwt(header, payload);
+
+        } catch (Exception e) {
+            log.error("[P81] 生成服务端管理 token 失败", e);
+            throw new RuntimeException("生成服务端管理 token 失败: " + e.getMessage(), e);
+        }
+    }
+
+    /**
      * 核心 token 生成方法
      *
      * @param userId       LAS 用户ID

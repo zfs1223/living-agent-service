@@ -4,7 +4,7 @@
  * - Ctrl+Shift+T：打开任务中心
  * - Ctrl+Shift+C：快速接取最优先任务
  * - Ctrl+Shift+S：截图（P2）
- * - Alt+Space：唤起 Quick View 悬浮对话（P7，短按）/ 触发语音输入（P10，长按 2s）
+ * - Shift+1：唤起 Quick View 悬浮对话（P7）；Ctrl+Shift+Q 为备用快捷键
  * - Ctrl+Shift+I：选中文本并提问（P6/P7，唤起 Quick View 并携带选中文本）
  * - Ctrl+Shift+V：语音输入开关（P10，替代长按 Alt+Space 的备选方案）
  */
@@ -53,14 +53,21 @@ const SHORTCUTS = [
     action: () => triggerRegionScreenshot(),
     label: '截图'
   },
-  // P7/P10: Alt+Space 短按=Quick View，长按 2s=语音输入
+  // P7: Shift+1 唤起 Quick View（Alt+Space 在 Windows 被系统菜单占用，改为无冲突的 Shift+1）
   {
-    accelerator: 'Alt+Space',
+    accelerator: 'Shift+1',
     action: () => {
-      // 短按：toggle Quick View
       toggleQuickView();
     },
-    label: '唤起 Quick View（短按）/ 语音输入（长按 2s）'
+    label: '唤起 Quick View（Shift+1）'
+  },
+  // P7: Ctrl+Shift+Q 作为可靠降级快捷键（Alt+Space 在 Windows 可能失效时的备用）
+  {
+    accelerator: 'CommandOrControl+Shift+Q',
+    action: () => {
+      toggleQuickView();
+    },
+    label: '唤起 Quick View（备用）'
   },
   // P7: Ctrl+Shift+I 唤起 Quick View 并携带选中文本
   {

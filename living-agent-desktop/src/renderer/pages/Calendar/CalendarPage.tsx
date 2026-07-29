@@ -119,7 +119,7 @@ const MEETING_STATUS_LABELS: Record<MeetingStatus, string> = {
 
 /* ============ 主组件 ============ */
 
-const CalendarPage: React.FC<CalendarPageProps> = ({ backendUrl }) => {
+export const CalendarPage: React.FC<CalendarPageProps> = ({ backendUrl }) => {
   const calendarRef = useRef<FullCalendar>(null);
 
   /* --- 状态 --- */

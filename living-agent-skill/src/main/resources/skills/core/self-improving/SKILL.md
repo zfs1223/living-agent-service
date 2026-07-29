@@ -4,6 +4,7 @@ description: Self Improving
 risk: low
 source: internal
 date_added: '2026-07-13'
+personalSafe: false
 ---
 
 # Self Improving

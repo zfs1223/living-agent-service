@@ -4,6 +4,7 @@ description: Event Driven Notifier - 事件驱动通知器技能
 risk: low
 source: internal
 date_added: '2026-07-13'
+personalSafe: false
 ---
 
 # Event Driven Notifier - 事件驱动通知器技能

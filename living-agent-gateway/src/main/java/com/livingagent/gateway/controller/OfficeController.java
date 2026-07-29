@@ -150,7 +150,7 @@ public class OfficeController {
             employees = employeeService.listByDepartment(department);
         } else {
             employees = employeeService.listEmployees(
-                    new EmployeeService.EmployeeQuery(null, null, null, null, 100, 0)
+                    new EmployeeService.EmployeeQuery(null, null, null, null, 100, 0, null)
             );
         }
 
@@ -350,11 +350,24 @@ public class OfficeController {
                 employee.getTitle(),
                 employee.getStatus().name(),
                 employee.isDigital() ? "digital" : "human",
+                mapOrigin(employee),
                 employee.getLastActiveAt(),
                 employee.getTaskCount(),
                 employee.getSuccessRate(),
                 employee.getSkills()
         );
+    }
+
+    private String mapOrigin(Employee employee) {
+        if (employee == null || employee.getOrigin() == null) {
+            return "human";
+        }
+        return switch (employee.getOrigin()) {
+            case FIXED -> "fixed";
+            case PERSONAL -> "personal";
+            case EVOLVED -> "evolved";
+            default -> "human";
+        };
     }
 
     public record OfficeStatusResponse(
@@ -382,6 +395,7 @@ public class OfficeController {
             String title,
             String status,
             String type,
+            String origin,
             Instant lastActiveAt,
             int taskCount,
             double successRate,

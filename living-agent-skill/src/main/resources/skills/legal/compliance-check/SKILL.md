@@ -3,6 +3,7 @@ name: compliance-check
 description: Compliance Check
 risk: low
 source: internal
+personalSafe: false
 date_added: '2026-07-13'
 ---
 

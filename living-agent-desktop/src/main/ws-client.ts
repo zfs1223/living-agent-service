@@ -13,6 +13,7 @@ import { loadToken } from './auth';
 import { getCachedClientId, getCachedClientInfo } from './client-id';
 import { getInstalledAppsString } from './app-scanner';
 import { winAutomationService } from './win-automation-service';
+import { skillExecutor } from './skill-executor';
 import { SHARED_CONSTANTS } from '../shared/constants';
 import { forwardResponseToQuickView } from './quick-view/quick-view-controller';
 
@@ -36,6 +37,7 @@ export type WsEventType =
   | 'audio_full'
   | 'device_registered'
   | 'win_automation_call'
+  | 'skill_execute_request'
   | 'error'
   | 'pong';
 
@@ -52,6 +54,8 @@ class WSClient {
   private reconnectAttempts = 0;
   private cachedApps: string | null = null;
   private lastPongAt = 0;
+  /** 连接纪元：每次 connect() 自增，确保被替换/主动断开的旧 socket 的 close 事件不会触发自动重连 */
+  private activeConnId = 0;
 
   async connect(path: string = '/ws/agent', params: Record<string, string> = {}): Promise<void> {
     // P1-7: 固定员工直连防护 — 连接 /ws/agent 时检查 origin=fixed 则拒绝
@@ -67,6 +71,9 @@ class WSClient {
       console.warn('[ws-client] No token, cannot connect');
       return;
     }
+
+    // 连接纪元：每次 connect 自增，确保“被替换/主动断开”的旧 socket 不会触发重连
+    const myConnId = ++this.activeConnId;
 
     // 携带 token + clientId + 设备信息 + 应用列表
     // token 通过 URL 查询参数传递（不使用 Sec-WebSocket-Protocol，因为 Spring 的子协议
@@ -96,7 +103,23 @@ class WSClient {
     }).toString();
     const url = `${wsUrlFor(path)}?${search}`;
 
-    this.disconnect();
+    // 主动替换旧连接：清掉可能存在的旧重连定时器，关闭旧 socket。
+    // 由于上面已自增 activeConnId，旧 socket 的 close 事件会与当前 myConnId 不匹配，
+    // 因此不会触发自动重连（消除 connect/disconnect/close 之间的重连风暴）。
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    if (this.socket) {
+      const old = this.socket;
+      this.socket = null;
+      this.stopPing();
+      try {
+        old.close();
+      } catch {
+        // ignore
+      }
+    }
 
     // 返回 Promise，等待握手完成或失败
     return new Promise((resolve, reject) => {
@@ -127,6 +150,11 @@ class WSClient {
             // 特殊处理 WIN_AUTOMATION_CALL：转发到本地 Python 服务执行后回传结果
             if (msg.type === 'win_automation_call') {
               this.handleWinAutomationCall(msg.data);
+              return;
+            }
+            // 技能执行请求：个人助手技能转发到桌面端本地执行
+            if (msg.type === 'skill_execute_request') {
+              this.handleSkillExecute(msg.data);
               return;
             }
             const set = this.listeners.get(msg.type as WsEventType);
@@ -163,7 +191,9 @@ class WSClient {
           // 握手阶段连接关闭，拒绝 Promise
           reject(new Error('WebSocket connection closed during handshake'));
         }
-        if (!this.isQuitting) {
+        // 仅当“当前连接”意外掉线才重连：纪元仍匹配且非主动退出。
+        // 被替换/主动断开的旧 socket 因 activeConnId 已自增而不匹配，不会重连。
+        if (!this.isQuitting && this.activeConnId === myConnId) {
           // 指数退避：2s→4s→8s→16s→30s 上限
           const delay = Math.min(2000 * Math.pow(2, this.reconnectAttempts), 30000);
           this.reconnectAttempts++;
@@ -188,6 +218,8 @@ class WSClient {
   }
 
   disconnect(): void {
+    // 自增纪元：主动断开时，当前 socket 的 close 事件不再触发自动重连
+    this.activeConnId++;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -265,13 +297,38 @@ class WSClient {
       });
   }
 
+  /**
+   * 处理后端转发的技能执行请求
+   * 个人助手技能采用"大脑在服务器、双手在桌面"的双层架构
+   * 服务器推理决策 → WebSocket转发 → 桌面端本地执行 → 结果回传
+   */
+  private handleSkillExecute(data: any): void {
+    const { id, skillId, args, workspaceDir } = data ?? {};
+    if (id === undefined || !skillId) {
+      console.warn('[ws-client] Invalid skill_execute_request message:', data);
+      return;
+    }
+
+    const timeout = (args && typeof args.timeoutMs === 'number') ? args.timeoutMs : 60_000;
+
+    skillExecutor
+      .execute(skillId, args ?? {}, workspaceDir, timeout)
+      .then((result) => {
+        this.send('skill_execute_response', { id, success: true, result });
+      })
+      .catch((error: Error) => {
+        this.send('skill_execute_response', { id, success: false, error: error.message });
+      });
+  }
+
   private startPing(): void {
     this.stopPing();
     this.lastPongAt = Date.now();
     const pingInterval = SHARED_CONSTANTS.HEARTBEAT_INTERVAL_MS;
+    const PONG_TIMEOUT_MS = 15_000; // 15s 无 pong 判定断连（快速感知）
     this.pingTimer = setInterval(() => {
-      // pong 超时检测：超过 2 * pingInterval 未收到 pong 则触发重连
-      if (Date.now() - this.lastPongAt > 2 * pingInterval) {
+      // pong 超时检测：超过 PONG_TIMEOUT_MS 未收到 pong 则触发重连
+      if (Date.now() - this.lastPongAt > PONG_TIMEOUT_MS) {
         console.warn('[ws-client] Pong timeout, last pong was', Date.now() - this.lastPongAt, 'ms ago, reconnecting');
         this.disconnect();
         this.connect(this.currentPath, this.lastParams);

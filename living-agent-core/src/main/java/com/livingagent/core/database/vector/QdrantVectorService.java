@@ -72,11 +72,27 @@ public class QdrantVectorService {
         }
     }
 
+    /**
+     * 将任意字符串 ID 转换为确定性 UUID（使用 SHA-256 后 128 位）
+     * 如果输入已是有效 UUID 则直接返回，否则基于 nameUUIDFromBytes 生成
+     */
+    private UUID ensureUuid(String id) {
+        if (id == null || id.isBlank()) {
+            return UUID.randomUUID();
+        }
+        try {
+            return UUID.fromString(id);
+        } catch (IllegalArgumentException e) {
+            // 非 UUID 格式的字符串 ID（如 shared:global:self-healing:...）→ 确定性 UUID
+            return UUID.nameUUIDFromBytes(id.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
+    }
+
     public void upsertVector(String collectionName, String id, float[] vector, Map<String, Object> payload) {
         String fullCollectionName = collectionPrefix + collectionName;
         
         try {
-            UUID uuid = UUID.fromString(id);
+            UUID uuid = ensureUuid(id);
             
             PointStruct.Builder pointBuilder = PointStruct.newBuilder()
                     .setId(id(uuid))
@@ -177,7 +193,7 @@ public class QdrantVectorService {
         String fullCollectionName = collectionPrefix + collectionName;
         
         try {
-            UUID uuid = UUID.fromString(id);
+            UUID uuid = ensureUuid(id);
             client.deleteAsync(fullCollectionName, List.of(id(uuid))).get();
             
             log.debug("Deleted vector {} from collection {}", id, fullCollectionName);
@@ -185,8 +201,6 @@ public class QdrantVectorService {
         } catch (InterruptedException | ExecutionException e) {
             log.error("Failed to delete vector {}: {}", id, e.getMessage());
             Thread.currentThread().interrupt();
-        } catch (IllegalArgumentException e) {
-            log.error("Invalid UUID format for id: {}", id);
         }
     }
 
@@ -218,7 +232,7 @@ public class QdrantVectorService {
     public boolean vectorExists(String collectionName, String id) {
         String fullCollectionName = collectionPrefix + collectionName;
         try {
-            UUID uuid = UUID.fromString(id);
+            UUID uuid = ensureUuid(id);
             var results = client.retrieveAsync(fullCollectionName, List.of(id(uuid)),
                 io.qdrant.client.grpc.Points.WithPayloadSelector.newBuilder().setEnable(false).build(),
                 io.qdrant.client.grpc.Points.WithVectorsSelector.newBuilder().setEnable(false).build(),
@@ -227,8 +241,6 @@ public class QdrantVectorService {
         } catch (InterruptedException | ExecutionException e) {
             log.debug("Vector existence check failed for {}: {}", id, e.getMessage());
             Thread.currentThread().interrupt();
-            return false;
-        } catch (IllegalArgumentException e) {
             return false;
         }
     }

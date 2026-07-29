@@ -15,6 +15,7 @@ public class SkillImpl implements Skill {
     private String scope = "global";
     private String ownerId;
     private String departmentId;
+    private boolean personalSafe = false;
 
     public SkillImpl() {
         this.metadata = new HashMap<>();
@@ -135,4 +136,10 @@ public class SkillImpl implements Skill {
 
     @Override
     public void setDepartmentId(String departmentId) { this.departmentId = departmentId; }
+
+    @Override
+    public boolean isPersonalSafe() { return personalSafe; }
+
+    @Override
+    public void setPersonalSafe(boolean personalSafe) { this.personalSafe = personalSafe; }
 }

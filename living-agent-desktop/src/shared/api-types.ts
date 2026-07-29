@@ -39,6 +39,33 @@ export interface CreditBalance {
   updatedAt?: string;
 }
 
+/** 公司选项（多公司登录选择） */
+export interface TenantOption {
+  tenantId: string;
+  departmentName: string;
+  employeeName: string;
+  founder: boolean;
+}
+
+/** 多公司登录选择结果 */
+export interface TenantSelectionResult {
+  status: 'tenant_required';
+  phone: string;
+  tenants: TenantOption[];
+}
+
+/** 登录成功结果 */
+export interface LoginSuccessResult {
+  accessToken: string;
+  user: DesktopUser;
+}
+
+/** 手机验证码登录响应（联合类型） */
+export type PhoneLoginResponse = LoginSuccessResult | TenantSelectionResult;
+
+/** 密码登录响应（联合类型） */
+export type PasswordLoginResponse = LoginSuccessResult | TenantSelectionResult;
+
 export interface LivingAgentAPI {
   /* ============ 后端连接 ============ */
   checkBackend: () => Promise<{ ok: boolean; url: string; error?: string }>;
@@ -53,7 +80,16 @@ export interface LivingAgentAPI {
     clearToken: () => Promise<void>;
     // 手机号登录（与 frontend 对齐）
     smsSend: (phone: string, type?: string) => Promise<{ success: boolean; message: string; expiresIn: number; code?: string }>;
-    phoneLogin: (phone: string, code: string) => Promise<{ accessToken: string; user: DesktopUser }>;
+    // 手机验证码登录（返回联合类型：成功 | 需选择公司）
+    phoneLogin: (phone: string, code: string) => Promise<PhoneLoginResponse>;
+    // 手机号 + 密码登录（返回联合类型：成功 | 需选择公司）
+    passwordLogin: (phone: string, password: string) => Promise<PasswordLoginResponse>;
+    // 多公司选择后完成登录（手机验证码）
+    phoneLoginWithTenant: (phone: string, code: string, tenantId: string) => Promise<LoginSuccessResult>;
+    // 多公司选择后完成登录（密码）
+    loginWithTenant: (phone: string, password: string, tenantId: string) => Promise<LoginSuccessResult>;
+    // 修改当前用户密码
+    changePassword: (oldPassword: string, newPassword: string) => Promise<{ success: boolean }>;
     me: () => Promise<DesktopUser>;
     // 声纹登录
     voicePrintLogin: (audioBuffer: ArrayBuffer) => Promise<{ accessToken: string; user: DesktopUser }>;
@@ -185,7 +221,12 @@ export interface LivingAgentAPI {
     get: (id: string) => Promise<any>;
     start: (id: string) => Promise<any>;
     stop: (id: string) => Promise<any>;
-    create: (data: { name: string; role_description?: string; agent_type?: string; department?: string; skill_ids?: string[] }) => Promise<any>;
+    create: (data: { name: string; role_description?: string; agent_type?: string; department?: string; skill_ids?: string[]; primary_model_id?: string; fallback_model_id?: string }) => Promise<any>;
+    delete: (id: string) => Promise<any>;
+  };
+
+  model: {
+    list: () => Promise<any[]>;
   };
 
   /* ============ 干预决策 (P1-2) ============ */
@@ -233,6 +274,26 @@ export interface LivingAgentAPI {
 
   /* ============ P10: 语音输入事件 ============ */
   onVoiceInputToggle: (cb: () => void) => () => void;
+
+  /* ============ P8: 工作目录管理 (Workspace) ============ */
+  workspace: {
+    list: () => Promise<Array<{
+      id: string;
+      path: string;
+      name: string;
+      authorizedAt: string;
+      scope: 'read' | 'read-write';
+    }>>;
+    authorize: (data: { path: string; name?: string; scope?: 'read' | 'read-write' }) => Promise<{
+      id: string;
+      path: string;
+      name: string;
+      authorizedAt: string;
+      scope: 'read' | 'read-write';
+    }>;
+    revoke: (id: string) => Promise<any[]>;
+    selectDirectory: () => Promise<string | null>;
+  };
 
   /* ============ 习惯录制事件 ============ */
   onRecorderStatus: (cb: (info: { recording: boolean; paused: boolean; stepCount: number }) => void) => () => void;

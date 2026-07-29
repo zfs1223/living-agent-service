@@ -15,7 +15,7 @@ export const SHARED_CONSTANTS = {
   TRAY_NORMAL_ICON: 'tray-normal.png',
   TRAY_RED_ICON: 'tray-badge-red.png',
   POLL_INTERVAL_MS: 5 * 60 * 1000,    // 5 分钟
-  HEARTBEAT_INTERVAL_MS: 60 * 1000,   // 1 分钟
+  HEARTBEAT_INTERVAL_MS: 25 * 1000,   // 25 秒（小于后端 30s 巡检间隔，确保保活）
   MAX_LOCAL_SAVE_BYTES: 10 * 1024 * 1024 * 1024,
   DEFAULT_RETENTION_DAYS: 30,
   MAX_CACHED_TASKS_PER_DEPT: 100,

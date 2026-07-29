@@ -649,8 +649,8 @@ public class ModelPoolManager {
     }
 
     private static final java.util.Set<String> EMBEDDING_KEYWORDS = java.util.Set.of(
-        "bge", "e5", "embedding", "text-embedding", "ada", "gte", "jina",
-        "m3e", "voyage", "cohere-embed", "retrieval", "sentence"
+        "bge", "e5", "embed", "embedding", "text-embedding", "ada", "gte", "jina",
+        "m3e", "voyage", "cohere-embed", "retrieval", "sentence", "nomic"
     );
 
     private boolean isEmbeddingModel(String modelName) {

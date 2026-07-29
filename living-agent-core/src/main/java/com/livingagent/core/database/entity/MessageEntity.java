@@ -17,13 +17,13 @@ public class MessageEntity {
     @Column(nullable = false, length = 100)
     private String recipientId;
 
-    @Column(length = 100)
+    @Column(length = 100, nullable = false)
     private String senderId;
 
     @Column(nullable = false, length = 32)
     private String type;
 
-    @Column(nullable = false, length = 255)
+    @Column(length = 255)
     private String title;
 
     @Column(columnDefinition = "TEXT")
@@ -37,6 +37,26 @@ public class MessageEntity {
 
     @Column
     private Instant readAt;
+
+    // ---- IM 扩展字段 (P89) ----
+
+    @Column(name = "reply_to_id", length = 64)
+    private String replyToId;
+
+    @Column(name = "gap_count")
+    private Integer gapCount = 0;
+
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
+
+    @Column(name = "deleted_by", length = 100)
+    private String deletedBy;
+
+    @Column(name = "edited_at")
+    private Instant editedAt;
+
+    @Column(name = "edited_by", length = 100)
+    private String editedBy;
 
     protected MessageEntity() {}
 
@@ -66,4 +86,24 @@ public class MessageEntity {
     public Instant getReadAt() { return readAt; }
     public void setReadAt(Instant readAt) { this.readAt = readAt; }
     public boolean isRead() { return readAt != null; }
+
+    public String getReplyToId() { return replyToId; }
+    public void setReplyToId(String replyToId) { this.replyToId = replyToId; }
+
+    public Integer getGapCount() { return gapCount; }
+    public void setGapCount(Integer gapCount) { this.gapCount = gapCount; }
+
+    public Instant getDeletedAt() { return deletedAt; }
+    public void setDeletedAt(Instant deletedAt) { this.deletedAt = deletedAt; }
+
+    public String getDeletedBy() { return deletedBy; }
+    public void setDeletedBy(String deletedBy) { this.deletedBy = deletedBy; }
+
+    public Instant getEditedAt() { return editedAt; }
+    public void setEditedAt(Instant editedAt) { this.editedAt = editedAt; }
+
+    public String getEditedBy() { return editedBy; }
+    public void setEditedBy(String editedBy) { this.editedBy = editedBy; }
+
+    public boolean isRecalled() { return deletedAt != null; }
 }

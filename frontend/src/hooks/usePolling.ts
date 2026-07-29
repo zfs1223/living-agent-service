@@ -1,16 +1,19 @@
 import { useEffect, useRef, useCallback } from 'react';
 
 /**
- * 页面可见时执行轮询，不可见时暂停
+ * 页面可见时执行轮询，不可见时降频（不完全暂停）
  *
  * @param callback  轮询回调（每次间隔到期时调用）
  * @param intervalMs 轮询间隔（毫秒）
  * @param enabled   是否启用轮询（默认 true）
+ * @param hiddenIntervalMs 页面隐藏时的轮询间隔（默认为 intervalMs 的 3 倍）
+ *                         设为 0 则隐藏时完全暂停（旧行为）
  */
 export function usePolling(
     callback: () => void,
     intervalMs: number,
     enabled: boolean = true,
+    hiddenIntervalMs?: number,
 ) {
     const savedCallback = useRef(callback);
 
@@ -23,14 +26,17 @@ export function usePolling(
         savedCallback.current();
     }, []);
 
+    // 页面隐藏时的间隔：默认 3 倍（保活但不频繁），设为 0 则完全暂停
+    const resolvedHiddenInterval = hiddenIntervalMs ?? intervalMs * 3;
+
     useEffect(() => {
         if (!enabled) return;
 
         let timerId: number | null = null;
 
-        const start = () => {
+        const start = (interval: number) => {
             if (timerId !== null) return; // 已在运行
-            timerId = window.setInterval(tick, intervalMs);
+            timerId = window.setInterval(tick, interval);
         };
 
         const stop = () => {
@@ -40,17 +46,29 @@ export function usePolling(
             }
         };
 
-        const onVisibilityChange = () => {
-            if (document.hidden) {
-                stop();
-            } else {
-                start();
+        const restart = (interval: number) => {
+            stop();
+            if (interval > 0) {
+                start(interval);
             }
         };
 
-        // 页面可见时立即启动
+        const onVisibilityChange = () => {
+            if (document.hidden) {
+                // 页面隐藏：降频而非暂停（保持 NAT 穿透流量）
+                restart(resolvedHiddenInterval);
+            } else {
+                // 页面恢复：切回正常频率，并立即执行一次
+                restart(intervalMs);
+                tick();
+            }
+        };
+
+        // 根据当前可见性启动
         if (!document.hidden) {
-            start();
+            start(intervalMs);
+        } else if (resolvedHiddenInterval > 0) {
+            start(resolvedHiddenInterval);
         }
 
         document.addEventListener('visibilitychange', onVisibilityChange);
@@ -59,5 +77,5 @@ export function usePolling(
             stop();
             document.removeEventListener('visibilitychange', onVisibilityChange);
         };
-    }, [intervalMs, enabled, tick]);
+    }, [intervalMs, resolvedHiddenInterval, enabled, tick]);
 }

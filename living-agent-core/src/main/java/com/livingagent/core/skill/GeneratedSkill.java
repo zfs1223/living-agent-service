@@ -20,6 +20,7 @@ public class GeneratedSkill implements Skill {
     private String scope = "global";
     private String ownerId;
     private String departmentId;
+    private boolean personalSafe = false;
 
     public GeneratedSkill(String name, String description) {
         this.name = name;
@@ -123,5 +124,11 @@ public class GeneratedSkill implements Skill {
 
     @Override
     public void setDepartmentId(String departmentId) { this.departmentId = departmentId; }
+
+    @Override
+    public boolean isPersonalSafe() { return personalSafe; }
+
+    @Override
+    public void setPersonalSafe(boolean personalSafe) { this.personalSafe = personalSafe; }
 }
 

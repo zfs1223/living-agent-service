@@ -3,6 +3,7 @@ name: sensor-data
 description: "WiFi物理感知传感器数据查询，人员检测/占用统计/生命体征"
 risk: low
 source: internal
+personalSafe: false
 date_added: '2026-07-13'
 ---
 

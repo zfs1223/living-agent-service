@@ -1,6 +1,7 @@
 ---
 name: canvas
 description: "HTML内容展示，在连接的节点上显示HTML内容"
+personalSafe: false
 risk: low
 source: community
 date_added: '2026-02-27'

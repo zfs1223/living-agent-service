@@ -451,12 +451,6 @@ export default function Layout() {
                 <div className="sidebar-bottom" style={{ paddingTop: '8px' }}>
                     <div className="sidebar-section" style={{ borderBottom: '1px solid var(--border-subtle)', paddingBottom: '8px', marginBottom: 0 }}>
                         {user && (
-                            <NavLink to="/agents/new" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`} title={t('nav.newAgent')}>
-                                <span className="sidebar-item-icon" style={{ display: 'flex' }}>{SidebarIcons.plus}</span>
-                                <span className="sidebar-item-text">{t('nav.newAgent')}</span>
-                            </NavLink>
-                        )}
-                        {user && (
                             <NavLink to="/agents/new?type=personal" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`} title={t('nav.newPersonalAgent', '新建个人助理')}>
                                 <span className="sidebar-item-icon" style={{ display: 'flex' }}><IconUserPlus size={14} stroke={1.5} /></span>
                                 <span className="sidebar-item-text">{t('nav.newPersonalAgent', '新建个人助理')}</span>

@@ -1,6 +1,7 @@
 ---
 name: crawl4ai
 description: "智能网页爬取，基于Crawl4AI的高性能内容提取"
+personalSafe: true
 risk: low
 source: internal
 date_added: '2026-07-13'

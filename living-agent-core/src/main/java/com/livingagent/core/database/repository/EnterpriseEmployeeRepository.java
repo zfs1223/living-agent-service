@@ -14,6 +14,9 @@ public interface EnterpriseEmployeeRepository extends JpaRepository<EnterpriseEm
 
     Optional<EnterpriseEmployeeEntity> findByPhone(String phone);
 
+    /** 同一手机号在多个租户中存在记录 */
+    List<EnterpriseEmployeeEntity> findAllByPhone(String phone);
+
     Optional<EnterpriseEmployeeEntity> findByEmail(String email);
 
     Optional<EnterpriseEmployeeEntity> findByOauthProviderAndOauthUserId(String oauthProvider, String oauthUserId);

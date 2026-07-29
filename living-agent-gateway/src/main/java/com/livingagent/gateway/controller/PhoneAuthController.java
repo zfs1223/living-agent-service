@@ -12,6 +12,8 @@ import com.livingagent.core.security.auth.UnifiedAuthService.AuthSession;
 import com.livingagent.core.security.AccessGateService;
 import com.livingagent.core.security.auth.AuthMetricsService;
 import com.livingagent.core.security.auth.PhoneVerificationService;
+import com.livingagent.core.database.entity.EnterpriseEmployeeEntity;
+import com.livingagent.core.database.repository.EnterpriseEmployeeRepository;
 import com.livingagent.gateway.controller.common.ApiResponse;
 import com.livingagent.core.security.service.EnterpriseEmployeeService;
 import jakarta.servlet.http.HttpServletResponse;
@@ -49,6 +51,7 @@ public class PhoneAuthController {
     private final FounderService founderService;
     private final EnterpriseEmployeeService employeeService;
     private final EmployeeAuthService employeeAuthService;
+    private final EnterpriseEmployeeRepository employeeRepository;
     private final Map<String, SecurityIdentity> phoneEmployeeMap = new ConcurrentHashMap<>();
     private final AccessGateService accessGateService;
     private final AuthMetricsService authMetricsService;
@@ -63,6 +66,7 @@ public class PhoneAuthController {
             FounderService founderService,
             EnterpriseEmployeeService employeeService,
             EmployeeAuthService employeeAuthService,
+            EnterpriseEmployeeRepository employeeRepository,
             AccessGateService accessGateService,
             AuthMetricsService authMetricsService
     ) {
@@ -71,6 +75,7 @@ public class PhoneAuthController {
         this.founderService = founderService;
         this.employeeService = employeeService;
         this.employeeAuthService = employeeAuthService;
+        this.employeeRepository = employeeRepository;
         this.accessGateService = accessGateService;
         this.authMetricsService = authMetricsService;
     }
@@ -111,20 +116,13 @@ public class PhoneAuthController {
     }
 
     @PostMapping("/phone/login")
-    public ResponseEntity<ApiResponse<LoginResponse>> phoneLogin(
+    public ResponseEntity<ApiResponse<?>> phoneLogin(
             @RequestBody PhoneLoginRequest request,
             HttpServletResponse httpResponse
     ) {
         log.info("Phone login attempt: {}", maskPhone(request.phone()));
 
         String normalizedPhone = phoneVerificationService.normalizePhone(request.phone());
-
-        SecurityIdentity employee = findEmployeeByPhone(normalizedPhone);
-        if (employee == null) {
-            authMetricsService.recordFailure("phone_login", "PhoneAuthController", "phone_not_registered");
-            return ResponseEntity.status(401)
-                    .body(ApiResponse.err("phone_not_registered", "该手机号未绑定企业员工，请联系管理员添加"));
-        }
 
         // 验证验证码
         PhoneVerificationService.VerifyResult verifyResult = phoneVerificationService.verifyCode(normalizedPhone, request.code());
@@ -134,11 +132,101 @@ public class PhoneAuthController {
                     .body(ApiResponse.err("invalid_code", verifyResult.error()));
         }
 
-        // 创建正确的 AuthContext，包含员工的完整信息
+        // 查找该手机号所有员工记录
+        List<EnterpriseEmployeeEntity> employees = employeeRepository.findAllByPhone(normalizedPhone);
+        if (employees.isEmpty()) {
+            authMetricsService.recordFailure("phone_login", "PhoneAuthController", "phone_not_registered");
+            return ResponseEntity.status(401)
+                    .body(ApiResponse.err("phone_not_registered", "该手机号未绑定企业员工，请联系管理员添加"));
+        }
+
+        // 过滤活跃员工
+        List<EnterpriseEmployeeEntity> activeEmployees = employees.stream()
+                .filter(EnterpriseEmployeeEntity::isActive)
+                .toList();
+        if (activeEmployees.isEmpty()) {
+            authMetricsService.recordFailure("phone_login", "PhoneAuthController", "employee_inactive");
+            return ResponseEntity.status(401)
+                    .body(ApiResponse.err("employee_inactive", "员工账号已停用"));
+        }
+
+        // 判断是否有多个公司
+        List<String> tenantIds = activeEmployees.stream()
+                .map(EnterpriseEmployeeEntity::getTenantId)
+                .distinct()
+                .toList();
+
+        if (tenantIds.size() > 1) {
+            // 多个公司：返回公司列表
+            List<TenantOption> tenantOptions = activeEmployees.stream()
+                    .map(e -> new TenantOption(
+                            e.getTenantId(),
+                            e.getDepartmentName() != null ? e.getDepartmentName() : e.getTenantId(),
+                            e.getName(),
+                            e.isFounder()
+                    ))
+                    .toList();
+            log.info("Phone login: {} has {} tenants, requiring selection", maskPhone(normalizedPhone), tenantIds.size());
+            return ResponseEntity.ok(ApiResponse.ok(new TenantSelectionResponse(
+                    "tenant_required", maskPhone(normalizedPhone), tenantOptions
+            )));
+        }
+
+        // 只有一个公司：直接登录
+        EnterpriseEmployeeEntity empEntity = activeEmployees.get(0);
+        SecurityIdentity employee = toSecurityIdentity(empEntity, normalizedPhone);
+
+        // 缓存到 phoneEmployeeMap
+        phoneEmployeeMap.put(normalizedPhone, employee);
+
+        return (ResponseEntity) completePhoneLogin(employee, normalizedPhone, "phone_login", httpResponse);
+    }
+
+    /**
+     * 手机验证码 + 多公司选择后登录
+     * POST /api/auth/phone/login-with-tenant
+     */
+    @PostMapping("/phone/login-with-tenant")
+    public ResponseEntity<ApiResponse<LoginResponse>> phoneLoginWithTenant(
+            @RequestBody PhoneLoginWithTenantRequest request,
+            HttpServletResponse httpResponse
+    ) {
+        log.info("Phone login with tenant: phone={}, tenantId={}", maskPhone(request.phone()), request.tenantId());
+
+        String normalizedPhone = phoneVerificationService.normalizePhone(request.phone());
+
+        // 验证验证码
+        PhoneVerificationService.VerifyResult verifyResult = phoneVerificationService.verifyCode(normalizedPhone, request.code());
+        if (!verifyResult.isSuccess()) {
+            return ResponseEntity.status(401)
+                    .body(ApiResponse.err("invalid_code", verifyResult.error()));
+        }
+
+        // 查找指定手机号+租户的员工
+        List<EnterpriseEmployeeEntity> employees = employeeRepository.findAllByPhone(normalizedPhone);
+        Optional<EnterpriseEmployeeEntity> empOpt = employees.stream()
+                .filter(e -> request.tenantId().equals(e.getTenantId()) && e.isActive())
+                .findFirst();
+
+        if (empOpt.isEmpty()) {
+            return ResponseEntity.status(401)
+                    .body(ApiResponse.err("employee_not_found", "在该公司下未找到员工记录"));
+        }
+
+        SecurityIdentity employee = toSecurityIdentity(empOpt.get(), normalizedPhone);
+        phoneEmployeeMap.put(normalizedPhone, employee);
+
+        return completePhoneLogin(employee, normalizedPhone, "phone_login_tenant", httpResponse);
+    }
+
+    private ResponseEntity<ApiResponse<LoginResponse>> completePhoneLogin(
+            SecurityIdentity employee, String phone, String loginMethod,
+            HttpServletResponse httpResponse
+    ) {
         AuthContext authContext = new AuthContext();
         authContext.setEmployeeId(employee.getEmployeeId());
         authContext.setName(employee.getName());
-        authContext.setPhone(normalizedPhone);
+        authContext.setPhone(phone);
         authContext.setEmail(employee.getEmail());
         authContext.setDepartment(employee.getDepartment());
         authContext.setPosition(employee.getPosition());
@@ -146,14 +234,13 @@ public class PhoneAuthController {
         authContext.setAccessLevel(employee.getAccessLevel());
         authContext.setFounder(employee.isFounder());
         authContext.setActive(employee.isActive());
+        authContext.setTenantId(employee.getTenantId());
         authContext.setLastSyncTime(Instant.now());
-        authContext.setSyncSource("phone_login");
+        authContext.setSyncSource(loginMethod);
 
-        // 创建内部会话
         AuthResult authResult = authService.createInternalSession(authContext);
         AuthSession session = authResult.session();
 
-        // 设置 HttpOnly Cookie
         setTokenCookies(httpResponse, session.sessionId(), session.sessionId());
 
         LoginResponse response = new LoginResponse(
@@ -162,11 +249,45 @@ public class PhoneAuthController {
                 convertToUserInfo(employee)
         );
 
-        log.info("Phone login successful: {} ({}), identity: {}, accessLevel: {}",
-                employee.getName(), maskPhone(request.phone()),
-                employee.getIdentity(), employee.getAccessLevel());
-        authMetricsService.recordSuccess("phone_login", "PhoneAuthController");
+        log.info("{} successful: {} ({}), tenantId: {}, identity: {}, accessLevel: {}",
+                loginMethod, employee.getName(), maskPhone(phone),
+                employee.getTenantId(), employee.getIdentity(), employee.getAccessLevel());
+        authMetricsService.recordSuccess(loginMethod, "PhoneAuthController");
         return ResponseEntity.ok(ApiResponse.ok(response));
+    }
+
+    /** Entity → SecurityIdentity 转换 */
+    private SecurityIdentity toSecurityIdentity(EnterpriseEmployeeEntity e, String phone) {
+        SecurityIdentity employee = new SecurityIdentity();
+        employee.setEmployeeId(e.getEmployeeId());
+        employee.setName(e.getName());
+        employee.setPhone(phone);
+        employee.setEmail(e.getEmail());
+        try {
+            if (e.getIdentity() != null) {
+                employee.setIdentity(UserIdentity.valueOf(e.getIdentity()));
+            }
+        } catch (Exception ignored) {}
+        try {
+            if (e.getAccessLevel() != null) {
+                employee.setAccessLevel(AccessLevel.valueOf(e.getAccessLevel()));
+            }
+        } catch (Exception ignored) {}
+        employee.setFounder(e.isFounder());
+        employee.setPosition(e.getPosition());
+        employee.setActive(e.isActive());
+        if (e.getDepartmentName() != null && !e.getDepartmentName().isBlank()) {
+            employee.setDepartment(e.getDepartmentName());
+        } else if (e.isFounder()) {
+            employee.setDepartment("core");
+        }
+        if (e.getTenantId() == null || e.getTenantId().isBlank()) {
+            employee.setTenantId("tenant_default");
+        } else {
+            employee.setTenantId(e.getTenantId());
+        }
+        employee.setStatus("ACTIVE");
+        return employee;
     }
 
     @PostMapping("/phone/bind")
@@ -282,7 +403,7 @@ public class PhoneAuthController {
             if (ctx.getDepartment() != null && !ctx.getDepartment().isBlank()) {
                 employee.setDepartment(ctx.getDepartment());
             } else if (employee.isFounder()) {
-                employee.setDepartment("管理部");
+                employee.setDepartment("core");
             }
             if (ctx.getTenantId() == null || ctx.getTenantId().isBlank()) {
                 employee.setTenantId("tenant_default");
@@ -359,8 +480,11 @@ public class PhoneAuthController {
     public record SendSmsRequest(String phone, String type) {}
     public record SendSmsResponse(String message, int expiresIn, String code) {}
     public record PhoneLoginRequest(String phone, String code) {}
+    public record PhoneLoginWithTenantRequest(String phone, String code, String tenantId) {}
     public record BindPhoneRequest(String phone, String code, String name, String email, String department, String position) {}
     public record LoginResponse(String accessToken, String refreshToken, UserInfo user) {}
+    public record TenantOption(String tenantId, String departmentName, String employeeName, boolean founder) {}
+    public record TenantSelectionResponse(String status, String phone, List<TenantOption> tenants) {}
     public record UserInfo(
             String id,
             String email,

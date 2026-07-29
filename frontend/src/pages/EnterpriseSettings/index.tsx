@@ -6,7 +6,6 @@ import PromptModal from '../../components/PromptModal';
 import ModelPoolProviders from '../ModelPoolProviders';
 import BrainConfig from '../BrainConfig';
 import UserManagement from '../UserManagement';
-import InvitationCodes from '../InvitationCodes';
 import { useToastStore } from '../../stores/toastStore';
 import { request } from '../../services/apiBase';
 
@@ -18,12 +17,136 @@ import ApprovalsTab from './ApprovalsTab';
 import SkillsTab from './SkillsTab';
 import { ThemeColorPicker, CreditOverview, CompanyLogoUploader, CompanyNameEditor, CompanyTimezoneEditor, BroadcastSection, WindowsAutomationNodes, PRESET_MODELS } from './InfoTabComponents';
 
+// ─── Company List & Create Section ──────────────────────────
+function CompanyListSection({ selectedTenantId, onSelectTenant }: { selectedTenantId: string; onSelectTenant: (id: string) => void }) {
+    const { t, i18n } = useTranslation();
+    const isChinese = i18n.language === 'zh' || i18n.language?.startsWith('zh');
+    const qc = useQueryClient();
+    const [companies, setCompanies] = useState<any[]>([]);
+    const [showCreate, setShowCreate] = useState(false);
+    const [newCompanyName, setNewCompanyName] = useState('');
+    const [creating, setCreating] = useState(false);
+    const [toast, setToast] = useState('');
+
+    const loadCompanies = () => {
+        fetchJson<any>('/tenants/admin/companies')
+            .then((data: any) => {
+                const list = Array.isArray(data.data || data) ? (data.data || data) : [];
+                setCompanies(list);
+            })
+            .catch(() => setCompanies([]));
+    };
+
+    useEffect(() => { loadCompanies(); }, []);
+
+    const handleCreate = async () => {
+        if (!newCompanyName.trim()) return;
+        setCreating(true);
+        try {
+            await fetchJson('/tenants/admin/companies', {
+                method: 'POST',
+                body: JSON.stringify({ name: newCompanyName.trim() }),
+            });
+            setToast(isChinese ? '公司创建成功' : 'Company created');
+            setNewCompanyName('');
+            setShowCreate(false);
+            loadCompanies();
+            setTimeout(() => setToast(''), 2000);
+        } catch (e: any) {
+            setToast(isChinese ? '创建失败: ' + (e.message || '') : 'Failed: ' + (e.message || ''));
+            setTimeout(() => setToast(''), 3000);
+        }
+        setCreating(false);
+    };
+
+    return (
+        <div className="card" style={{ padding: '16px', marginBottom: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600 }}>
+                    {isChinese ? '公司列表' : 'Companies'}
+                </h3>
+                <button className="btn btn-primary btn-sm" onClick={() => setShowCreate(!showCreate)}>
+                    {isChinese ? '+ 新建公司' : '+ New Company'}
+                </button>
+            </div>
+
+            {showCreate && (
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', padding: '12px', background: 'var(--bg-tertiary)', borderRadius: '8px' }}>
+                    <input
+                        className="form-input"
+                        value={newCompanyName}
+                        onChange={e => setNewCompanyName(e.target.value)}
+                        placeholder={isChinese ? '输入公司名称' : 'Enter company name'}
+                        style={{ flex: 1, fontSize: '13px' }}
+                        onKeyDown={e => e.key === 'Enter' && handleCreate()}
+                        autoFocus
+                    />
+                    <button className="btn btn-primary btn-sm" onClick={handleCreate} disabled={creating || !newCompanyName.trim()}>
+                        {creating ? (isChinese ? '创建中...' : 'Creating...') : (isChinese ? '创建' : 'Create')}
+                    </button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => { setShowCreate(false); setNewCompanyName(''); }}>
+                        {isChinese ? '取消' : 'Cancel'}
+                    </button>
+                </div>
+            )}
+
+            {toast && (
+                <div style={{ padding: '8px 12px', marginBottom: '8px', borderRadius: '6px', fontSize: '12px',
+                    background: toast.includes('失败') || toast.includes('Failed') ? 'rgba(255,0,0,0.1)' : 'rgba(0,200,0,0.1)',
+                    color: toast.includes('失败') || toast.includes('Failed') ? 'var(--error)' : 'var(--success)' }}>
+                    {toast}
+                </div>
+            )}
+
+            {companies.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-tertiary)', fontSize: '13px' }}>
+                    {isChinese ? '暂无公司，请点击"新建公司"创建' : 'No companies yet. Click "+ New Company" to create one.'}
+                </div>
+            ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    {companies.map((c: any) => (
+                        <div
+                            key={c.id || c.tenantId}
+                            onClick={() => onSelectTenant(c.tenantId || c.id)}
+                            style={{
+                                display: 'flex', alignItems: 'center', gap: '12px',
+                                padding: '10px 12px', borderRadius: '8px', cursor: 'pointer',
+                                border: (c.tenantId || c.id) === selectedTenantId ? '2px solid var(--accent-primary)' : '1px solid var(--border-subtle)',
+                                background: (c.tenantId || c.id) === selectedTenantId ? 'rgba(99,102,241,0.06)' : 'transparent',
+                                transition: 'all 0.15s',
+                            }}
+                        >
+                            <div style={{
+                                width: 36, height: 36, borderRadius: 8, flexShrink: 0,
+                                background: 'linear-gradient(135deg, rgba(99,102,241,0.2), rgba(59,130,246,0.2))',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16,
+                            }}>🏢</div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontWeight: 500, fontSize: '14px' }}>{c.name || 'Unnamed'}</div>
+                                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                                    ID: {c.tenantId || c.id}
+                                    {!c.active && <span style={{ marginLeft: 8, color: 'var(--error)' }}>{isChinese ? '已停用' : 'Inactive'}</span>}
+                                </div>
+                            </div>
+                            {(c.tenantId || c.id) === selectedTenantId && (
+                                <span style={{ fontSize: '11px', color: 'var(--accent-primary)', fontWeight: 500 }}>
+                                    {isChinese ? '当前' : 'Current'}
+                                </span>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
 // ─── Identity Providers Tab ──────────────────────────
 
 export default function EnterpriseSettings() {
     const { t } = useTranslation();
     const qc = useQueryClient();
-    const [activeTab, setActiveTab] = useState<'info' | 'llm' | 'brain' | 'knowledge' | 'tools' | 'skills' | 'users' | 'org' | 'invites' | 'quotas' | 'approvals' | 'audit'>('info');
+    const [activeTab, setActiveTab] = useState<'info' | 'llm' | 'brain' | 'knowledge' | 'tools' | 'skills' | 'users' | 'org' | 'quotas' | 'approvals' | 'audit'>('info');
 
     // Track selected tenant as state so page refreshes on company switch
     const [selectedTenantId, setSelectedTenantId] = useState(localStorage.getItem('current_tenant_id') || '');
@@ -244,9 +367,9 @@ export default function EnterpriseSettings() {
                 </div>
 
                 <div className="tabs">
-                    {(['info', 'llm', 'brain', 'knowledge', 'tools', 'skills', 'users', 'org', 'invites', 'quotas', 'approvals', 'audit'] as const).map(tab => (
+                    {(['info', 'llm', 'brain', 'knowledge', 'tools', 'skills', 'users', 'org', 'quotas', 'approvals', 'audit'] as const).map(tab => (
                         <div key={tab} className={`tab ${activeTab === tab ? 'active' : ''}`} onClick={() => setActiveTab(tab)}>
-                            {tab === 'quotas' ? t('enterprise.tabs.quotas', '配额') : tab === 'users' ? t('enterprise.tabs.users', '用户') : tab === 'invites' ? t('enterprise.tabs.invites', '邀请') : tab === 'brain' ? '大脑配置' : tab === 'knowledge' ? t('enterprise.tabs.knowledge', '知识库') : t(`enterprise.tabs.${tab}`)}
+                            {tab === 'quotas' ? t('enterprise.tabs.quotas', '配额') : tab === 'users' ? t('enterprise.tabs.users', '用户') : tab === 'brain' ? '大脑配置' : tab === 'knowledge' ? t('enterprise.tabs.knowledge', '知识库') : t(`enterprise.tabs.${tab}`)}
                         </div>
                     ))}
                 </div>
@@ -279,6 +402,15 @@ export default function EnterpriseSettings() {
                 {/* ── Company Management ── */}
                 {activeTab === 'info' && (
                     <div>
+
+                        {/* ── 公司列表 & 新建公司 ── */}
+                        <CompanyListSection
+                            selectedTenantId={selectedTenantId}
+                            onSelectTenant={(id) => {
+                                setSelectedTenantId(id);
+                                localStorage.setItem('current_tenant_id', id);
+                            }}
+                        />
 
                         {/* ── Logo Upload ── */}
                         <CompanyLogoUploader key={`logo-${selectedTenantId}`} />
@@ -1015,9 +1147,6 @@ export default function EnterpriseSettings() {
 
                 {/* ── Skills Tab ── */}
                 {activeTab === 'skills' && <SkillsTab />}
-
-                {/* ── Invitation Codes Tab ── */}
-                {activeTab === 'invites' && <InvitationCodes />}
             </div>
 
             {

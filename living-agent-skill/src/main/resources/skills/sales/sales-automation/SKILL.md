@@ -3,6 +3,7 @@ name: sales-automation
 description: "销售自动化，自动跟进提醒和数据同步"
 risk: low
 source: ClawHub转换
+personalSafe: false
 date_added: '2026-07-09'
 ---
 

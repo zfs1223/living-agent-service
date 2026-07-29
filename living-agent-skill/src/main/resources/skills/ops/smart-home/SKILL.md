@@ -1,6 +1,7 @@
 ---
 name: smart-home
 description: 智能家居控制技能 - 通过 Home Assistant 控制灯光、空调、窗帘等智能设备
+personalSafe: false
 metadata: { "brain": "ops", "category": "iot" }
 ---
 

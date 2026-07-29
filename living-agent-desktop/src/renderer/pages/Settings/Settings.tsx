@@ -49,6 +49,14 @@ export function Settings({ clientInfo, onBackendChanged, onLogout, hasToken }: S
   const [saveError, setSaveError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
+  // ---- 修改密码状态 ----
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [oldPassword, setOldPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  const [passwordMsg, setPasswordMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
   // ---- 习惯录制状态 ----
   const [recording, setRecording] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -110,6 +118,42 @@ export function Settings({ clientInfo, onBackendChanged, onLogout, hasToken }: S
       setTimeout(() => setCopied(false), 2000);
     } catch (e) {
       console.warn('[settings] clipboard failed:', e);
+    }
+  }
+
+  /** 修改当前用户密码 */
+  async function handleChangePassword() {
+    setPasswordMsg(null);
+    // 旧密码可以为空（初始化密码场景）
+    if (!newPassword) {
+      setPasswordMsg({ ok: false, text: '请输入新密码' });
+      return;
+    }
+    if (newPassword.length < 6) {
+      setPasswordMsg({ ok: false, text: '新密码长度不能少于 6 位' });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordMsg({ ok: false, text: '两次输入的新密码不一致' });
+      return;
+    }
+    if (oldPassword && newPassword === oldPassword) {
+      setPasswordMsg({ ok: false, text: '新密码不能与旧密码相同' });
+      return;
+    }
+
+    setPasswordLoading(true);
+    try {
+      await window.livingAgentAPI.auth.changePassword(oldPassword || '', newPassword);
+      setPasswordMsg({ ok: true, text: oldPassword ? '密码修改成功' : '密码设置成功' });
+      setOldPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setShowChangePassword(false);
+    } catch (err: any) {
+      setPasswordMsg({ ok: false, text: err.message || '操作失败' });
+    } finally {
+      setPasswordLoading(false);
     }
   }
 
@@ -547,6 +591,93 @@ export function Settings({ clientInfo, onBackendChanged, onLogout, hasToken }: S
           </div>
         )}
       </section>
+
+      {/* 修改密码 */}
+      {hasToken && (
+      <section className="settings-section">
+        <div className="settings-section-head">
+          <h2>🔐 修改密码</h2>
+          <span className="settings-hint">
+            修改或设置登录密码（离线环境登录使用）。若未设置过密码，旧密码可留空
+          </span>
+        </div>
+
+        {passwordMsg && (
+          <div
+            className={`test-result ${passwordMsg.ok ? 'ok' : 'fail'}`}
+            role="alert"
+            style={{ marginBottom: 12 }}
+          >
+            {passwordMsg.ok ? `✅ ${passwordMsg.text}` : `❌ ${passwordMsg.text}`}
+          </div>
+        )}
+
+        {!showChangePassword ? (
+          <div className="form-actions">
+            <button
+              className="btn btn-secondary"
+              onClick={() => { setShowChangePassword(true); setPasswordMsg(null); }}
+            >
+              🔑 设置/修改密码
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 360 }}>
+            <div className="form-row">
+              <label>旧密码 <span style={{ color: 'var(--text-tertiary)', fontSize: '11px' }}>(可选)</span></label>
+              <input
+                type="password"
+                value={oldPassword}
+                onChange={(e) => setOldPassword(e.target.value)}
+                placeholder="若未设置过密码可留空"
+                autoFocus
+              />
+            </div>
+            <div className="form-row">
+              <label>新密码</label>
+              <input
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="至少 6 位"
+              />
+            </div>
+            <div className="form-row">
+              <label>确认新密码</label>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="再次输入新密码"
+                onKeyDown={(e) => { if (e.key === 'Enter') handleChangePassword(); }}
+              />
+            </div>
+            <div className="form-actions">
+              <button
+                className="btn btn-secondary"
+                onClick={() => {
+                  setShowChangePassword(false);
+                  setOldPassword('');
+                  setNewPassword('');
+                  setConfirmPassword('');
+                  setPasswordMsg(null);
+                }}
+                disabled={passwordLoading}
+              >
+                取消
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={handleChangePassword}
+                disabled={passwordLoading || !newPassword || !confirmPassword}
+              >
+                {passwordLoading ? '提交中…' : '确认'}
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
+      )}
 
       {/* 登录态 */}
       <section className="settings-section">

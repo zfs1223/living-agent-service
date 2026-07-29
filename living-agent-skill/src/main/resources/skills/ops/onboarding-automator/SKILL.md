@@ -1,6 +1,7 @@
 ---
 name: onboarding-automator
 description: Onboarding Automator - 入职自动化器技能
+personalSafe: false
 risk: low
 source: internal
 date_added: '2026-07-13'

@@ -80,4 +80,14 @@ public class TenantService {
     public boolean existsByOwnerId(String ownerId) {
         return tenantRepository.existsByOwnerId(ownerId);
     }
+
+    @Transactional
+    public TenantEntity toggleActive(String tenantId) {
+        Optional<TenantEntity> opt = tenantRepository.findById(tenantId);
+        if (opt.isEmpty()) return null;
+        TenantEntity entity = opt.get();
+        entity.setActive(!entity.isActive());
+        entity.touch();
+        return tenantRepository.saveAndFlush(entity);
+    }
 }

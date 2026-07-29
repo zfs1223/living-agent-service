@@ -4,6 +4,7 @@ description: Tavily Search - AI 搜索引擎技能
 risk: low
 source: internal
 date_added: '2026-07-13'
+personalSafe: true
 ---
 
 # Tavily Search - AI 搜索引擎技能

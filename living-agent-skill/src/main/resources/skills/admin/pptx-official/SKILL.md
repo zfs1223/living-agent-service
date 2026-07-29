@@ -4,6 +4,7 @@ description: "Presentation creation, editing, and analysis. When Claude needs to
 risk: unknown
 source: community
 date_added: "2026-02-27"
+personalSafe: true
 ---
 
 # PPTX creation, editing, and analysis

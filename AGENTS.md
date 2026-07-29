@@ -1,7 +1,43 @@
 # Living Agent Service - 项目规则
 
 > 本文件是 AI Agent 在本项目中执行任务时的行为规则基线，基于项目实际代码、架构文档和闭环体系提炼。
-> **⚠️ 重要**：禁止使用 `powershell -Command` 修改代码。本地命令用 `;` 分隔，不用 `&&`。少量问题及时修复，大量问题整理文档后批量修复。可以编译检查，不要构建服务。必须中文回复。修改代码必须先看代码结构与文件功能文件`docs/CODE_STRUCTURE_AND_FILE_GUIDE.md` 
+
+## 核心规则
+
+### ⚠️ 重要约束
+
+- **禁止使用 `powershell -Command` 修改代码**
+- **本地命令用 `;` 分隔，不用 `&&`**
+- **少量问题及时修复，大量问题整理文档后批量修复**
+- **可以编译检查，不要构建服务**
+- **必须中文回复**
+
+### 📋 文档规范
+
+- 修改代码前必须先查看 `docs/CODE_STRUCTURE_AND_FILE_GUIDE.md`
+- 修改BUG时不能与以下文档产生冲突和重复：
+  - `docs/IMPROVEMENT_PLAN_INDEX.md`
+  - `docs/CODE_STRUCTURE_AND_FILE_GUIDE.md`
+  - `docs/LOOP_RELATIONSHIP_FLOW_DIAGRAMS.md`
+
+### 🔐 用户注册规则
+
+- **董事长注册**：通过 `POST /api/system/register-founder`（需要 companyName）
+- **其他用户**：通过邀请码进入（导入手机号/密码，或邀请时填写）
+
+### 👥 员工显示规则
+
+- **办公室布局**：显示 FIXED + EVOLVED + HUMAN（所有部门员工），不显示 PERSONAL（个人助理不是员工）
+- **聊天对象选择区**：只显示 HUMAN + PERSONAL
+
+### 🔧 技能安全规则
+
+- **可见性闸门**：个人助手只能选择 `personalSafe=true` 的技能（已实现：`Skill.isPersonalSafe()` + `getPersonalAssistantVisibleSkills(userId)`）
+- **硬边界**：个人助手技能采用"大脑在服务器、双手在桌面"的双层架构——服务器提供推理通道+WebSocket转发，技能脚本执行在桌面端本地（复用闭环6 win-automation模式），服务器不执行技能脚本本身
+- **默认不暴露**：所有 `global` 技能默认 `personalSafe=false`，需显式标注才对个人助手可见
+
+
+
 ---
 
 ## 1. 项目概览

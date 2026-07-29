@@ -371,6 +371,10 @@ public class JpaEmployeeServiceImpl implements EmployeeService {
             .filter(e -> query.type() == null ||
                 (query.type() == IdUtils.EmployeeType.DIGITAL && e.isDigital()) ||
                 (query.type() == IdUtils.EmployeeType.HUMAN && e.isHuman()))
+            // 按 origin 过滤：query.origin() 为 null（未传 origin 参数）时不过滤，保持原有全量行为；
+            // 传入 origin（如 personal）时只返回对应来源的员工，避免 /api/agents?origin=personal 泄露 fixed 等其它来源（AGENTS.md §5.3 / 聊天对象选择区规则）
+            .filter(e -> query.origin() == null ||
+                query.origin().equals(e.getOrigin()))
             .filter(e -> query.departmentId() == null ||
                 query.departmentId().equals(e.getDepartmentId()))
             .filter(e -> query.status() == null ||

@@ -123,15 +123,15 @@ public class EmployeeServiceImpl implements EmployeeService {
             .icon(request.icon() != null ? request.icon() : "🤖")
             .department(request.department())
             .departmentId(request.departmentId())
-            .roles(request.roles())
+            .roles(request.roles() != null ? request.roles() : List.of())
             .managerId(request.managerId())
-            .capabilities(request.capabilities())
-            .skills(request.skills())
-            .tools(request.tools())
+            .capabilities(request.capabilities() != null ? request.capabilities() : List.of())
+            .skills(request.skills() != null ? request.skills() : List.of())
+            .tools(request.tools() != null ? request.tools() : List.of())
             .personality(request.personality())
-            .subscribeChannels(request.subscribeChannels())
-            .publishChannels(request.publishChannels())
-            .workflowBindings(request.workflowBindings())
+            .subscribeChannels(request.subscribeChannels() != null ? request.subscribeChannels() : List.of())
+            .publishChannels(request.publishChannels() != null ? request.publishChannels() : List.of())
+            .workflowBindings(request.workflowBindings() != null ? request.workflowBindings() : List.of())
             .origin(request.origin());
         
         if (request.ttl() != null) {
@@ -151,11 +151,11 @@ public class EmployeeServiceImpl implements EmployeeService {
             .icon(request.icon() != null ? request.icon() : "👤")
             .department(request.department())
             .departmentId(request.departmentId())
-            .roles(request.roles())
+            .roles(request.roles() != null ? request.roles() : List.of())
             .managerId(request.managerId())
-            .capabilities(request.capabilities())
-            .skills(request.skills())
-            .tools(request.tools())
+            .capabilities(request.capabilities() != null ? request.capabilities() : List.of())
+            .skills(request.skills() != null ? request.skills() : List.of())
+            .tools(request.tools() != null ? request.tools() : List.of())
             .personality(request.personality())
             .build();
     }
@@ -271,19 +271,69 @@ public class EmployeeServiceImpl implements EmployeeService {
 
     @Override
     public List<Employee> listEmployees(EmployeeQuery query) {
-        return employeeStore.values().stream()
-            .filter(e -> query.type() == null || 
+        List<Employee> result = new java.util.ArrayList<>();
+
+        // 1. 从内存获取数字员工（FIXED, PERSONAL, EVOLVED）
+        employeeStore.values().stream()
+            .filter(e -> query.type() == null ||
                 (query.type() == IdUtils.EmployeeType.DIGITAL && e.isDigital()) ||
                 (query.type() == IdUtils.EmployeeType.HUMAN && e.isHuman()))
-            .filter(e -> query.departmentId() == null || 
+            .filter(e -> query.departmentId() == null ||
                 query.departmentId().equals(e.getDepartmentId()))
-            .filter(e -> query.status() == null || 
+            .filter(e -> query.status() == null ||
                 query.status().equals(e.getStatus()))
-            .filter(e -> query.nameKeyword() == null || 
+            .filter(e -> query.origin() == null ||
+                query.origin().equals(e.getOrigin()))
+            .filter(e -> query.nameKeyword() == null ||
                 e.getName().toLowerCase().contains(query.nameKeyword().toLowerCase()))
+            .forEach(result::add);
+
+        // 2. 从数据库获取人类员工（HUMAN），如果查询条件允许
+        boolean includeHuman = query.origin() == null || query.origin() == EmployeeOrigin.HUMAN;
+        if (includeHuman && (query.type() == null || query.type() == IdUtils.EmployeeType.HUMAN)) {
+            try {
+                List<EnterpriseEmployeeEntity> humanEntities;
+                if (query.departmentId() != null) {
+                    humanEntities = employeeRepository.findActiveByDepartmentId(query.departmentId());
+                } else {
+                    humanEntities = employeeRepository.findByActiveTrue();
+                }
+
+                humanEntities.stream()
+                    .filter(e -> query.status() == null ||
+                        query.status().name().equalsIgnoreCase(e.getStatus()))
+                    .filter(e -> query.nameKeyword() == null ||
+                        e.getName().toLowerCase().contains(query.nameKeyword().toLowerCase()))
+                    .map(this::convertToHumanEmployee)
+                    .forEach(result::add);
+            } catch (Exception e) {
+                log.warn("Failed to load human employees from database", e);
+            }
+        }
+
+        // 3. 应用分页
+        return result.stream()
             .skip(query.offset())
             .limit(query.limit())
             .collect(Collectors.toList());
+    }
+
+    private HumanEmployee convertToHumanEmployee(EnterpriseEmployeeEntity entity) {
+        return HumanEmployee.builder()
+            .employeeId(entity.getEmployeeId())
+            .authId(entity.getEmployeeId())
+            .authProvider("system")
+            .name(entity.getName())
+            .title(entity.getPosition())
+            .icon(entity.getAvatarUrl() != null ? "👤" : "👤")
+            .department(entity.getDepartmentName())
+            .departmentId(entity.getDepartmentId())
+            .roles(List.of())
+            .capabilities(List.of())
+            .skills(List.of())
+            .tools(List.of())
+            .personality(null)
+            .build();
     }
 
     @Override

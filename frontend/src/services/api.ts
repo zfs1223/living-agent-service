@@ -104,12 +104,61 @@ export interface PhoneLoginResponse {
     };
 }
 
+/** 多公司选择时的租户选项 */
+export interface TenantOption {
+    tenantId: string;
+    departmentName: string;
+    employeeName: string;
+    founder: boolean;
+}
+
+/** 需要选择公司时的响应 */
+export interface TenantSelectionResponse {
+    status: 'tenant_required';
+    phone: string;
+    tenants: TenantOption[];
+}
+
 export const authApi = {
     sendSmsCode: (data: { phone: string; type: string }) =>
         request<{ success: boolean; message: string; expiresIn: number; code?: string }>('/auth/sms/send', { method: 'POST', body: JSON.stringify(data) }),
 
     phoneLogin: (data: { phone: string; code: string }) =>
-        request<PhoneLoginResponse>('/auth/phone/login', { method: 'POST', body: JSON.stringify(data) }),
+        request<PhoneLoginResponse | TenantSelectionResponse>('/auth/phone/login', { method: 'POST', body: JSON.stringify(data) }),
+
+    /** 手机验证码 + 选择公司后登录 */
+    phoneLoginWithTenant: (data: { phone: string; code: string; tenantId: string }) =>
+        request<PhoneLoginResponse>('/auth/phone/login-with-tenant', { method: 'POST', body: JSON.stringify(data) }),
+
+    /** 密码登录（INVITATION_CODE_IMPROVEMENT_PLAN.md §3.3） */
+    passwordLogin: (data: { phone: string; password: string }) =>
+        request<PhoneLoginResponse | TenantSelectionResponse>('/auth/login', { method: 'POST', body: JSON.stringify(data) }),
+
+    /** 密码 + 选择公司后登录 */
+    loginWithTenant: (data: { phone: string; password: string; tenantId: string }) =>
+        request<PhoneLoginResponse>('/auth/login-with-tenant', { method: 'POST', body: JSON.stringify(data) }),
+
+    /** 使用邀请码注册（INVITATION_CODE_IMPROVEMENT_PLAN.md §3.3） */
+    registerWithInvitation: (data: {
+        code: string;
+        phone: string;
+        name: string;
+        email?: string;
+        password?: string;
+        position?: string;
+    }) =>
+        request<{
+            success: boolean;
+            message: string;
+            employeeId: string;
+            name: string;
+            companyName: string;
+            departmentName: string;
+        }>('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
+
+    /** 修改密码（INVITATION_CODE_IMPROVEMENT_PLAN.md §3.3） */
+    changePassword: (data: { oldPassword: string; newPassword: string }) =>
+        request<void>('/auth/change-password', { method: 'POST', body: JSON.stringify(data) }),
 
     bindPhone: (data: { phone: string; code: string }) =>
         request<{ success: boolean }>('/auth/phone/bind', { method: 'POST', body: JSON.stringify(data) }),
@@ -118,6 +167,127 @@ export const authApi = {
 
     updateMe: (data: Partial<User>) =>
         request<User>('/auth/me', { method: 'PATCH', body: JSON.stringify(data) }),
+};
+
+/** 邀请码 API（INVITATION_CODE_IMPROVEMENT_PLAN.md §3.3） */
+export const invitationCodeApi = {
+    /** 验证邀请码（公开） */
+    validate: (code: string) =>
+        request<{
+            valid: boolean;
+            error?: string;
+            errorDescription?: string;
+            companyName?: string;
+            departmentName?: string;
+            phoneBound: boolean;
+            expiresAt?: string;
+        }>(`/invitation-codes/validate?code=${encodeURIComponent(code)}`),
+
+    /** 使用邀请码注册（公开，与 authApi.registerWithInvitation 等价） */
+    use: (data: {
+        code: string;
+        phone: string;
+        name: string;
+        email?: string;
+        password?: string;
+        position?: string;
+    }) =>
+        request<{
+            success: boolean;
+            message: string;
+            employeeId: string;
+            name: string;
+            companyName: string;
+            departmentName: string;
+        }>('/invitation-codes/use', { method: 'POST', body: JSON.stringify(data) }),
+
+    /** 创建单个邀请码（管理员） */
+    create: (data: {
+        tenantId?: string;
+        companyId?: string;
+        companyName?: string;
+        departmentCode?: string;
+        departmentName?: string;
+        role?: string;
+        accessLevel?: string;
+        phone?: string;
+        initialPassword?: string;
+        maxUses?: number;
+        expiresAt?: string;
+        note?: string;
+    }) =>
+        request<{
+            id: number;
+            code: string;
+            tenantId?: string;
+            companyId?: string;
+            companyName?: string;
+            departmentCode?: string;
+            departmentName?: string;
+            role: string;
+            accessLevel: string;
+            phone?: string;
+            maxUses: number;
+            usedCount: number;
+            status: string;
+            expiresAt?: string;
+            createdAt: string;
+            createdBy?: string;
+        }>('/invitation-codes/create', { method: 'POST', body: JSON.stringify(data) }),
+
+    /** 批量生成邀请码（管理员） */
+    batchCreate: (data: { count: number; template: Record<string, unknown> }) =>
+        request<{
+            requested: number;
+            created: number;
+            codes: Array<{
+                id: number;
+                code: string;
+                status: string;
+                expiresAt?: string;
+            }>;
+        }>('/invitation-codes/batch-create', { method: 'POST', body: JSON.stringify(data) }),
+
+    /** 列出邀请码（管理员） */
+    list: (params?: { tenantId?: string; status?: string }) => {
+        const query = new URLSearchParams();
+        if (params?.tenantId) query.set('tenant_id', params.tenantId);
+        if (params?.status) query.set('status', params.status);
+        const qs = query.toString();
+        return request<Array<{
+            id: number;
+            code: string;
+            tenantId?: string;
+            companyId?: string;
+            companyName?: string;
+            departmentCode?: string;
+            departmentName?: string;
+            role: string;
+            accessLevel: string;
+            phone?: string;
+            maxUses: number;
+            usedCount: number;
+            status: string;
+            expiresAt?: string;
+            usedAt?: string;
+            usedByEmployeeId?: string;
+            createdAt: string;
+            createdBy?: string;
+            note?: string;
+        }>>(`/invitation-codes${qs ? `?${qs}` : ''}`);
+    },
+
+    /** 删除邀请码（管理员） */
+    delete: (id: number) =>
+        request<void>(`/invitation-codes/${id}`, { method: 'DELETE' }),
+
+    /** 禁用邀请码（管理员） */
+    disable: (id: number) =>
+        request<void>(`/invitation-codes/${id}/disable`, { method: 'POST' }),
+
+    /** 清理过期邀请码（管理员） */
+    cleanup: () =>
+        request<{ cleaned_count: number; cleaned_at: string }>('/invitation-codes/cleanup', { method: 'POST' }),
 };
 
 export interface RegistrationResult {
@@ -170,7 +340,7 @@ export const systemApi = {
     status: () =>
         request<{ hasFounder: boolean; isFirstUser: boolean; isConfigured: boolean; configuredProviders: string[] }>('/system/status'),
 
-    register: (data: { name: string; email: string; phone: string; companyName?: string }) =>
+    register: (data: { name: string; email: string; phone: string; companyName?: string; password?: string }) =>
         request<RegistrationResult>('/system/register', { method: 'POST', body: JSON.stringify(data) }),
 
     config: () =>

@@ -279,12 +279,10 @@ public class SelfHealingOrchestratorImpl implements SelfHealingOrchestrator {
     }
 
     private boolean notifyClient(HealthIssue issue) {
-        // P24-C: 服务端无法主动重连WebSocket，但可以标记连接为需要重建
-        // 实际重连由客户端在收到reconnect指令后执行
-        // 此处记录需要通知，客户端重连时会自动从EventQueue获取pending events
-        log.info("[P24-C] Connection issue detected, marking for client notification: {} - {}",
+        // P24-C: 空闲连接的清理已由 ConnectionHealthCheck.check() 直接执行
+        // 此处仅记录日志，不再重复处理
+        log.info("[P24-C] Connection issue noted (auto-cleanup handled by ConnectionHealthCheck): {} - {}",
             issue.getComponentName(), issue.getDescription());
-        // 清理僵死连接，让客户端重连时创建新session
         return true;
     }
 

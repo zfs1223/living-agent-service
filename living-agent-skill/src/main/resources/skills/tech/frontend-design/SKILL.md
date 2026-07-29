@@ -1,6 +1,7 @@
 ---
 name: frontend-design
 description: "前端界面设计，创建高质量独特的界面"
+personalSafe: true
 risk: low
 source: ClawHub转换
 date_added: '2026-07-09'

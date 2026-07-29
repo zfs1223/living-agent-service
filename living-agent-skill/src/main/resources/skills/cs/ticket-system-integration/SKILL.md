@@ -3,6 +3,7 @@ name: ticket-system-integration
 description: Ticket System Integration
 risk: low
 source: internal
+personalSafe: false
 date_added: '2026-07-13'
 ---
 

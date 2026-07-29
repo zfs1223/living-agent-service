@@ -38,19 +38,25 @@ export default function WorkspaceSelector({ onWorkspaceChange, currentWorkspace 
   }, []);
 
   const loadWorkspaces = async () => {
-    // 从 preload 加载（实际应调用 window.livingAgentAPI.workspace.list()）
-    // 模拟数据
-    setWorkspaces([]);
+    try {
+      const workspaces = await window.livingAgentAPI.workspace.list();
+      setWorkspaces(workspaces);
+    } catch (e) {
+      console.error('[WorkspaceSelector] 加载工作空间列表失败:', e);
+      setError('加载工作空间列表失败');
+    }
   };
 
   // 选择目录（调用 Electron dialog）
   const selectDirectory = async () => {
     try {
-      // 实际应调用 window.livingAgentAPI.dialog.showOpenDialog({ properties: ['openDirectory'] })
-      // 模拟选择
-      setSelectedPath('C:\\Users\\User\\Projects\\my-project');
-    } catch (err) {
-      setError('无法选择目录');
+      const path = await window.livingAgentAPI.workspace.selectDirectory();
+      if (path) {
+        setSelectedPath(path);
+      }
+    } catch (err: any) {
+      console.error('[WorkspaceSelector] 选择目录失败:', err);
+      setError(err.message || '无法选择目录');
     }
   };
 
@@ -71,24 +77,17 @@ export default function WorkspaceSelector({ onWorkspaceChange, currentWorkspace 
     setError(null);
 
     try {
-      // 实际应调用 window.livingAgentAPI.workspace.authorize()
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      const newWorkspace: Workspace = {
-        id: `ws-${Date.now()}`,
+      const newWorkspace = await window.livingAgentAPI.workspace.authorize({
         path: selectedPath,
-        name: selectedPath.split(/[\\\/]/).pop() || 'workspace',
-        authorizedAt: new Date().toISOString(),
-        scope: selectedScope,
-        fileCount: 0,
-        totalSize: 0
-      };
+        scope: selectedScope
+      });
 
       setWorkspaces(prev => [...prev, newWorkspace]);
       setShowDialog(false);
       setSelectedPath('');
       onWorkspaceChange?.(newWorkspace);
     } catch (err: any) {
+      console.error('[WorkspaceSelector] 授权失败:', err);
       setError(err.message || '授权失败');
     } finally {
       setAuthorizing(false);
@@ -98,13 +97,14 @@ export default function WorkspaceSelector({ onWorkspaceChange, currentWorkspace 
   // 撤销授权
   const revokeWorkspace = async (id: string) => {
     try {
-      // 实际应调用 window.livingAgentAPI.workspace.revoke(id)
+      await window.livingAgentAPI.workspace.revoke(id);
       setWorkspaces(prev => prev.filter(w => w.id !== id));
       if (currentWorkspace?.id === id) {
         onWorkspaceChange?.(null);
       }
-    } catch (err) {
-      console.error('撤销失败:', err);
+    } catch (err: any) {
+      console.error('[WorkspaceSelector] 撤销失败:', err);
+      setError(err.message || '撤销失败');
     }
   };
 

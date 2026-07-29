@@ -1,6 +1,7 @@
 ---
 name: code-quality-analyzer
 description: "代码质量分析(fuck-u-code)，七维度质量评估"
+personalSafe: false
 risk: low
 source: internal
 date_added: '2026-07-09'

@@ -6,6 +6,8 @@ import com.livingagent.core.security.UserIdentity;
 import com.livingagent.core.security.AccessLevel;
 import com.livingagent.core.security.auth.FounderService;
 import com.livingagent.core.security.service.EnterpriseEmployeeService;
+import com.livingagent.core.database.entity.EnterpriseEmployeeEntity;
+import com.livingagent.core.database.repository.EnterpriseEmployeeRepository;
 import com.livingagent.gateway.controller.common.ApiResponse;
 import com.livingagent.gateway.service.SystemConfigService;
 import com.livingagent.gateway.service.SystemConfigService.*;
@@ -18,6 +20,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
@@ -46,6 +49,8 @@ public class SystemController {
     private final EnterpriseEmployeeService employeeService;
     private final PhoneAuthController phoneAuthController;
     private final AccessGateService accessGateService;
+    private final EnterpriseEmployeeRepository employeeRepository;
+    private final BCryptPasswordEncoder passwordEncoder;
 
     /** 是否启用 Cookie 的 Secure 标志（生产环境 true，开发环境 false） */
     @Value("${auth.cookie.secure:true}")
@@ -57,13 +62,16 @@ public class SystemController {
             UnifiedAuthService authService,
             EnterpriseEmployeeService employeeService,
             PhoneAuthController phoneAuthController,
-            AccessGateService accessGateService) {
+            AccessGateService accessGateService,
+            EnterpriseEmployeeRepository employeeRepository) {
         this.founderService = founderService;
         this.configService = configService;
         this.authService = authService;
         this.employeeService = employeeService;
         this.phoneAuthController = phoneAuthController;
         this.accessGateService = accessGateService;
+        this.employeeRepository = employeeRepository;
+        this.passwordEncoder = new BCryptPasswordEncoder();
     }
 
     @GetMapping("/status")
@@ -120,6 +128,21 @@ public class SystemController {
 
         AuthContext savedFounder = employeeService.createAuthContext(founder);
 
+        // 如果提供了密码，设置密码哈希
+        if (request.password() != null && !request.password().isBlank()) {
+            if (request.password().length() < 6) {
+                return ResponseEntity.badRequest()
+                        .body(ApiResponse.err("invalid_password", "密码长度至少 6 位"));
+            }
+            String passwordHash = passwordEncoder.encode(request.password());
+            employeeRepository.findById(savedFounder.getEmployeeId()).ifPresent(entity -> {
+                entity.setPasswordHash(passwordHash);
+                entity.setPasswordChangedAt(Instant.now());
+                employeeRepository.save(entity);
+                log.info("Set initial password for founder: {}", savedFounder.getEmployeeId());
+            });
+        }
+
         if (request.phone() != null && !request.phone().isBlank()) {
             phoneAuthController.registerEmployeePhone(savedFounder, request.phone());
         }
@@ -127,8 +150,17 @@ public class SystemController {
         founderService.markFounderRegistered();
 
         // 必须创建 tenantId (因为 companyName 已验证必填)
-        String tenantId = "tenant_" + UUID.randomUUID().toString().substring(0, 8);
-        configService.createTenantWithCompany(tenantId, request.companyName(), savedFounder.getEmployeeId());
+        // 复用 tenant_default（如果存在），更新公司名为用户输入的名称
+        String tenantId = "tenant_default";
+        if (configService.getTenant(tenantId) != null) {
+            // tenant_default 已存在（@PostConstruct 自动创建），更新公司名
+            configService.updateTenant(tenantId, request.companyName());
+            log.info("Reused default tenant and updated company name to: {}", request.companyName());
+        } else {
+            // 不存在则创建新租户
+            tenantId = "tenant_" + UUID.randomUUID().toString().substring(0, 8);
+            configService.createTenantWithCompany(tenantId, request.companyName(), savedFounder.getEmployeeId());
+        }
         configService.updateSystemConfig(new SystemConfigUpdateRequest(
             request.companyName(), null, null, null
         ));
@@ -292,7 +324,8 @@ public class SystemController {
             String name,
             String phone,
             String email,
-            String companyName
+            String companyName,
+            String password  // 董事长注册时可选设置密码
     ) {}
 
     public record RegistrationResult(

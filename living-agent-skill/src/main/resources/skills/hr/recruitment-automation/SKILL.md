@@ -3,6 +3,7 @@ name: recruitment-automation
 description: Recruitment Automation
 risk: low
 source: internal
+personalSafe: false
 date_added: '2026-07-13'
 ---
 

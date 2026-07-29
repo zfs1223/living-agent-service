@@ -17,6 +17,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
+import org.springframework.web.socket.PingMessage;
+import org.springframework.web.socket.PongMessage;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
@@ -60,7 +62,8 @@ public class AgentWebSocketHandler extends TextWebSocketHandler {
 
     private ScheduledExecutorService heartbeatScheduler;
     private static final long HEARTBEAT_INTERVAL_MS = 30_000;
-    private static final long HEARTBEAT_TIMEOUT_MS = 60_000;
+    // 企业长连接场景：5 分钟无活动才判定僵尸（原 60s 过于激进，用户阅读/思考时即被断开）
+    private static final long HEARTBEAT_TIMEOUT_MS = 300_000;
     // P3-A: 连接数限制
     private static final int MAX_AGENT_CONNECTIONS = 200;
 
@@ -139,6 +142,19 @@ public class AgentWebSocketHandler extends TextWebSocketHandler {
     
     private void checkZombieConnections() {
         Instant now = Instant.now();
+        // 服务端主动 Ping：向所有活跃连接发送协议层 Ping 帧
+        // 优势：浏览器/Electron 自动回复 Pong，无需应用层配合；产生流量穿透 NAT/防火墙
+        sessions.forEach((sessionId, session) -> {
+            if (session.isOpen()) {
+                try {
+                    session.sendMessage(new PingMessage());
+                } catch (IOException e) {
+                    log.debug("Failed to send ping to session {}: {}", sessionId, e.getMessage());
+                }
+            }
+        });
+
+        // 僵尸检测：超过 HEARTBEAT_TIMEOUT_MS 无任何消息（含 Pong）才关闭
         sessionLastActive.forEach((sessionId, lastActive) -> {
             if (now.toEpochMilli() - lastActive.toEpochMilli() > HEARTBEAT_TIMEOUT_MS) {
                 WebSocketSession session = sessions.get(sessionId);
@@ -161,6 +177,12 @@ public class AgentWebSocketHandler extends TextWebSocketHandler {
                 sessionDepartment.remove(sessionId);
             }
         });
+    }
+
+    @Override
+    protected void handlePongMessage(WebSocketSession session, PongMessage pongMessage) {
+        // 收到协议层 Pong 响应，更新活跃时间（服务端主动 Ping 的回复）
+        sessionLastActive.put(session.getId(), Instant.now());
     }
     
     @Override
@@ -316,6 +338,12 @@ public class AgentWebSocketHandler extends TextWebSocketHandler {
             // 处理 Windows 自动化响应（桌面端执行完操作后回传结果）
             if ("win_automation_response".equalsIgnoreCase(type)) {
                 handleWinAutomationResponse(request);
+                return;
+            }
+
+            // 处理技能执行响应（桌面端执行完个人助手技能后回传结果）
+            if ("skill_execute_response".equalsIgnoreCase(type)) {
+                handleSkillExecuteResponse(request);
                 return;
             }
 
@@ -495,7 +523,39 @@ public class AgentWebSocketHandler extends TextWebSocketHandler {
 
         winAutomationGateway.handleResponse(requestId, success, result, error);
     }
-    
+
+    /**
+     * 处理来自桌面端的技能执行响应
+     * 个人助手技能采用"大脑在服务器、双手在桌面"双层架构——桌面端执行完技能后回传结果
+     * 消息格式：{"type":"skill_execute_response","data":{"id":<long>,"success":<bool>,"result":<any>,"error":<string>}}
+     *
+     * 技能执行响应与 win_automation 共用同一个 Gateway 的 handleResponse，
+     * 因为 requestId 在全局唯一（共用 AtomicLong 计数器），不会冲突。
+     */
+    @SuppressWarnings("unchecked")
+    private void handleSkillExecuteResponse(Map<String, Object> request) {
+        Object dataObj = request.get("data");
+        if (!(dataObj instanceof Map)) {
+            log.warn("Invalid skill_execute_response: missing data");
+            return;
+        }
+
+        Map<String, Object> data = (Map<String, Object>) dataObj;
+        Object idObj = data.get("id");
+        if (idObj == null) {
+            log.warn("Invalid skill_execute_response: missing id");
+            return;
+        }
+
+        long requestId = ((Number) idObj).longValue();
+        boolean success = Boolean.TRUE.equals(data.get("success"));
+        Object result = data.get("result");
+        String error = (String) data.get("error");
+
+        winAutomationGateway.handleResponse(requestId, success, result, error);
+        log.debug("SkillExecute response processed: requestId={}, success={}", requestId, success);
+    }
+
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) throws Exception {
         String sessionId = session.getId();

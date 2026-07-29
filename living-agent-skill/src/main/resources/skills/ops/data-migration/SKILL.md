@@ -3,6 +3,7 @@ name: data-migration
 description: Data Migration
 risk: low
 source: internal
+personalSafe: false
 date_added: '2026-07-13'
 ---
 

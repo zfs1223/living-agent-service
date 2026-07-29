@@ -1489,6 +1489,8 @@
     "companyName": "公司名称",
     "optional": "可选",
     "enterCompanyName": "请输入公司名称",
+    "password": "密码",
+    "enterPassword": "请输入密码（至少6位，可选）",
     "register": "注册",
     "registrationFailed": "注册失败",
     "switchLang": "EN",

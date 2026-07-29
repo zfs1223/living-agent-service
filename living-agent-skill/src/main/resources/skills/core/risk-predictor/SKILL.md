@@ -4,6 +4,7 @@ description: Risk Predictor - 风险预警预判器技能
 risk: low
 source: internal
 date_added: '2026-07-13'
+personalSafe: false
 ---
 
 # Risk Predictor - 风险预警预判器技能

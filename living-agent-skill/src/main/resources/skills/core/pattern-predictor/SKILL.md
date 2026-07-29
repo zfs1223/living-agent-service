@@ -4,6 +4,7 @@ description: Pattern Predictor - 用户行为模式预测器技能
 risk: low
 source: internal
 date_added: '2026-07-13'
+personalSafe: false
 ---
 
 # Pattern Predictor - 用户行为模式预测器技能

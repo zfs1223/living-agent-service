@@ -4,6 +4,7 @@ description: "Comprehensive document creation, editing, and analysis with suppor
 risk: unknown
 source: community
 date_added: "2026-02-27"
+personalSafe: true
 ---
 
 # DOCX creation, editing, and analysis

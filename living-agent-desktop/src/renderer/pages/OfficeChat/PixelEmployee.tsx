@@ -279,7 +279,7 @@ function PixelCanvas({ pattern, pose }: { pattern: string[][]; pose: 'stand' | '
   );
 }
 
-export type EmployeeOrigin = 'fixed' | 'personal' | 'human';
+export type EmployeeOrigin = 'fixed' | 'personal' | 'human' | 'evolved';
 
 export interface PixelEmployeeProps {
   id: string;

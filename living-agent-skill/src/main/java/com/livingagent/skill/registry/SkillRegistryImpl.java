@@ -25,10 +25,10 @@ public class SkillRegistryImpl implements SkillRegistry {
     
     @Value("${skill.built-in.path:classpath:skills}")
     private String builtInPath;
-    
-    @Value("${skill.config.path:./config/skills}")
+
+    @Value("${skill.config.path:}")
     private String configPath;
-    
+
     @Value("${skill.data.path:./data/skills}")
     private String dataPath;
 
@@ -47,6 +47,16 @@ public class SkillRegistryImpl implements SkillRegistry {
     @PostConstruct
     public void init() {
         log.info("Initializing SkillRegistry...");
+        // 如果 configPath 未配置，从环境变量获取（Docker 环境中 LIVING_AGENT_SKILLS_PATH=/app/skills）
+        if (configPath == null || configPath.isBlank()) {
+            String envPath = System.getenv("LIVING_AGENT_SKILLS_PATH");
+            if (envPath != null && !envPath.isBlank()) {
+                configPath = envPath;
+                log.info("Using LIVING_AGENT_SKILLS_PATH: {}", configPath);
+            } else {
+                configPath = "./config/skills";
+            }
+        }
         loadBuiltInSkills();
         loadConfigSkills();
         loadDataSkills();
@@ -200,6 +210,32 @@ public class SkillRegistryImpl implements SkillRegistry {
                     }
 
                     return true;
+                })
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<Skill> getPersonalAssistantVisibleSkills(String userId) {
+        // 技能作用域与信任边界设计 §5.3：
+        // 个人助手视图只展示 scope=personal && ownerId=用户 的技能，
+        // 以及 personalSafe=true 的 global 技能
+        return skillsByName.values().stream()
+                .filter(skill -> {
+                    String scope = skill.getScope();
+                    String owner = skill.getOwnerId();
+
+                    // personal 技能仅自己可见
+                    if ("personal".equals(scope)) {
+                        return userId != null && userId.equals(owner);
+                    }
+
+                    // global 技能只有 personalSafe=true 才对个人助手可见
+                    if ("global".equals(scope)) {
+                        return skill.isPersonalSafe();
+                    }
+
+                    // 其他作用域（evolved/department/private）不对个人助手开放
+                    return false;
                 })
                 .collect(Collectors.toList());
     }

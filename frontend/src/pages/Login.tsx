@@ -3,10 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../stores';
 import { authApi, systemApi, voicePrintExtendedApi, wsApi } from '../services/api';
+import type { TenantOption, TenantSelectionResponse, PhoneLoginResponse } from '../services/api';
 import MarkdownRenderer from '../components/MarkdownRenderer';
 import type { User, UserIdentity, AccessLevel } from '../types';
 
-type LoginTab = 'phone' | 'voiceprint';
+type LoginTab = 'phone' | 'password' | 'voiceprint';
 
 interface ChatMessage {
     role: 'user' | 'assistant' | 'system';
@@ -47,7 +48,11 @@ export default function Login() {
     const [activeTab, setActiveTab] = useState<LoginTab>('phone');
     const isChinese = i18n.language?.startsWith('zh');
 
-    const [form, setForm] = useState({ phone: '', code: '' });
+    const [form, setForm] = useState({ phone: '', code: '', password: '' });
+
+    // 多公司选择状态
+    const [tenantSelection, setTenantSelection] = useState<TenantSelectionResponse | null>(null);
+    const [pendingLoginData, setPendingLoginData] = useState<{ phone: string; code: string; password: string } | null>(null);
 
     // Voiceprint login — press-to-talk
     const [vpRecording, setVpRecording] = useState(false);
@@ -209,9 +214,73 @@ export default function Login() {
     };
     const handlePhoneSubmit = async (e: React.FormEvent) => {
         e.preventDefault(); setError(''); setLoading(true);
-        try { const res = await authApi.phoneLogin({ phone: form.phone, code: form.code }); setAuth(buildUser(res), res.accessToken); navigate('/'); }
+        try {
+            const res = await authApi.phoneLogin({ phone: form.phone, code: form.code });
+            // 检查是否需要选择公司
+            if ('status' in res && res.status === 'tenant_required') {
+                setTenantSelection(res as TenantSelectionResponse);
+                setPendingLoginData({ phone: form.phone, code: form.code, password: '' });
+                setLoading(false);
+                return;
+            }
+            setAuth(buildUser(res as PhoneLoginResponse), (res as PhoneLoginResponse).accessToken); navigate('/');
+        }
         catch (err: any) { const msg = err.message || ''; if (msg.includes('invalid') || msg.includes('incorrect')) setError(t('phoneLogin.invalidOrExpiredCode')); else if (msg.includes('not found')) setError(t('phoneLogin.userNotFoundRegister')); else setError(msg || t('phoneLogin.loginFailed')); }
         finally { setLoading(false); }
+    };
+
+    // 密码登录（INVITATION_CODE_IMPROVEMENT_PLAN.md §3.3）
+    const handlePasswordSubmit = async (e: React.FormEvent) => {
+        e.preventDefault(); setError(''); setLoading(true);
+        try {
+            const res = await authApi.passwordLogin({ phone: form.phone, password: form.password });
+            // 检查是否需要选择公司
+            if ('status' in res && res.status === 'tenant_required') {
+                setTenantSelection(res as TenantSelectionResponse);
+                setPendingLoginData({ phone: form.phone, code: '', password: form.password });
+                setLoading(false);
+                return;
+            }
+            setAuth(buildUser(res as PhoneLoginResponse), (res as PhoneLoginResponse).accessToken); navigate('/');
+        } catch (err: any) {
+            const msg = err.message || '';
+            if (msg.includes('invalid_credentials')) setError(isChinese ? '手机号或密码错误' : 'Invalid phone or password');
+            else if (msg.includes('employee_inactive')) setError(isChinese ? '账号已停用，请联系管理员' : 'Account inactive, contact admin');
+            else if (msg.includes('employee_not_found')) setError(isChinese ? '员工记录不存在' : 'Employee record not found');
+            else setError(msg || (isChinese ? '登录失败' : 'Login failed'));
+        }
+        finally { setLoading(false); }
+    };
+
+    // 多公司选择
+    const handleTenantSelect = async (tenant: TenantOption) => {
+        setError(''); setLoading(true);
+        try {
+            let res: PhoneLoginResponse;
+            if (pendingLoginData?.password) {
+                // 密码登录
+                res = await authApi.loginWithTenant({
+                    phone: pendingLoginData.phone,
+                    password: pendingLoginData.password,
+                    tenantId: tenant.tenantId
+                });
+            } else {
+                // 手机验证码登录
+                res = await authApi.phoneLoginWithTenant({
+                    phone: pendingLoginData!.phone,
+                    code: pendingLoginData!.code,
+                    tenantId: tenant.tenantId
+                });
+            }
+            setAuth(buildUser(res), res.accessToken);
+            navigate('/');
+        } catch (err: any) {
+            setError(err.message || (isChinese ? '登录失败' : 'Login failed'));
+        } finally {
+            setLoading(false);
+            setTenantSelection(null);
+            setPendingLoginData(null);
+        }
     };
 
     // ── Voiceprint: press-to-talk instant login ──
@@ -357,8 +426,55 @@ export default function Login() {
 
             {/* Drawer panel */}
             <div className={`login-drawer ${drawerOpen ? 'login-drawer--open' : ''}`}>
-                <button className="login-drawer-close" onClick={() => setDrawerOpen(false)}>✕</button>
+                <button className="login-drawer-close" onClick={() => { setDrawerOpen(false); setTenantSelection(null); setPendingLoginData(null); }}>✕</button>
                 <div className="login-drawer-inner">
+                    {/* 多公司选择面板 */}
+                    {tenantSelection ? (
+                        <div style={{ animation: 'drawerTabFadeIn 0.25s ease' }}>
+                            <div className="login-form-header">
+                                <div className="login-form-logo">
+                                    <img src="/logo-black.png" className="login-logo-img" alt="" style={{ width: 28, height: 28, marginRight: 8, verticalAlign: 'middle' }} />
+                                    Living Agent
+                                </div>
+                                <h2 className="login-form-title">{isChinese ? '选择公司' : 'Select Company'}</h2>
+                                <p className="login-form-subtitle">{isChinese ? '该手机号关联了多个公司，请选择要登录的公司' : 'This phone is associated with multiple companies. Please select one.'}</p>
+                            </div>
+                            {error && <div className="login-error"><span>⚠</span> {error}</div>}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
+                                {tenantSelection.tenants.map((t) => (
+                                    <button
+                                        key={t.tenantId}
+                                        onClick={() => handleTenantSelect(t)}
+                                        disabled={loading}
+                                        style={{
+                                            display: 'flex', alignItems: 'center', gap: 14, padding: '16px 18px',
+                                            background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
+                                            borderRadius: 12, cursor: loading ? 'default' : 'pointer',
+                                            transition: 'all 0.15s ease', textAlign: 'left', width: '100%',
+                                        }}
+                                        onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
+                                        onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'; }}
+                                    >
+                                        <div style={{ width: 40, height: 40, borderRadius: 10, background: 'linear-gradient(135deg, rgba(139,92,246,0.2), rgba(59,130,246,0.2))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>
+                                            🏢
+                                        </div>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)', marginBottom: 2 }}>{t.departmentName}</div>
+                                            <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
+                                                {t.employeeName}{t.founder ? ` · ${isChinese ? '董事长' : 'Founder'}` : ''}
+                                            </div>
+                                        </div>
+                                        <span style={{ color: 'var(--text-tertiary)', fontSize: 18 }}>→</span>
+                                    </button>
+                                ))}
+                            </div>
+                            <button onClick={() => { setTenantSelection(null); setPendingLoginData(null); setError(''); }}
+                                style={{ marginTop: 16, width: '100%', padding: '10px 0', background: 'none', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13 }}>
+                                {isChinese ? '← 返回登录' : '← Back to Login'}
+                            </button>
+                        </div>
+                    ) : (
+                    <>
                     <div className="login-form-header">
                         <div className="login-form-logo">
                             <img src="/logo-black.png" className="login-logo-img" alt="" style={{ width: 28, height: 28, marginRight: 8, verticalAlign: 'middle' }} />
@@ -371,6 +487,9 @@ export default function Login() {
                     <div className="login-drawer-tabs">
                         <button className={`login-drawer-tab ${activeTab === 'phone' ? 'login-drawer-tab--active' : ''}`} onClick={() => { setActiveTab('phone'); setError(''); setVpError(''); }}>
                             <span className="login-drawer-tab-icon">📱</span>{t('phoneLogin.tabPhone')}
+                        </button>
+                        <button className={`login-drawer-tab ${activeTab === 'password' ? 'login-drawer-tab--active' : ''}`} onClick={() => { setActiveTab('password'); setError(''); setVpError(''); }}>
+                            <span className="login-drawer-tab-icon">🔑</span>{isChinese ? '密码登录' : 'Password'}
                         </button>
                         <button className={`login-drawer-tab ${activeTab === 'voiceprint' ? 'login-drawer-tab--active' : ''}`} onClick={() => { setActiveTab('voiceprint'); setError(''); setVpError(''); }}>
                             <span className="login-drawer-tab-icon">🎙️</span>{t('phoneLogin.tabVoiceprint')}
@@ -396,6 +515,27 @@ export default function Login() {
                                     </div>
                                 </div>
                                 <button className="login-submit" type="submit" disabled={loading}>{loading ? <span className="login-spinner" /> : <>{t('phoneLogin.login')}<span style={{ marginLeft: 6 }}>→</span></>}</button>
+                        </form>
+                        </div>
+                    )}
+
+                    {/* Password login (INVITATION_CODE_IMPROVEMENT_PLAN.md §3.3) */}
+                    {activeTab === 'password' && (
+                        <div className="login-drawer-form" style={{ animation: 'drawerTabFadeIn 0.25s ease' }}>
+                            {error && <div className="login-error"><span>⚠</span> {error}</div>}
+                            <form onSubmit={handlePasswordSubmit} className="login-form">
+                                <div className="login-field">
+                                    <label>{t('phoneLogin.phoneNumber')}</label>
+                                    <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} required autoFocus placeholder={t('phoneLogin.enterPhoneNumber')} />
+                                </div>
+                                <div className="login-field">
+                                    <label>{isChinese ? '密码' : 'Password'}</label>
+                                    <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required placeholder={isChinese ? '请输入密码（至少 6 位）' : 'Enter password (min 6 chars)'} minLength={6} />
+                                </div>
+                                <button className="login-submit" type="submit" disabled={loading}>{loading ? <span className="login-spinner" /> : <>{isChinese ? '登录' : 'Login'}<span style={{ marginLeft: 6 }}>→</span></>}</button>
+                                <p style={{ fontSize: 12, color: 'var(--text-tertiary)', textAlign: 'center', margin: '12px 0 0', lineHeight: 1.6 }}>
+                                    {isChinese ? '密码登录适用于离线环境；首次使用请通过邀请码注册或联系管理员设置密码' : 'Password login works offline; register via invitation code or contact admin to set password'}
+                                </p>
                             </form>
                         </div>
                     )}
@@ -436,6 +576,8 @@ export default function Login() {
                             </button>
                         </div>
                     )}
+                    </>
+                    )}
                 </div>
             </div>
         </div>
@@ -446,7 +588,7 @@ function RegisterPage({ isChinese, toggleLang }: { isChinese: boolean; toggleLan
     const { t } = useTranslation();
     const navigate = useNavigate();
     const setAuth = useAuthStore((s) => s.setAuth);
-    const [form, setForm] = useState({ name: '', email: '', phone: '', companyName: '' });
+    const [form, setForm] = useState({ name: '', email: '', phone: '', companyName: '', password: '' });
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const langLabel = isChinese ? '中文' : 'EN';
@@ -473,7 +615,8 @@ function RegisterPage({ isChinese, toggleLang }: { isChinese: boolean; toggleLan
                         <div className="login-field"><label>{t('registerFounder.name')}</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required autoFocus placeholder={t('registerFounder.enterName')} /></div>
                         <div className="login-field"><label>{t('registerFounder.email')}</label><input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required placeholder={t('registerFounder.enterEmail')} /></div>
                         <div className="login-field"><label>{t('registerFounder.phone')}</label><input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} required placeholder={t('phoneLogin.enterPhoneNumber')} /></div>
-                        <div className="login-field"><label>{t('registerFounder.companyName')} ({t('registerFounder.optional')})</label><input value={form.companyName} onChange={(e) => setForm({ ...form, companyName: e.target.value })} placeholder={t('registerFounder.enterCompanyName')} /></div>
+                        <div className="login-field"><label>{t('registerFounder.companyName')}</label><input value={form.companyName} onChange={(e) => setForm({ ...form, companyName: e.target.value })} required placeholder={t('registerFounder.enterCompanyName')} /></div>
+                        <div className="login-field"><label>{t('registerFounder.password')}</label><input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder={t('registerFounder.enterPassword')} minLength={6} /></div>
                         <button className="login-submit" type="submit" disabled={loading}>{loading ? <span className="login-spinner" /> : <>{t('registerFounder.register')}<span style={{ marginLeft: 6 }}>→</span></>}</button>
                     </form>
                 </div>

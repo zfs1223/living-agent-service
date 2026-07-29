@@ -1,6 +1,7 @@
 ---
 name: cicd-pipeline
 description: "CI/CD流水线，自动化构建测试部署"
+personalSafe: false
 risk: medium
 source: ClawHub转换
 date_added: '2026-07-09'
